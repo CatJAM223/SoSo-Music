@@ -1,0 +1,12 @@
+All fonts are bundled locally for offline desktop use.
+
+Poppins (weights 400–900, Latin/Devanagari): https://github.com/google/fonts/tree/main/ofl/poppins
+License: Poppins-OFL.txt. Poppins has no Cyrillic; Roboto is the fallback for Russian text.
+
+Roboto (variable, Latin/Cyrillic): https://github.com/google/fonts/tree/main/ofl/roboto
+License: Roboto-OFL.txt.
+
+JetBrains Mono (variable, weights 100–800, Latin/Cyrillic): https://github.com/google/fonts/tree/main/ofl/jetbrainsmono
+License: JetBrainsMono-OFL.txt. Used for timers and numeric indicators.
+
+Relative URLs in fonts.css support packaged Electron and local UI tests.

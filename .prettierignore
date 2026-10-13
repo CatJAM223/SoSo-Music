@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-electron/
+release/
+build/
+scratch/
+logs/
+public/
+package-lock.json
+native/**/target/

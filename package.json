@@ -1,0 +1,134 @@
+{
+  "name": "soso-music",
+  "productName": "SoSo Music",
+  "version": "3.0.5",
+  "description": "Desktop Music Player with SoundCloud, YouTube Music and SQLite",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "make-ico": "powershell -ExecutionPolicy Bypass -File scripts/desktop/make-ico.ps1",
+    "inject-icon": "node scripts/desktop/inject-exe-icon.js",
+    "build": "powershell -ExecutionPolicy Bypass -File scripts/desktop/make-ico.ps1 && tsc && vite build && electron-builder --dir && node scripts/desktop/inject-exe-icon.js",
+    "build:renderer": "tsc && vite build",
+    "lint": "tsc --noEmit",
+    "test": "node --experimental-strip-types tests/runAllTests.mjs",
+    "package:zip": "node scripts/release/packageDesktop.cjs",
+    "test:desktop-ui": "node scripts/testing/testDesktopUi.mjs",
+    "test:all": "node scripts/testing/runAllChecks.mjs",
+    "test:youtube-login": "node scripts/testing/testYouTubeLogin.mjs",
+    "release:check": "node scripts/release/checkRelease.cjs",
+    "release:version": "npm version --no-git-tag-version",
+    "architecture:check": "node scripts/architecture/checkBoundaries.cjs",
+    "test:player-state": "node scripts/testing/testPlayerState.mjs",
+    "test:audio-transitions": "node scripts/testing/testAudioTransitions.mjs",
+    "test:ui-interactions": "node scripts/testing/testUiInteractions.mjs",
+    "test:ui-performance": "node scripts/testing/testUiResponsiveness.mjs",
+    "build:compute": "node scripts/native/buildComputeCore.mjs",
+    "predev": "npm run build:compute",
+    "prebuild": "npm run build:compute",
+    "prebuild:renderer": "npm run build:compute",
+    "pretest": "npm run build:compute",
+    "pretest:all": "npm run build:compute",
+    "test:rust": "npm run build:compute && node --experimental-strip-types --test tests/rustCompute.test.mjs && node scripts/testing/testRustComputeBrowser.mjs",
+    "bench:wave": "npm run build:compute && node --experimental-strip-types scripts/testing/benchmarkWaveCompute.mjs",
+    "test:sensitivity": "node scripts/testing/testTestSensitivity.mjs",
+    "test:settings-lifecycle": "node scripts/testing/testSettingsLifecycle.mjs",
+    "format": "prettier --write src scripts tests *.json *.js *.ts",
+    "format:check": "prettier --check src scripts tests *.json *.js *.ts"
+  },
+  "build": {
+    "appId": "com.sosomusic.app",
+    "productName": "SoSo Music",
+    "executableName": "SoSo Music",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "public/**/*",
+      "icon/**/*",
+      "node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "win": {
+      "icon": "icon/icon.ico",
+      "executableName": "SoSo Music",
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "protocols": [
+      {
+        "name": "SoSo Music",
+        "schemes": [
+          "sosomusic"
+        ]
+      }
+    ],
+    "extraFiles": [
+      {
+        "from": "LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "USAGE_NOTICE.txt",
+        "to": "USAGE_NOTICE.txt"
+      }
+    ]
+  },
+  "keywords": [
+    "music",
+    "player",
+    "electron",
+    "react",
+    "soundcloud",
+    "youtube",
+    "sqlite"
+  ],
+  "author": "CatJAM223",
+  "license": "MIT",
+  "dependencies": {
+    "hls.js": "^1.7.1",
+    "lucide-react": "^1.16.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sql.js": "^1.12.0",
+    "youtubei.js": "18.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/sql.js": "^1.4.9",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "0.21.5",
+    "jsqr": "^1.4.0",
+    "postcss": "^8.4.49",
+    "prettier": "3.9.10",
+    "resedit": "^1.7.2",
+    "tailwindcss": "^3.4.15",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CatJAM223/SoSo-Music.git"
+  }
+}

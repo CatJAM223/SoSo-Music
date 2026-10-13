@@ -1,0 +1,187 @@
+.soso-connection-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(14px);
+  animation: sosoFadeScale 0.24s ease-out;
+}
+.soso-connection-dialog {
+  position: relative;
+  width: 440px;
+  max-width: 100%;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 28px;
+  padding: 30px;
+  text-align: center;
+  color: var(--text-primary);
+  background:
+    radial-gradient(ellipse at 50% 0, rgba(var(--theme-accent-rgb), 0.09), transparent 65%),
+    var(--bg-card);
+  box-shadow: 0 24px 100px rgba(0, 0, 0, 0.35);
+}
+.soso-connection-brand {
+  display: block;
+  margin-bottom: 22px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.soso-connection-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 8px;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: transparent;
+}
+.soso-connection-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}
+.soso-connection-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 20px;
+  border-radius: 22px;
+  color: var(--theme-accent);
+  background: rgba(var(--theme-accent-rgb), 0.12);
+}
+.soso-connection-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 25px;
+  font-weight: 750;
+  letter-spacing: -0.6px;
+}
+.soso-connection-dialog p {
+  color: var(--text-secondary);
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.soso-connection-counts {
+  margin: 24px 0 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 9px 16px;
+}
+.soso-connection-counts > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 8px 0;
+  font-size: 14px;
+}
+.soso-connection-counts span {
+  color: var(--text-secondary);
+}
+.soso-connection-counts strong {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.soso-connection-dialog .soso-connection-note {
+  font-size: 13px;
+}
+.soso-connection-device {
+  display: block;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.75;
+}
+.soso-connection-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 26px;
+}
+.soso-connection-actions button {
+  flex: 1;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-radius: 14px;
+  padding: 13px 16px;
+  font-size: 14px;
+  font-weight: 650;
+  transition: filter 0.15s;
+}
+.soso-connection-actions .soso-connection-primary {
+  background: var(--theme-accent);
+  border-color: var(--theme-accent);
+  color: #101010;
+}
+.soso-connection-actions button:hover {
+  filter: brightness(1.1);
+}
+.soso-connection-dialog button:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 4px;
+}
+.soso-connection-dialog button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.soso-connection-dialog .soso-connection-error {
+  color: #f87171;
+  margin-top: 12px;
+}
+.soso-connection-check {
+  display: block;
+  width: 84px;
+  height: 84px;
+  margin: 0 auto 20px;
+  overflow: visible;
+  color: var(--theme-accent);
+}
+.soso-connection-check path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-origin: 32px 32px;
+  animation: soso-connected-morph 1.3s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@keyframes soso-connected-morph {
+  0% {
+    d: path(
+      'M 32 10 C 44 10 54 20 54 32 C 54 44 44 54 32 54 C 20 54 10 44 10 32 C 10 20 20 10 32 10'
+    );
+    stroke-dasharray: 140;
+    stroke-dashoffset: 140;
+    transform: rotate(-90deg);
+  }
+  45% {
+    d: path(
+      'M 32 10 C 44 10 54 20 54 32 C 54 44 44 54 32 54 C 20 54 10 44 10 32 C 10 20 20 10 32 10'
+    );
+    stroke-dasharray: 140;
+    stroke-dashoffset: 0;
+    transform: rotate(0);
+  }
+  100% {
+    d: path(
+      'M 15 33 C 18 36 22 40 25 43 C 27 45 27 45 29 42 C 34 36 39 29 44 23 C 46 21 48 19 50 17'
+    );
+    stroke-dasharray: 140;
+    stroke-dashoffset: 0;
+    transform: rotate(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .soso-connection-check path {
+    animation: none;
+  }
+}

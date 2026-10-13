@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'native/**'
+      - 'public/**'
+      - 'icon/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '*.json'
+      - '*.js'
+      - '*.ts'
+      - 'index.html'
+      - '.prettierignore'
+      - '.gitattributes'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'native/**'
+      - 'public/**'
+      - 'icon/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '*.json'
+      - '*.js'
+      - '*.ts'
+      - 'index.html'
+      - '.prettierignore'
+      - '.gitattributes'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Prepare Rust target
+        run: rustup target add wasm32-unknown-unknown
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run architecture:check
+      - run: npm run release:check
+      - run: npm test

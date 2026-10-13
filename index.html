@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; media-src 'self' blob: https: media:; img-src 'self' data: https: blob: media:; frame-src 'self' https:; connect-src 'self' https: data: blob: ws: wss:; worker-src 'self' blob:; object-src 'none';" />
+    <meta name="theme-color" content="#121212" />
+    <title>SoSo Music</title>
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <!-- DNS prefetch & preconnect for audio & artwork CDNs -->
+    <link rel="dns-prefetch" href="https://api-v2.soundcloud.com">
+    <link rel="dns-prefetch" href="https://cf-media.sndcdn.com">
+    <link rel="dns-prefetch" href="https://i1.sndcdn.com">
+    <link rel="dns-prefetch" href="https://i.ytimg.com">
+    <link rel="dns-prefetch" href="https://lrclib.net">
+    <link rel="preconnect" href="https://i1.sndcdn.com" crossorigin>
+    <link rel="preconnect" href="https://i.ytimg.com" crossorigin>
+    <link href="/fonts/fonts.css" rel="stylesheet">
+    <script>
+      try {
+        const savedTheme = localStorage.getItem('soso_theme') || 'dark';
+        if (savedTheme === 'dark') {
+          document.documentElement.classList.add('dark');
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body class="font-sans antialiased overflow-hidden select-none bg-[#f8fafc] dark:bg-[#121212] text-slate-900 dark:text-slate-100">
+    <div id="root">
+      <div id="app-preloader" style="position:fixed;inset:0;background:#121212;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,-apple-system,sans-serif;">
+        <div style="position:relative;width:96px;height:96px;display:flex;align-items:center;justify-content:center;">
+          <div style="position:absolute;inset:0;border-radius:50%;background:rgba(29,185,84,0.18);filter:blur(18px);animation:pulseGlow 2s infinite ease-in-out;"></div>
+          <img src="/icon.png" alt="SoSo Music" style="width:72px;height:72px;object-fit:contain;border-radius:18px;filter:contrast(115%);animation:pulseLogo 2s infinite ease-in-out;" />
+        </div>
+        <p style="margin-top:16px;font-size:12px;font-weight:700;letter-spacing:0.08em;color:#71717a;text-transform:uppercase;">SoSo Music</p>
+      </div>
+      <style>
+        @keyframes pulseGlow { 0%, 100% { opacity: 0.3; transform: scale(0.9); } 50% { opacity: 0.9; transform: scale(1.2); } }
+        @keyframes pulseLogo { 0%, 100% { transform: scale(0.96); opacity: 0.7; } 50% { transform: scale(1.04); opacity: 1; } }
+      </style>
+    </div>
+    <script type="module" src="/src/renderer/main.tsx"></script>
+  </body>
+</html>

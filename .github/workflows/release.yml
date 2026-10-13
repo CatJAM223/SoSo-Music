@@ -1,0 +1,60 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Validate version tag
+        shell: pwsh
+        run: |
+          $releaseVersion = node -p "require('./package.json').version"
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$releaseVersion") {
+            throw 'The tag must match the version in package.json.'
+          }
+      - name: Prepare Rust target
+        run: rustup target add wasm32-unknown-unknown
+      - run: npm ci
+      - run: npm run release:check
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run package:zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SoSo-Music-windows-x64
+          path: |
+            release/*.zip
+            release/*.zip.sha256
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseAssets = @(Get-ChildItem -Path release/*.zip,release/*.zip.sha256 -File | ForEach-Object { $_.FullName })
+          gh release create $env:GITHUB_REF_NAME @releaseAssets --verify-tag --generate-notes --title "SoSo Music $env:GITHUB_REF_NAME"

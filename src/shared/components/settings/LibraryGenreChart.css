@@ -1,0 +1,134 @@
+.library-genre-chart {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  align-items: center;
+  gap: 24px 36px;
+  margin: 22px 0 8px;
+}
+.library-genre-circle {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+}
+.library-genre-circle svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.library-genre-sector {
+  stroke: var(--settings-bg);
+  stroke-width: 2;
+  transition: opacity 120ms ease;
+}
+.library-genre-sector[data-active='false'] {
+  opacity: 0.35;
+}
+.library-genre-circle text {
+  fill: #17191c;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  pointer-events: none;
+}
+.library-genre-center {
+  position: absolute;
+  inset: 27%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+.library-genre-center > span,
+.library-genre-tooltip > span {
+  color: var(--settings-muted);
+  font-size: 13px;
+}
+.library-genre-center > strong {
+  color: var(--settings-text);
+  font-size: 32px;
+}
+.library-genre-tooltip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+}
+.library-genre-tooltip > span {
+  text-transform: capitalize;
+  overflow-wrap: anywhere;
+}
+.library-genre-tooltip > strong {
+  color: var(--settings-text);
+  font-size: clamp(14px, 1.7vw, 20px);
+  white-space: nowrap;
+}
+.library-taste-genres {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+}
+.library-taste-genres li {
+  min-width: 0;
+}
+.library-taste-genres button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  color: var(--settings-text);
+  border-radius: 7px;
+  text-align: left;
+  font-size: 13px;
+}
+.library-taste-genres button:hover,
+.library-taste-genres button[data-active='true'] {
+  background: var(--settings-hover);
+}
+.library-taste-genres button:focus-visible {
+  outline: 2px solid var(--settings-accent);
+  outline-offset: 2px;
+}
+.library-genre-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.library-genre-name {
+  flex: 1;
+  min-width: 0;
+  text-transform: capitalize;
+  overflow-wrap: anywhere;
+}
+.library-taste-genres button > strong {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+@media (max-width: 850px) {
+  .library-genre-chart {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+}
+@media (max-width: 440px) {
+  .library-taste-genres {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .library-genre-tooltip > strong {
+    font-size: 18px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-genre-sector {
+    transition: none;
+  }
+}

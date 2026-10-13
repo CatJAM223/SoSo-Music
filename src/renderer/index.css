@@ -1,0 +1,1294 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Soft, comfortable light theme (not blinding white) */
+    --bg-app: #f1f5f9;
+    --bg-sidebar: #f8fafc;
+    --bg-card: #ffffff;
+    --bg-card-hover: #e2e8f0;
+    --bg-player: #ffffff;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --border-color: #e2e8f0;
+    --theme-accent: #22c55e;
+    --theme-accent-rgb: 34, 197, 94;
+  }
+
+  html.dark {
+    /* Rich, dark theme */
+    --bg-app: #121212;
+    --bg-sidebar: #09090b;
+    --bg-card: #181818;
+    --bg-card-hover: #222225;
+    --bg-player: #0c0c0e;
+    --text-primary: #ffffff;
+    --text-secondary: #a1a1aa;
+    --border-color: #27272a;
+    --theme-accent: #22c55e;
+    --theme-accent-rgb: 34, 197, 94;
+  }
+
+  body {
+    @apply select-none m-0 p-0;
+    overflow-x: hidden;
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior-y: contain;
+    transition:
+      background-color 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      color 0.25s ease;
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Clear fixed-width numerals for timers, counts, and other numeric UI. */
+.tabular-nums,
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  font-variant-numeric: tabular-nums lining-nums;
+  -moz-font-feature-settings:
+    'tnum' 1,
+    'lnum' 1;
+  -webkit-font-feature-settings:
+    'tnum' 1,
+    'lnum' 1;
+  font-feature-settings:
+    'tnum' 1,
+    'lnum' 1;
+}
+
+.will-change-transform {
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
+
+/* Fluid UI Transitions (Gentle Scale & Fade) */
+.view-enter,
+.soso-fade-scale {
+  animation: sosoFadeScale 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform;
+}
+
+@keyframes sosoFadeScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.988);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Heart Like Pop Animation */
+@keyframes heartPop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.38);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.heart-pop {
+  animation: heartPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Broken Heart Splitting Animation */
+@keyframes heartBreakLeft {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  20% {
+    transform: translate(-2px, -3px) rotate(-12deg) scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-14px, 28px) rotate(-38deg) scale(0.65);
+    opacity: 0;
+  }
+}
+
+@keyframes heartBreakRight {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  20% {
+    transform: translate(2px, -3px) rotate(12deg) scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(14px, 28px) rotate(38deg) scale(0.65);
+    opacity: 0;
+  }
+}
+
+.animate-heart-break-left {
+  animation: heartBreakLeft 0.65s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+.animate-heart-break-right {
+  animation: heartBreakRight 0.65s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* Staggered Item Appearance */
+.stagger-item {
+  animation: staggerFadeIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes staggerFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.stagger-item:nth-child(1) {
+  animation-delay: 15ms;
+}
+.stagger-item:nth-child(2) {
+  animation-delay: 35ms;
+}
+.stagger-item:nth-child(3) {
+  animation-delay: 55ms;
+}
+.stagger-item:nth-child(4) {
+  animation-delay: 75ms;
+}
+.stagger-item:nth-child(5) {
+  animation-delay: 95ms;
+}
+.stagger-item:nth-child(n + 6) {
+  animation-delay: 115ms;
+}
+
+/* Instrumental cue: media-clock SVG morph, shared by desktop and Android. */
+.karaoke-wait {
+  width: 64px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+}
+.karaoke-wait-motion {
+  display: block;
+  overflow: visible;
+}
+.karaoke-wait-still {
+  display: none;
+  font-size: 20px;
+  line-height: 40px;
+  font-weight: 600;
+}
+.karaoke-wait[data-phase='hidden'] {
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .karaoke-wait-motion {
+    display: none;
+  }
+  .karaoke-wait-still {
+    display: block;
+  }
+}
+
+/* Card & Button interactive physics */
+.touch-spring,
+.spring-press {
+  transition:
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+.touch-spring:active,
+.spring-press:active {
+  scale: 0.97;
+}
+
+/* Keep scrolling functional while hiding the bar on controls and lyrics panes. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Custom modern scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 3px;
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Custom slider input (Seekbar & Volume) */
+input[type='range'] {
+  @apply appearance-none bg-transparent cursor-pointer outline-none;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  @apply h-1.5 rounded-full;
+}
+
+html.dark input[type='range']::-webkit-slider-runnable-track {
+  background: #3f3f46;
+}
+
+html:not(.dark) input[type='range']::-webkit-slider-runnable-track {
+  background: #cbd5e1;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  @apply appearance-none w-4 h-4 rounded-full -mt-1.5 opacity-0 transition-all duration-150 shadow-md;
+  background-color: var(--theme-accent, #18c95f);
+}
+
+/* Show thumb on hover or dragging */
+.group:hover input[type='range']::-webkit-slider-thumb,
+input[type='range']:hover::-webkit-slider-thumb,
+input[type='range']:active::-webkit-slider-thumb {
+  opacity: 1 !important;
+  transform: scale(1.15);
+}
+
+/* Directional liquid theme wave transitions (GPU accelerated) */
+.theme-flow-to-light {
+  animation: sweepFromTopRight 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.theme-flow-to-dark {
+  animation: sweepFromBottomLeft 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+/* Liquid flow transition without heavy clip-path CPU/GPU cost */
+@keyframes sweepFromTopRight {
+  0% {
+    opacity: 0.85;
+    transform: scale(1.03);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+@keyframes sweepFromBottomLeft {
+  0% {
+    opacity: 0.85;
+    transform: scale(0.97);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* Smooth text clamping */
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Freeze decorative CSS animations while the window is minimized / hidden (targeted classes, avoids * style recalcs) */
+html[data-anim-paused] [class*='animate-'],
+html[data-anim-paused] .animate-spin-slow,
+html[data-anim-paused] .theme-flow-to-light,
+html[data-anim-paused] .theme-flow-to-dark,
+html[data-anim-paused] .sakura-petal,
+html[data-anim-paused] .weather-rain,
+html[data-anim-paused] .weather-snow,
+html[data-anim-paused] .cursor-glow,
+html[data-anim-paused] .animated {
+  animation-play-state: paused !important;
+}
+
+/* Mobile Safe Area insets (Status Bar & Navigation Gesture Curtain) */
+.h-safe-top {
+  height: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-pt {
+  padding-top: max(env(safe-area-inset-top, 0px), 14px);
+}
+
+.native-mobile-app .h-safe-top {
+  height: max(env(safe-area-inset-top, 0px), 38px);
+}
+
+.native-mobile-app .safe-area-pt {
+  padding-top: max(env(safe-area-inset-top, 0px), 38px);
+}
+
+.safe-area-pb {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
+}
+
+.mobile-content-pb {
+  padding-bottom: calc(140px + max(env(safe-area-inset-bottom, 0px), 12px));
+}
+
+/* ==========================================================================
+   DESIGNER THEME PRESETS & DYNAMIC ACCENTS
+   ========================================================================== */
+
+/* 🌸 1. Sakura Blossom (Delicate White-Pink with Falling Petals) */
+html[data-theme='sakura'] {
+  --bg-app: #fdf4f6;
+  --bg-sidebar: #faebf0;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fce7ee;
+  --bg-player: #ffffff;
+  --text-primary: #1f1316;
+  --text-secondary: #88636e;
+  --border-color: rgba(244, 114, 182, 0.22);
+  --theme-accent: #f43f5e;
+  --theme-accent-rgb: 244, 63, 94;
+  --theme-glow: #f472b6;
+}
+html[data-theme='sakura'] .bg-soso-brand {
+  background-color: #f43f5e !important;
+}
+html[data-theme='sakura'] .text-soso-brand {
+  color: #f43f5e !important;
+}
+html[data-theme='sakura'] .border-soso-brand {
+  border-color: #f43f5e !important;
+}
+html[data-theme='sakura'] .fill-soso-brand {
+  fill: #f43f5e !important;
+}
+html[data-theme='sakura'] .ring-soso-brand {
+  --tw-ring-color: #f43f5e !important;
+}
+html[data-theme='sakura'] .hover\:border-soso-brand\/40:hover {
+  border-color: rgba(244, 63, 94, 0.4) !important;
+}
+html[data-theme='sakura'] .hover\:border-soso-brand\/50:hover {
+  border-color: rgba(244, 63, 94, 0.5) !important;
+}
+html[data-theme='sakura'] .hover\:text-soso-brand:hover {
+  color: #f43f5e !important;
+}
+html[data-theme='sakura'] .bg-soso-brand\/10 {
+  background-color: rgba(244, 63, 94, 0.1) !important;
+}
+html[data-theme='sakura'] .bg-soso-brand\/15 {
+  background-color: rgba(244, 63, 94, 0.15) !important;
+}
+html[data-theme='sakura'] .bg-soso-brand\/20 {
+  background-color: rgba(244, 63, 94, 0.2) !important;
+}
+html[data-theme='sakura'] .shadow-soso-brand\/25 {
+  box-shadow: 0 10px 15px -3px rgba(244, 63, 94, 0.25) !important;
+}
+html[data-theme='sakura'] .shadow-soso-brand\/50 {
+  box-shadow: 0 10px 15px -3px rgba(244, 63, 94, 0.5) !important;
+}
+html[data-theme='sakura'] input[type='range'].accent-soso-brand {
+  accent-color: #f43f5e !important;
+}
+
+html[data-theme='sakura'] .bg-\[\#f8fafc\],
+html[data-theme='sakura'] .bg-\[\#ffffff\],
+html[data-theme='sakura'] .dark\:bg-\[\#18181b\],
+html[data-theme='sakura'] .dark\:bg-\[\#121212\] {
+  background-color: var(--bg-app) !important;
+}
+
+html[data-theme='sakura'] aside {
+  background-color: var(--bg-sidebar) !important;
+}
+
+/* Sakura Petal Falling and Sway Keyframes */
+@keyframes sakuraFall {
+  0% {
+    transform: translateY(-20px) translateX(0) rotate(0deg);
+  }
+  100% {
+    transform: translateY(105vh) translateX(-220px) rotate(420deg);
+  }
+}
+
+@keyframes sakuraSway {
+  0% {
+    transform: translateX(-35px) rotate(-15deg) scale(0.9);
+  }
+  50% {
+    transform: translateX(25px) rotate(15deg) scale(1.05);
+  }
+  100% {
+    transform: translateX(-35px) rotate(-15deg) scale(0.9);
+  }
+}
+
+html[data-theme='default'] .bg-soso-brand {
+  background-color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='default'] .text-soso-brand {
+  color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='default'] .border-soso-brand {
+  border-color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='default'] .fill-soso-brand {
+  fill: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='default'] .ring-soso-brand {
+  --tw-ring-color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='default'] .hover\:border-soso-brand\/40:hover {
+  border-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.4) !important;
+}
+html[data-theme='default'] .hover\:border-soso-brand\/50:hover {
+  border-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.5) !important;
+}
+html[data-theme='default'] .hover\:text-soso-brand:hover {
+  color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='default'] .bg-soso-brand\/10 {
+  background-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.1) !important;
+}
+html[data-theme='default'] .bg-soso-brand\/15 {
+  background-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.15) !important;
+}
+html[data-theme='default'] .bg-soso-brand\/20 {
+  background-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.2) !important;
+}
+html[data-theme='default'] .shadow-soso-brand\/25 {
+  box-shadow: 0 10px 15px -3px rgba(var(--theme-accent-rgb, 24, 201, 95), 0.25) !important;
+}
+html[data-theme='default'] .shadow-soso-brand\/50 {
+  box-shadow: 0 10px 15px -3px rgba(var(--theme-accent-rgb, 24, 201, 95), 0.5) !important;
+}
+html[data-theme='default'] input[type='range'].accent-soso-brand {
+  accent-color: var(--theme-accent, #18c95f) !important;
+}
+
+/* 🍃 3. Weather Theme (Clear Sunny & Rainy Storm Modes) */
+html[data-theme='weather'][data-weather='clear'],
+html[data-theme='weather']:not([data-weather='rain']) {
+  --bg-app: #f5f9f6;
+  --bg-sidebar: #ebf3ee;
+  --bg-card: #ffffff;
+  --bg-card-hover: #e1ede5;
+  --bg-player: #ffffff;
+  --text-primary: #132219;
+  --text-secondary: #4a6b57;
+  --border-color: rgba(16, 185, 129, 0.22);
+  --theme-accent: #059669;
+  --theme-accent-rgb: 5, 150, 105;
+  --theme-glow: #10b981;
+}
+
+html[data-theme='weather'][data-weather='clear'] .bg-soso-brand,
+html[data-theme='weather']:not([data-weather='rain']) .bg-soso-brand {
+  background-color: #059669 !important;
+  color: #ffffff !important;
+}
+html[data-theme='weather'][data-weather='clear'] .text-soso-brand,
+html[data-theme='weather']:not([data-weather='rain']) .text-soso-brand {
+  color: #059669 !important;
+}
+html[data-theme='weather'][data-weather='clear'] .border-soso-brand,
+html[data-theme='weather']:not([data-weather='rain']) .border-soso-brand {
+  border-color: #059669 !important;
+}
+html[data-theme='weather'][data-weather='clear'] .fill-soso-brand,
+html[data-theme='weather']:not([data-weather='rain']) .fill-soso-brand {
+  fill: #059669 !important;
+}
+html[data-theme='weather'][data-weather='clear'] .ring-soso-brand,
+html[data-theme='weather']:not([data-weather='rain']) .ring-soso-brand {
+  --tw-ring-color: #059669 !important;
+}
+html[data-theme='weather'][data-weather='clear'] .hover\:border-soso-brand\/40:hover,
+html[data-theme='weather']:not([data-weather='rain']) .hover\:border-soso-brand\/40:hover {
+  border-color: rgba(5, 150, 105, 0.4) !important;
+}
+html[data-theme='weather'][data-weather='clear'] .hover\:border-soso-brand\/50:hover,
+html[data-theme='weather']:not([data-weather='rain']) .hover\:border-soso-brand\/50:hover {
+  border-color: rgba(5, 150, 105, 0.5) !important;
+}
+html[data-theme='weather'][data-weather='clear'] .hover\:text-soso-brand:hover,
+html[data-theme='weather']:not([data-weather='rain']) .hover\:text-soso-brand:hover {
+  color: #10b981 !important;
+}
+html[data-theme='weather'][data-weather='clear'] .bg-soso-brand\/10,
+html[data-theme='weather']:not([data-weather='rain']) .bg-soso-brand\/10 {
+  background-color: rgba(5, 150, 105, 0.12) !important;
+}
+html[data-theme='weather'][data-weather='clear'] .bg-soso-brand\/15,
+html[data-theme='weather']:not([data-weather='rain']) .bg-soso-brand\/15 {
+  background-color: rgba(5, 150, 105, 0.18) !important;
+}
+html[data-theme='weather'][data-weather='clear'] .bg-soso-brand\/20,
+html[data-theme='weather']:not([data-weather='rain']) .bg-soso-brand\/20 {
+  background-color: rgba(5, 150, 105, 0.24) !important;
+}
+html[data-theme='weather'][data-weather='clear'] .shadow-soso-brand\/25,
+html[data-theme='weather']:not([data-weather='rain']) .shadow-soso-brand\/25 {
+  box-shadow: 0 10px 15px -3px rgba(5, 150, 105, 0.3) !important;
+}
+html[data-theme='weather'][data-weather='clear'] .shadow-soso-brand\/50,
+html[data-theme='weather']:not([data-weather='rain']) .shadow-soso-brand\/50 {
+  box-shadow: 0 10px 15px -3px rgba(5, 150, 105, 0.55) !important;
+}
+html[data-theme='weather'][data-weather='clear'] input[type='range'].accent-soso-brand,
+html[data-theme='weather']:not([data-weather='rain']) input[type='range'].accent-soso-brand {
+  accent-color: #059669 !important;
+}
+
+/* 🌧️ Rainy Storm Mode (Moody Atmospheric Dark Slate Theme) */
+html[data-theme='weather'][data-weather='rain'] {
+  --bg-app: #090e14;
+  --bg-sidebar: #05080d;
+  --bg-card: #0f1622;
+  --bg-card-hover: #162030;
+  --bg-player: #070b10;
+  --border-color: rgba(56, 189, 248, 0.25);
+  --theme-accent: #38bdf8;
+  --theme-accent-rgb: 56, 189, 248;
+  --theme-glow: #0284c7;
+}
+
+html[data-theme='weather'][data-weather='rain'] .bg-soso-brand {
+  background-color: #38bdf8 !important;
+  color: #082f49 !important;
+}
+html[data-theme='weather'][data-weather='rain'] .text-soso-brand {
+  color: #38bdf8 !important;
+}
+html[data-theme='weather'][data-weather='rain'] .border-soso-brand {
+  border-color: #38bdf8 !important;
+}
+html[data-theme='weather'][data-weather='rain'] .fill-soso-brand {
+  fill: #38bdf8 !important;
+}
+html[data-theme='weather'][data-weather='rain'] .ring-soso-brand {
+  --tw-ring-color: #38bdf8 !important;
+}
+html[data-theme='weather'][data-weather='rain'] .hover\:border-soso-brand\/40:hover {
+  border-color: rgba(56, 189, 248, 0.4) !important;
+}
+html[data-theme='weather'][data-weather='rain'] .hover\:border-soso-brand\/50:hover {
+  border-color: rgba(56, 189, 248, 0.5) !important;
+}
+html[data-theme='weather'][data-weather='rain'] .hover\:text-soso-brand:hover {
+  color: #7dd3fc !important;
+}
+html[data-theme='weather'][data-weather='rain'] .bg-soso-brand\/10 {
+  background-color: rgba(56, 189, 248, 0.12) !important;
+}
+html[data-theme='weather'][data-weather='rain'] .bg-soso-brand\/15 {
+  background-color: rgba(56, 189, 248, 0.18) !important;
+}
+html[data-theme='weather'][data-weather='rain'] .bg-soso-brand\/20 {
+  background-color: rgba(56, 189, 248, 0.24) !important;
+}
+html[data-theme='weather'][data-weather='rain'] .shadow-soso-brand\/25 {
+  box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.3) !important;
+}
+html[data-theme='weather'][data-weather='rain'] .shadow-soso-brand\/50 {
+  box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.55) !important;
+}
+html[data-theme='weather'][data-weather='rain'] input[type='range'].accent-soso-brand {
+  accent-color: #38bdf8 !important;
+}
+
+/* Apply backgrounds for Weather theme */
+html[data-theme='weather'] .bg-\[\#f8fafc\],
+html[data-theme='weather'] .bg-\[\#ffffff\],
+html[data-theme='weather'] .dark\:bg-\[\#18181b\],
+html[data-theme='weather'] .dark\:bg-\[\#121212\] {
+  background-color: var(--bg-app) !important;
+}
+
+html[data-theme='weather'] aside {
+  background-color: var(--bg-sidebar) !important;
+}
+
+/* 🕳️ 4. Black Hole Easter Egg Theme (Deep Space Dark with Animated Event Horizon) */
+html[data-theme='blackhole'] {
+  /* Opaque void base on <html>; body stays transparent so the canvas shows through */
+  background-color: #030208;
+  --bg-app: rgba(6, 3, 11, 0.46);
+  --bg-sidebar: rgba(9, 5, 16, 0.55);
+  --bg-card: rgba(15, 9, 24, 0.6);
+  --bg-card-hover: rgba(23, 13, 36, 0.72);
+  --bg-player: rgba(5, 3, 9, 0.76);
+  --text-primary: #f2ecff;
+  --text-secondary: #a79bc0;
+  --border-color: rgba(167, 139, 250, 0.18);
+  --theme-accent: #fb923c;
+  --theme-accent-rgb: 251, 146, 60;
+  --theme-glow: #a855f7;
+}
+
+html[data-theme='blackhole'] body {
+  background-color: transparent !important;
+}
+
+html[data-theme='blackhole'] .bg-soso-brand {
+  background-color: #fb923c !important;
+  color: #1c0a00 !important;
+}
+html[data-theme='blackhole'] .text-soso-brand {
+  color: #fb923c !important;
+}
+html[data-theme='blackhole'] .border-soso-brand {
+  border-color: #fb923c !important;
+}
+html[data-theme='blackhole'] .fill-soso-brand {
+  fill: #fb923c !important;
+}
+html[data-theme='blackhole'] .ring-soso-brand {
+  --tw-ring-color: #fb923c !important;
+}
+html[data-theme='blackhole'] .hover\:border-soso-brand\/40:hover {
+  border-color: rgba(251, 146, 60, 0.4) !important;
+}
+html[data-theme='blackhole'] .hover\:border-soso-brand\/50:hover {
+  border-color: rgba(251, 146, 60, 0.5) !important;
+}
+html[data-theme='blackhole'] .hover\:text-soso-brand:hover {
+  color: #fdba74 !important;
+}
+html[data-theme='blackhole'] .bg-soso-brand\/10 {
+  background-color: rgba(251, 146, 60, 0.1) !important;
+}
+html[data-theme='blackhole'] .bg-soso-brand\/15 {
+  background-color: rgba(251, 146, 60, 0.15) !important;
+}
+html[data-theme='blackhole'] .bg-soso-brand\/20 {
+  background-color: rgba(251, 146, 60, 0.2) !important;
+}
+html[data-theme='blackhole'] .shadow-soso-brand\/25 {
+  box-shadow: 0 10px 15px -3px rgba(251, 146, 60, 0.28) !important;
+}
+html[data-theme='blackhole'] .shadow-soso-brand\/50 {
+  box-shadow: 0 10px 15px -3px rgba(251, 146, 60, 0.52) !important;
+}
+html[data-theme='blackhole'] input[type='range'].accent-soso-brand {
+  accent-color: #fb923c !important;
+}
+
+/* Translucent space surfaces — the black hole canvas glows through the UI */
+html[data-theme='blackhole'] .bg-\[\#f8fafc\]:not(body),
+html[data-theme='blackhole'] .bg-\[\#ffffff\]:not(body),
+html[data-theme='blackhole'] .dark\:bg-\[\#18181b\]:not(body),
+html[data-theme='blackhole'] .dark\:bg-\[\#121212\]:not(body) {
+  background-color: var(--bg-app) !important;
+}
+
+html[data-theme='blackhole'] aside {
+  background-color: var(--bg-sidebar) !important;
+}
+
+/* 🎬 6. Video Wallpaper Theme (Custom Local Video Behind Translucent UI) */
+html[data-theme='wallpaper'] {
+  /* Opaque base on <html>; body stays transparent so the video shows through */
+  background-color: #050507;
+  --bg-app: rgba(10, 10, 16, 0.45);
+  --bg-sidebar: rgba(8, 8, 12, 0.55);
+  --bg-card: rgba(18, 18, 26, 0.55);
+  --bg-card-hover: rgba(26, 26, 38, 0.7);
+  --bg-player: rgba(6, 6, 10, 0.78);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --border-color: rgba(255, 255, 255, 0.12);
+}
+
+html:not(.dark)[data-theme='wallpaper'] {
+  background-color: #e2e8f0;
+  --bg-app: rgba(255, 255, 255, 0.58);
+  --bg-sidebar: rgba(248, 250, 252, 0.72);
+  --bg-card: rgba(255, 255, 255, 0.68);
+  --bg-card-hover: rgba(255, 255, 255, 0.88);
+  --bg-player: rgba(255, 255, 255, 0.85);
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --border-color: rgba(0, 0, 0, 0.1);
+}
+
+html[data-theme='wallpaper'] body {
+  background-color: transparent !important;
+}
+
+/* Accent follows the user-selected accent color (set via JS in ThemeContext) */
+html[data-theme='wallpaper'] .bg-soso-brand {
+  background-color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='wallpaper'] .text-soso-brand {
+  color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='wallpaper'] .border-soso-brand {
+  border-color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='wallpaper'] .fill-soso-brand {
+  fill: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='wallpaper'] .ring-soso-brand {
+  --tw-ring-color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='wallpaper'] .hover\:border-soso-brand\/40:hover {
+  border-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.4) !important;
+}
+html[data-theme='wallpaper'] .hover\:border-soso-brand\/50:hover {
+  border-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.5) !important;
+}
+html[data-theme='wallpaper'] .hover\:text-soso-brand:hover {
+  color: var(--theme-accent, #18c95f) !important;
+}
+html[data-theme='wallpaper'] .hover\:bg-soso-brand\/20:hover {
+  background-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.2) !important;
+}
+html[data-theme='wallpaper'] .bg-soso-brand\/10 {
+  background-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.1) !important;
+}
+html[data-theme='wallpaper'] .bg-soso-brand\/12 {
+  background-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.12) !important;
+}
+html[data-theme='wallpaper'] .bg-soso-brand\/15 {
+  background-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.15) !important;
+}
+html[data-theme='wallpaper'] .bg-soso-brand\/20 {
+  background-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.2) !important;
+}
+html[data-theme='wallpaper'] .bg-soso-brand\/25 {
+  background-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.25) !important;
+}
+html[data-theme='wallpaper'] .border-soso-brand\/20 {
+  border-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.2) !important;
+}
+html[data-theme='wallpaper'] .border-soso-brand\/30 {
+  border-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.3) !important;
+}
+html[data-theme='wallpaper'] .border-soso-brand\/50 {
+  border-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.5) !important;
+}
+html[data-theme='wallpaper'] .ring-soso-brand\/20 {
+  --tw-ring-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.2) !important;
+}
+html[data-theme='wallpaper'] .ring-soso-brand\/25 {
+  --tw-ring-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.25) !important;
+}
+html[data-theme='wallpaper'] .ring-soso-brand\/50 {
+  --tw-ring-color: rgba(var(--theme-accent-rgb, 24, 201, 95), 0.5) !important;
+}
+html[data-theme='wallpaper'] .shadow-soso-brand\/25 {
+  box-shadow: 0 10px 15px -3px rgba(var(--theme-accent-rgb, 24, 201, 95), 0.25) !important;
+}
+html[data-theme='wallpaper'] .shadow-soso-brand\/50 {
+  box-shadow: 0 10px 15px -3px rgba(var(--theme-accent-rgb, 24, 201, 95), 0.5) !important;
+}
+html[data-theme='wallpaper'] input[type='range'].accent-soso-brand {
+  accent-color: var(--theme-accent, #18c95f) !important;
+}
+
+/* Translucent glass surfaces — the video glows through the UI */
+html[data-theme='wallpaper'] .bg-\[\#f8fafc\],
+html[data-theme='wallpaper'] .bg-\[\#ffffff\],
+html[data-theme='wallpaper'] .dark\:bg-\[\#18181b\],
+html[data-theme='wallpaper'] .dark\:bg-\[\#121212\] {
+  background-color: var(--bg-app) !important;
+}
+
+html[data-theme='wallpaper'] aside {
+  background-color: var(--bg-sidebar) !important;
+  backdrop-filter: blur(16px);
+}
+
+html[data-theme='wallpaper'] .soso-player-bar {
+  background-color: var(--bg-player) !important;
+  backdrop-filter: blur(20px);
+}
+
+/* 🔍 Premium Unified Search & Filter Input Styling */
+.soso-search-input {
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary, #ffffff);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none !important;
+}
+
+html:not(.dark) .soso-search-input {
+  background-color: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #0f172a;
+}
+
+.soso-search-input:hover {
+  border-color: rgba(var(--theme-accent-rgb, 34, 197, 94), 0.4);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+html:not(.dark) .soso-search-input:hover {
+  background-color: rgba(0, 0, 0, 0.06);
+  border-color: rgba(var(--theme-accent-rgb, 34, 197, 94), 0.4);
+}
+
+.soso-search-input:focus {
+  border-color: var(--theme-accent, #22c55e) !important;
+  box-shadow:
+    0 0 0 3px rgba(var(--theme-accent-rgb, 34, 197, 94), 0.22),
+    0 2px 10px rgba(0, 0, 0, 0.15) !important;
+  background-color: rgba(255, 255, 255, 0.09) !important;
+}
+
+html:not(.dark) .soso-search-input:focus {
+  background-color: #ffffff !important;
+  border-color: var(--theme-accent, #22c55e) !important;
+  box-shadow:
+    0 0 0 3px rgba(var(--theme-accent-rgb, 34, 197, 94), 0.22),
+    0 2px 10px rgba(0, 0, 0, 0.06) !important;
+}
+
+.soso-search-input-rounded {
+  border-radius: 0.875rem !important;
+}
+
+/* Headers and rows share column geometry in search, library and playlists. */
+@media (min-width: 768px) {
+  .track-grid {
+    display: grid;
+    grid-template-columns: 28px 40px minmax(0, 1.35fr) minmax(0, 1fr) 80px 32px 32px 32px 48px;
+    column-gap: 16px;
+  }
+  .track-grid--no-album {
+    grid-template-columns: 28px 40px minmax(0, 1fr) 80px 32px 32px 32px 48px;
+  }
+}
+/* Size the wave card against the space beside the sidebar, not the window. */
+.wave-hero {
+  container-type: inline-size;
+}
+
+.snippet-button {
+  color: #a1a1aa;
+  background: rgba(113, 113, 122, 0.16);
+  border: 1px solid rgba(113, 113, 122, 0.25);
+}
+.snippet-button:hover,
+.snippet-button:focus-visible,
+.snippet-button[aria-pressed='true'] {
+  color: #08090b;
+  background: var(--theme-accent, #18c95f);
+  border-color: var(--theme-accent, #18c95f);
+}
+.snippet-button:focus-visible {
+  outline: 2px solid var(--theme-accent, #18c95f);
+  outline-offset: 3px;
+}
+
+.library-icon-action {
+  position: relative;
+}
+.library-icon-action .action-tooltip {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 40;
+  padding: 7px 10px;
+  border: 1px solid rgba(var(--theme-accent-rgb, 24, 201, 95), 0.25);
+  border-radius: 10px;
+  background: #18181b;
+  color: #fafafa;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 6px 20px #0004;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-3px);
+  transition:
+    opacity 0.15s,
+    transform 0.15s,
+    visibility 0.15s;
+  pointer-events: none;
+}
+.library-icon-action:hover .action-tooltip,
+.library-icon-action:focus-visible .action-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Mobile shell: one shared dock height, independent of desktop breakpoints. */
+.soso-mobile-app {
+  --mobile-nav-height: 64px;
+  --mobile-safe-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
+}
+.soso-mobile-app .mobile-bottom-navigation {
+  height: calc(var(--mobile-nav-height) + var(--mobile-safe-bottom));
+  padding-top: 4px;
+  padding-bottom: var(--mobile-safe-bottom);
+}
+.soso-mobile-app .mobile-mini-player {
+  bottom: calc(var(--mobile-nav-height) + var(--mobile-safe-bottom) + 8px);
+  min-height: 64px;
+}
+.soso-mobile-app .mobile-main-content {
+  padding-bottom: calc(var(--mobile-nav-height) + var(--mobile-safe-bottom) + 24px);
+}
+.soso-mobile-app .mobile-main-content--playing {
+  padding-bottom: calc(var(--mobile-nav-height) + var(--mobile-safe-bottom) + 96px);
+}
+.soso-mobile-app .mobile-header-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  min-width: 48px;
+  border-radius: 16px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  padding: 0 12px;
+}
+.soso-mobile-app .mobile-wave-card {
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(var(--theme-accent-rgb), 0.16), transparent 68%),
+    var(--bg-card);
+  border-color: rgba(var(--theme-accent-rgb), 0.18);
+}
+.soso-mobile-app .mobile-track-row {
+  min-height: 68px;
+  height: auto;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-radius: 14px;
+}
+.soso-mobile-app .mobile-track-row button[aria-label],
+.soso-mobile-app .mobile-library-tabs button {
+  min-height: 44px;
+  min-width: 44px;
+}
+.mobile-player-sheet {
+  --player-cover-size: min(292px, 36dvh, calc(100vw - 96px));
+}
+.mobile-player-cover {
+  width: var(--player-cover-size);
+}
+.mobile-player-artwork {
+  min-height: calc(var(--player-cover-size) + 24px);
+}
+.mobile-player-layout {
+  gap: 10px;
+}
+.mobile-player-primary-actions > button {
+  min-height: 44px;
+  justify-content: center;
+  padding: 8px 4px;
+  white-space: nowrap;
+}
+.mobile-player-tabs button {
+  min-height: 44px;
+}
+.mobile-player-secondary-actions > button {
+  min-height: 52px;
+  justify-content: flex-start;
+  font-size: 14px;
+  border-radius: 14px;
+}
+.mobile-player-secondary-actions > button svg {
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+}
+.mobile-player-action-sheet {
+  max-height: calc(100dvh - max(env(safe-area-inset-top, 0px), 38px) - 20px);
+  overflow-y: auto;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+}
+@media (max-height: 740px) {
+  .mobile-player-sheet {
+    --player-cover-size: min(240px, 31dvh, calc(100vw - 96px));
+  }
+  .mobile-player-layout {
+    gap: 4px;
+  }
+  .mobile-player-body {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+}
+
+/* One karaoke screen, compact phone layout, unchanged desktop columns. */
+.mobile-karaoke .karaoke-header {
+  padding: max(env(safe-area-inset-top, 0px), 14px) 20px 10px;
+  gap: 8px;
+}
+.native-mobile-app .mobile-karaoke .karaoke-header {
+  padding-top: max(env(safe-area-inset-top, 0px), 38px);
+}
+.mobile-karaoke .karaoke-header button {
+  min-height: 44px;
+  min-width: 44px;
+}
+.mobile-karaoke .karaoke-body {
+  flex-direction: column;
+}
+.mobile-karaoke .karaoke-media {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 8px 16px;
+  padding: 8px 20px 16px;
+  align-items: center;
+}
+.mobile-karaoke .karaoke-media > * {
+  margin: 0;
+}
+.mobile-karaoke .karaoke-art {
+  width: 104px;
+  height: 104px;
+  grid-row: 1 / 3;
+  border-radius: 18px;
+}
+.mobile-karaoke .karaoke-art button {
+  bottom: 4px;
+  right: 4px;
+  padding: 6px 8px;
+  min-height: 36px;
+  font-size: 11px;
+}
+.mobile-karaoke .karaoke-track-info {
+  text-align: left;
+  padding: 0;
+}
+.mobile-karaoke .karaoke-track-info h2 {
+  white-space: normal;
+  font-size: 16px;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mobile-karaoke .karaoke-track-info p {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.mobile-karaoke .karaoke-progress {
+  max-width: none;
+}
+.mobile-karaoke .karaoke-progress > div:last-child {
+  padding-top: 0;
+  justify-content: flex-end;
+}
+.mobile-karaoke .karaoke-media[data-video='true'] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.mobile-karaoke .karaoke-media[data-video='true'] .karaoke-art {
+  grid-row: auto;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  max-height: 24dvh;
+}
+.mobile-karaoke .karaoke-media[data-video='true'] .karaoke-track-info {
+  display: none;
+}
+.mobile-karaoke .karaoke-media[data-video='true'] .karaoke-progress {
+  position: relative;
+  padding-right: 56px;
+}
+.mobile-karaoke .karaoke-media[data-video='true'] .karaoke-progress > div:last-child {
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+.mobile-karaoke .karaoke-lyrics-column {
+  padding: 0 24px max(env(safe-area-inset-bottom, 0px), 16px);
+}
+.mobile-karaoke .karaoke-lyrics-scroll p {
+  font-size: 24px;
+  line-height: 1.35;
+}
+
+.mobile-player-tabs {
+  width: 100%;
+  max-width: 360px;
+}
+.mobile-player-tabs button {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+.soso-mobile-app .soso-search-input {
+  min-height: 48px;
+}
+
+.soso-mobile-app .mobile-library-tabs button svg {
+  color: inherit;
+}
+
+.soso-mobile-app .mobile-track-row {
+  display: flex;
+  height: 68px;
+  gap: 8px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.soso-mobile-app .mobile-track-row > .hidden,
+.soso-mobile-app .mobile-track-table-header {
+  display: none;
+}
+
+/* Unavailable YouTube items remain visible and are removed from interaction via inert. */
+[data-youtube-disabled='true'] {
+  filter: grayscale(1);
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: default;
+}
+
+/* Shared press response independent of existing translate/rotate transforms. */
+:where(button):not(:disabled):not([aria-disabled='true']) {
+  transition-property: color, background-color, border-color, opacity, box-shadow, transform, scale;
+  transition-duration: 140ms;
+  transition-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+:where(button):not(:disabled):not([aria-disabled='true']):not([class*='active:scale']):active {
+  scale: 0.97;
+  transition-duration: 60ms;
+}
+:where(button):focus-visible {
+  outline: 2px solid rgb(var(--theme-accent-rgb));
+  outline-offset: 3px;
+}
+.soso-track-row {
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out,
+    border-color 140ms ease-out;
+}
+.soso-track-row[data-playback-state='loading'] {
+  background-color: rgba(var(--theme-accent-rgb), 0.09);
+}
+.soso-track-row > button:focus-visible,
+.soso-track-row .group\/cover > button:focus-visible {
+  outline-offset: -3px;
+  opacity: 1;
+}
+.soso-view-enter {
+  animation: sosoViewEnter 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.soso-view-enter > .animate-fade-in {
+  animation: none;
+}
+.soso-track-enter {
+  animation: sosoTrackEnter 160ms ease-out;
+}
+.soso-art-enter {
+  animation: sosoArtEnter 160ms ease-out;
+}
+@keyframes sosoViewEnter {
+  from {
+    opacity: 0.7;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes sosoTrackEnter {
+  from {
+    opacity: 0.65;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes sosoArtEnter {
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
+}
+html[data-anim-paused] .soso-view-enter,
+html[data-anim-paused] .soso-track-enter,
+html[data-anim-paused] .soso-art-enter {
+  animation-play-state: paused !important;
+}
