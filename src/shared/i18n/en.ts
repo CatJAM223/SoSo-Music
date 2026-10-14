@@ -1,5 +1,75 @@
 // Russian source phrases are stable translation keys. Never translate catalog or user data.
 export const english: Record<string, string> = {
+  'Не удалось загрузить положение оверлея.': 'Could not load the overlay position.',
+  'Включить оверлей': 'Enable overlay',
+  'При отключении окно оверлея закрывается, его горячая клавиша освобождается. Управление музыкой продолжает работать.':
+    'Disabling closes the overlay and releases its shortcut. Music controls keep working.',
+  'Не удалось загрузить настройки оверлея.': 'Could not load overlay settings.',
+  'Не удалось сохранить настройки оверлея.': 'Could not save overlay settings.',
+  'Оверлей отключён. Включить его можно в Настройки → Интеграции.':
+    'Overlay is disabled. Enable it in Settings → Integrations.',
+  'Одна клавиша или сочетание, например F8, Shift+F8 или Ctrl+Space. Нажмите для изменения; Esc — отмена.':
+    'Use a single key or a combination, such as F8, Shift+F8 or Ctrl+Space. Click to change; Esc cancels.',
+  'Клавиша не поддерживается. Попробуйте F8 или Ctrl+Space.':
+    'This key is not supported. Try F8 or Ctrl+Space.',
+  'Показывать обложку и название трека поверх других окон? Управляйте музыкой горячими клавишами, клики проходят насквозь.':
+    'Show artwork and the track title above other windows? Control music with shortcuts; clicks pass through.',
+  'Позже можно изменить в Настройки → Интеграции.':
+    'You can change this later in Settings → Integrations.',
+  'Работают, даже когда плеер свёрнут.': 'Available even when the player is minimized.',
+  'Нажмите на клавиши, чтобы изменить сочетание. Esc — отмена.':
+    'Click the keys to change a shortcut. Esc cancels.',
+  'Обложка и название трека поверх других окон. Клики проходят насквозь.':
+    'Artwork and track title above other windows. Clicks pass through.',
+  'Положение на экране': 'Position on screen',
+  'Переместите карточку в удобное место. Положение сохранится.':
+    'Move the card wherever you like. Its position is saved.',
+  'Настроить положение': 'Adjust position',
+  'Настройка положения': 'Adjusting position',
+  'Перетащите карточку или используйте стрелки.': 'Drag the card or use the arrow keys.',
+  'В играх используйте оконный режим или окно без рамок.':
+    'Use windowed or borderless mode in games.',
+  'Не удалось открыть настройку оверлея.': 'Could not open overlay positioning.',
+  'Изменить сочетание': 'Change shortcut',
+  'Действия с сочетанием': 'Shortcut options',
+  Пробел: 'Space',
+  'Перетащить трек': 'Drag track',
+  'Действия с треком': 'Track actions',
+  'В очереди пока нет следующих треков.': 'No upcoming tracks yet.',
+  'Перетащите сюда треки, чтобы продолжить прослушивание.': 'Drop tracks here to keep listening.',
+  'Вышло новое обновление': 'A new update is out',
+  'Новое обновление': 'New update',
+  'Доступна новая версия': 'A new version is available',
+  'Версия {0}': 'Version {0}',
+  'Что нового': "What's new",
+  'Описание изменений доступно на странице релиза.': 'Release details are available on GitHub.',
+  'Музыка продолжает играть': 'Your music keeps playing',
+  'Скачать обновление': 'Download update',
+  Позже: 'Later',
+  'Установка — когда вам удобно': 'Install whenever you are ready',
+  'Новые релизы проверяются автоматически каждые 90 секунд. Можно проверить вручную.':
+    'New releases are checked automatically every 90 seconds. You can also check manually.',
+  'Горячие клавиши': 'Keyboard shortcuts',
+  'Показать / скрыть оверлей': 'Show / hide overlay',
+  'Пауза / продолжить': 'Pause / resume',
+  'Оверлей плеера': 'Player overlay',
+  'Перетащить блок': 'Move panel',
+  'Перетащите блок или используйте стрелки': 'Drag the panel or use the arrow keys',
+  'Скрыть оверлей': 'Hide overlay',
+  'Не удалось сохранить положение оверлея.': 'Could not save overlay positions.',
+  'Работают, пока плеер запущен, даже если его окно свёрнуто. Нажмите сочетание для изменения; Esc отменяет ввод.':
+    'Available while the player is running, including when minimized. Click a shortcut to change it; Esc cancels.',
+  'Сочетание занято другим приложением.': 'Another app is using this shortcut.',
+  'Нажмите сочетание…': 'Press a shortcut…',
+  'Не назначено': 'Not assigned',
+  'Сочетание занято или не поддерживается. Выберите другое.':
+    'This shortcut is unavailable or unsupported. Choose another.',
+  'Не удалось загрузить горячие клавиши.': 'Could not load keyboard shortcuts.',
+  'Не удалось назначить горячую клавишу.': 'Could not assign the shortcut.',
+  'Перетащите обложку с названием и панель управления за верхние ручки. Положение сохраняется. Пустая область пропускает клики в игру.':
+    'Move the track card and playback controls using their top handles. Positions are saved. Empty space passes clicks through to the game.',
+  'Для игр используйте оконный режим или окно без рамок. Эксклюзивный полноэкранный режим может скрывать оверлей.':
+    'Use windowed or borderless mode for games. Exclusive fullscreen may hide the overlay.',
   'Запрос уже завершён. Отправьте медиатеку снова.':
     'This request has expired. Send your library again.',
   'Не удалось ответить. Попробуйте снова.': "Couldn't respond. Try again.",

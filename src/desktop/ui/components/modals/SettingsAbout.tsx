@@ -59,7 +59,11 @@ export function SettingsAbout() {
         <div className="settings-row">
           <div className="settings-row-copy">
             <strong>{t('Обновления')}</strong>
-            <span>{t('Проверка опубликованных релизов GitHub по кнопке.')}</span>
+            <span>
+              {t(
+                'Новые релизы проверяются автоматически каждые 90 секунд. Можно проверить вручную.',
+              )}
+            </span>
           </div>
           <button
             type="button"

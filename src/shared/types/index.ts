@@ -1,3 +1,8 @@
+import type {
+  DesktopControlsStatus,
+  ShortcutAction,
+  OverlayLayout,
+} from '../utils/desktopControls';
 import type { LibraryTasteReport } from './libraryTaste.ts';
 import type { PlaylistReadResult } from './playlistImport.ts';
 
@@ -421,10 +426,25 @@ export type AppUpdateStatus = {
   currentVersion: string;
   latestVersion?: string;
   releaseUrl?: string;
+  retryAfterMs?: number;
   message: string;
 };
 export type LibraryPersistenceStatus = { state: 'ready' | 'recovered' | 'error'; message?: string };
 export interface ElectronAPI {
+  getAvailableAppUpdate?: () => Promise<AppUpdateStatus | null>;
+  onAppUpdateAvailable?: (callback: (status: AppUpdateStatus) => void) => () => void;
+  getDesktopControls?: () => Promise<DesktopControlsStatus>;
+  setDesktopShortcut?: (action: ShortcutAction, key: string) => Promise<DesktopControlsStatus>;
+  captureDesktopShortcut?: (enabled: boolean) => Promise<DesktopControlsStatus>;
+  togglePlayerOverlay?: () => Promise<boolean>;
+  setPlayerOverlayEnabled?: (enabled: boolean) => Promise<DesktopControlsStatus>;
+  getOverlayState?: () => Promise<WidgetState | null>;
+  getOverlayLayout?: () => Promise<OverlayLayout>;
+  saveOverlayLayout?: (layout: OverlayLayout) => Promise<OverlayLayout>;
+  editPlayerOverlay?: () => Promise<boolean>;
+  getOverlayEditing?: () => Promise<boolean>;
+  finishOverlayEditing?: () => Promise<boolean>;
+  onOverlayEditingChanged?: (callback: (editing: boolean) => void) => () => void;
   getLastFmApiKeyStatus?: () => Promise<{ configured: boolean }>;
   saveLastFmApiKey?: (key: string) => Promise<{ configured: boolean }>;
   setInterfaceLanguage?: (language: 'ru' | 'en') => Promise<void>;

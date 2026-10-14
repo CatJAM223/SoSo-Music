@@ -1,3 +1,5 @@
+import { useAppUpdateNotice } from './hooks/useAppUpdateNotice';
+import { AppUpdateNotice } from './components/AppUpdateNotice';
 import { useLocale } from '../../shared/i18n/useLocale';
 import { t } from '../../shared/i18n/locale';
 import React, {
@@ -76,6 +78,7 @@ export const DesktopApp: React.FC = () => {
   useLocale();
   const { themePreset } = useTheme();
   const { currentTrack } = useAudioState();
+  const { update: availableUpdate, dismiss: dismissUpdate } = useAppUpdateNotice();
 
   // If running as Desktop Mini-Widget window, render widget view
   if (window.location.hash === '#/widget') {
@@ -486,6 +489,7 @@ export const DesktopApp: React.FC = () => {
         onOpenAddToPlaylist={handleOpenAddToPlaylist}
       />
 
+      {availableUpdate && <AppUpdateNotice update={availableUpdate} onDismiss={dismissUpdate} />}
       <DesktopConnectionDialogs />
       <YouTubeAccessDialog
         currentTrackId={currentTrack?.id}

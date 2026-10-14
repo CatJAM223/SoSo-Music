@@ -112,3 +112,6 @@ __pycache__/
 # Personal Last.fm application configuration.
 lastfm-api-key.json
 *lastfm-api-key*.txt
+
+# Personal overlay positions and global shortcut assignments.
+desktop-controls.json

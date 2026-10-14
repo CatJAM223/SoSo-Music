@@ -1,5 +1,5 @@
 import { useLocale } from '../../i18n/useLocale';
-import { t } from '../../i18n/locale';
+import { t, setLocale } from '../../i18n/locale';
 import { Check } from 'lucide-react';
 import {
   ACCENT_COLOR_OPTIONS,
@@ -25,7 +25,7 @@ export function SettingsAppearance({
   onRemoveWallpaper,
   wallpaperBusy = false,
 }: Props) {
-  useLocale();
+  const locale = useLocale();
   const {
     themePreset,
     setThemePreset,
@@ -51,6 +51,35 @@ export function SettingsAppearance({
 
   return (
     <div className="settings-page settings-appearance">
+      <section className="settings-section settings-language" aria-label={t('Язык интерфейса')}>
+        <div className="settings-row">
+          <div className="settings-row-copy">
+            <strong>{t('Язык интерфейса')}</strong>
+            <span>Русский / English</span>
+          </div>
+          <div className="settings-segmented" role="group" aria-label={t('Язык интерфейса')}>
+            <button
+              type="button"
+              lang="ru"
+              aria-pressed={locale === 'ru'}
+              className={locale === 'ru' ? 'selected' : ''}
+              onClick={() => setLocale('ru')}
+            >
+              RU
+            </button>
+            <button
+              type="button"
+              lang="en"
+              aria-pressed={locale === 'en'}
+              className={locale === 'en' ? 'selected' : ''}
+              onClick={() => setLocale('en')}
+            >
+              EN
+            </button>
+          </div>
+        </div>
+      </section>
+
       <section className="settings-section">
         <h4>{t('Тема оформления')}</h4>
         <div className="settings-theme-list">
