@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { Check, GripHorizontal } from 'lucide-react';
 import type { WidgetState } from '../../../shared/types';
 import { DEFAULT_OVERLAY_LAYOUT, type OverlayLayout } from '../../../shared/utils/desktopControls';
+import { advanceTrackArtwork, trackArtworkCandidates } from '../../../shared/utils/trackArtwork';
 import { DEFAULT_COVER_SVG_DATA_URI } from '../../../shared/utils/placeholder';
 import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
@@ -11,6 +12,7 @@ export function PlayerOverlay() {
   useLocale();
   const [state, setState] = useState<WidgetState | null>(null);
   const [editing, setEditing] = useState(false);
+  const [layoutReady, setLayoutReady] = useState(false);
   const editMode = useRef(false);
   const [layout, setLayout] = useState<OverlayLayout>(structuredClone(DEFAULT_OVERLAY_LAYOUT));
   const current = useRef(layout),
@@ -66,9 +68,12 @@ export function PlayerOverlay() {
         if (active && revision.current === ticket) {
           current.current = value;
           setLayout(value);
+          setLayoutReady(true);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active) setError(t('Не удалось загрузить положение оверлея.'));
+      });
     return () => {
       active = false;
       off?.();
@@ -142,7 +147,7 @@ export function PlayerOverlay() {
     }
   }
   function start(event: ReactPointerEvent<HTMLButtonElement>, panel: Panel) {
-    if (!editMode.current || event.button !== 0) return;
+    if (!layoutReady || !editMode.current || event.button !== 0) return;
     event.preventDefault();
     const rect = event.currentTarget.parentElement!.getBoundingClientRect();
     drag.current = {
@@ -160,9 +165,11 @@ export function PlayerOverlay() {
     }
   }
   const track = state?.track;
-  async function finish() {
+  const artwork = trackArtworkCandidates(track);
+  async function finish(save = true) {
+    if (save && !layoutReady) return;
     try {
-      await window.electronAPI?.saveOverlayLayout?.(current.current);
+      if (save) await window.electronAPI?.saveOverlayLayout?.(current.current);
       await window.electronAPI?.finishOverlayEditing?.();
       editMode.current = false;
       drag.current = null;
@@ -176,6 +183,7 @@ export function PlayerOverlay() {
     return (
       <button
         className="overlay-grip"
+        disabled={!layoutReady}
         autoFocus
         aria-label={t('Перетащить блок')}
         title={t('Перетащите блок или используйте стрелки')}
@@ -187,7 +195,7 @@ export function PlayerOverlay() {
             ArrowUp: [0, -1],
             ArrowDown: [0, 1],
           };
-          if (!editMode.current) return;
+          if (!layoutReady || !editMode.current) return;
           const direction = directions[event.key];
           if (!direction) return;
           event.preventDefault();
@@ -210,7 +218,7 @@ export function PlayerOverlay() {
       className={'player-overlay' + (editing ? ' is-editing' : '')}
       aria-label={t('Оверлей плеера')}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && editing) void finish();
+        if (event.key === 'Escape' && editing) void finish(false);
       }}
     >
       {(track || editing) && (
@@ -222,20 +230,13 @@ export function PlayerOverlay() {
             top: 'calc(' + layout.track.y + ' * (100% - 80px))',
           }}
         >
-          {editing && handle('track')}
+          {editing && layoutReady && handle('track')}
           <div className="overlay-track-content">
             <img
-              src={
-                track?.album?.cover_medium ||
-                track?.album?.cover_small ||
-                track?.album?.cover ||
-                DEFAULT_COVER_SVG_DATA_URI
-              }
+              key={JSON.stringify([track?.id, artwork])}
+              src={artwork[0] || DEFAULT_COVER_SVG_DATA_URI}
               alt=""
-              onError={(event) => {
-                event.currentTarget.onerror = null;
-                event.currentTarget.src = DEFAULT_COVER_SVG_DATA_URI;
-              }}
+              onError={(event) => advanceTrackArtwork(event.currentTarget, track)}
             />
             <div>
               <strong>{track?.title || 'SoSo Music'}</strong>
@@ -250,7 +251,7 @@ export function PlayerOverlay() {
             <strong>{t('Настройка положения')}</strong>
             <span>{t('Перетащите карточку или используйте стрелки.')}</span>
           </div>
-          <button className="overlay-done" onClick={() => void finish()}>
+          <button className="overlay-done" disabled={!layoutReady} onClick={() => void finish()}>
             <Check size={16} />
             {t('Готово')}
           </button>

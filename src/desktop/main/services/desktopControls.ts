@@ -32,13 +32,22 @@ export class DesktopControls {
     this.dispatch = dispatch;
     try {
       const data = JSON.parse(fs.readFileSync(this.filename, 'utf8'));
-      const shortcuts = {} as PlaybackShortcuts;
-      for (const action of SHORTCUT_ACTIONS)
-        shortcuts[action] = normalizeShortcut(data.shortcuts[action]);
-      this.validateUnique(shortcuts);
-      this.shortcuts = shortcuts;
-      this.layout = normalizeOverlayLayout(data.layout);
+      // Recover independent preferences independently: a broken position must not enable an opted-out overlay.
       this.overlayEnabled = data.overlayEnabled !== false;
+      try {
+        const shortcuts = {} as PlaybackShortcuts;
+        for (const action of SHORTCUT_ACTIONS)
+          shortcuts[action] = normalizeShortcut(data.shortcuts[action]);
+        this.validateUnique(shortcuts);
+        this.shortcuts = shortcuts;
+      } catch {
+        /* Invalid shortcuts keep their defaults. */
+      }
+      try {
+        this.layout = normalizeOverlayLayout(data.layout);
+      } catch {
+        /* Invalid positions keep their defaults. */
+      }
     } catch {
       /* Missing or invalid local preferences use defaults. */
     }

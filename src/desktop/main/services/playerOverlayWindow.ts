@@ -1,4 +1,5 @@
 import { BrowserWindow, screen, type IpcMainInvokeEvent } from 'electron';
+import { trackArtworkCandidates } from '../../../shared/utils/trackArtwork.ts';
 import type { WidgetState } from '../../../shared/types';
 export function createPlayerOverlayWindow(
   preload: string,
@@ -25,9 +26,7 @@ export function createPlayerOverlayWindow(
       track?.id,
       track?.title,
       track?.artist?.name,
-      track?.album?.cover,
-      track?.album?.cover_small,
-      track?.album?.cover_medium,
+      trackArtworkCandidates(track),
     ]);
     if (!force && key === lastTrackKey) return;
     lastTrackKey = key;

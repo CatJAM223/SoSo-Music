@@ -2,6 +2,7 @@
 
 ### [3.1.0]
 
+- Preserve disabled overlay settings when other preferences are damaged; cancel delayed shortcut recording on blur; allow Esc to leave position editing after a failed save; recover artwork through bounded fallback URLs.
 - Support single-key and two-key shortcuts, an overlay on/off choice in integrations and onboarding, and fewer background overlay updates.
 - Global configurable shortcuts for playback and a transparent, click-through track overlay with a separate position editor and compact keycap settings.
 - Background GitHub release checks with a minimal update announcement that preserves playback.

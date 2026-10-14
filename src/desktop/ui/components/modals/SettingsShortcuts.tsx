@@ -24,7 +24,8 @@ export function SettingsShortcuts() {
     [menu, setMenu] = useState<ShortcutAction | null>(null);
   const alive = useRef(true),
     saving = useRef(false),
-    generation = useRef(0);
+    generation = useRef(0),
+    captureAttempt = useRef(0);
   useEffect(() => {
     alive.current = true;
     const ticket = ++generation.current;
@@ -37,7 +38,18 @@ export function SettingsShortcuts() {
         if (alive.current && ticket === generation.current)
           setError(t('Не удалось загрузить горячие клавиши.'));
       });
+    const cancelPendingCapture = () => {
+      captureAttempt.current++;
+      if (!saving.current) {
+        setBusy(false);
+        setRecording(null);
+      }
+      void window.electronAPI?.captureDesktopShortcut?.(false).catch(() => {});
+    };
+    window.addEventListener('blur', cancelPendingCapture);
     return () => {
+      window.removeEventListener('blur', cancelPendingCapture);
+      captureAttempt.current++;
       alive.current = false;
       generation.current++;
       void window.electronAPI?.captureDesktopShortcut?.(false).catch(() => {});
@@ -90,16 +102,18 @@ export function SettingsShortcuts() {
   }, [recording, save]);
   async function begin(action: ShortcutAction) {
     if (busy || recording) return;
+    const attempt = ++captureAttempt.current;
     setBusy(true);
     setMenu(null);
     setError('');
     try {
       await window.electronAPI?.captureDesktopShortcut?.(true);
-      if (alive.current) setRecording(action);
+      if (alive.current && captureAttempt.current === attempt) setRecording(action);
     } catch {
-      if (alive.current) setError(t('Не удалось назначить горячую клавишу.'));
+      if (alive.current && captureAttempt.current === attempt)
+        setError(t('Не удалось назначить горячую клавишу.'));
     } finally {
-      if (alive.current) setBusy(false);
+      if (alive.current && captureAttempt.current === attempt) setBusy(false);
     }
   }
   useEffect(() => {

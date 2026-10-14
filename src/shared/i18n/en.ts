@@ -1,5 +1,6 @@
 // Russian source phrases are stable translation keys. Never translate catalog or user data.
 export const english: Record<string, string> = {
+  'Не удалось загрузить положение оверлея.': 'Could not load the overlay position.',
   'Включить оверлей': 'Enable overlay',
   'При отключении окно оверлея закрывается, его горячая клавиша освобождается. Управление музыкой продолжает работать.':
     'Disabling closes the overlay and releases its shortcut. Music controls keep working.',

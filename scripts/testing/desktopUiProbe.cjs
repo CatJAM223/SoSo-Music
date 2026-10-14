@@ -874,6 +874,10 @@ app
         if(window.fixtureShortcutCalls[0].key!=='Control+Shift+O')throw Error('Hotkey not saved');
         binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape',bubbles:true}));await wait(()=>!window.fixtureShortcutCapture);
         if(window.fixtureShortcutCalls.length!==1)throw Error('Cancel overwrote shortcut');
+        const captureOriginal=window.electronAPI.captureDesktopShortcut;let finishCapture;
+        window.electronAPI.captureDesktopShortcut=value=>value?new Promise(resolve=>{window.fixtureShortcutCapture=true;finishCapture=resolve;}):captureOriginal(false);
+        binding().click();await wait(()=>!!finishCapture);window.dispatchEvent(new Event('blur'));finishCapture({shortcuts:{},unavailable:[],overlayEnabled:true});await new Promise(r=>setTimeout(r,40));
+        if(window.fixtureShortcutCapture||binding().disabled||binding().textContent.includes('Нажмите'))throw Error('Late capture handshake resumed recording after blur');window.electronAPI.captureDesktopShortcut=captureOriginal;
         const menuButton=()=>binding().closest('.shortcut-row').querySelector('.shortcut-more');
         menuButton().click();await wait(()=>document.querySelector('.shortcut-menu'));document.querySelectorAll('.shortcut-menu button')[1].click();await wait(()=>binding().textContent==='Не назначено');
         if(window.fixtureShortcutCalls.at(-1).key!=='')throw Error('Disable menu failed');
@@ -963,6 +967,26 @@ app
       fs.writeFileSync(
         path.join(path.dirname(output), 'player-overlay-view.png'),
         (await window.webContents.capturePage()).toPNG(),
+      );
+      await window.webContents.executeJavaScript(`(async()=>{
+        const wait=async check=>{for(let i=0;i<100;i++){if(check())return;await new Promise(r=>setTimeout(r,20));}throw Error('Overlay edge case timed out');};
+        const save=window.electronAPI.saveOverlayLayout;
+        window.fixtureOverlayEditing=true;window.fixtureOverlayModeListener(true);await wait(()=>document.querySelector('.overlay-done'));
+        window.electronAPI.saveOverlayLayout=async()=>{throw Error('disk is full');};document.querySelector('.overlay-done').click();await wait(()=>document.querySelector('.overlay-error'));
+        document.querySelector('.player-overlay').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));await wait(()=>!document.querySelector('.overlay-done'));
+        if(window.fixtureOverlayEditing||getComputedStyle(document.querySelector('.overlay-panel')).pointerEvents!=='none')throw Error('Failed save trapped overlay input');window.electronAPI.saveOverlayLayout=save;
+        const getLayout=window.electronAPI.getOverlayLayout;let resolveLayout;window.fixtureOverlayLayoutRequest=()=>new Promise(resolve=>resolveLayout=resolve);
+        window.fixtureOverlayEditing=true;window.renderOverlayFixture();await wait(()=>document.querySelector('.overlay-done'));
+        if(!document.querySelector('.overlay-done').disabled||document.querySelector('.overlay-grip'))throw Error('Editor can overwrite position before it loads');
+        resolveLayout(structuredClone(window.fixtureOverlayLayout));await wait(()=>document.querySelector('.overlay-grip')&&!document.querySelector('.overlay-done').disabled);window.fixtureOverlayLayoutRequest=null;window.electronAPI.getOverlayLayout=getLayout;
+        document.querySelector('.overlay-done').click();await wait(()=>!document.querySelector('.overlay-done'));
+        const cover='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="3" height="2"/>');
+        window.fixtureOverlayListener({...window.fixtureOverlayState,track:{...window.fixtureOverlayState.track,id:'artwork-recovery',album:{cover_medium:'https://artwork.invalid/overlay.jpg',cover_big:cover}}});await wait(()=>document.querySelector('.overlay-track img')?.naturalWidth===3);
+        window.fixtureOverlayListener({...window.fixtureOverlayState,track:{...window.fixtureOverlayState.track,id:'no-artwork',album:{}}});await wait(()=>document.querySelector('.overlay-track img')?.getAttribute('src')===window.fixtureDefaultCover);
+        let errors=0;document.querySelector('.overlay-track img').addEventListener('error',()=>errors++);document.querySelector('.overlay-track img').dispatchEvent(new Event('error'));await new Promise(r=>setTimeout(r,40));if(errors!==1)throw Error('Overlay placeholder retries itself');
+      })()`);
+      console.log(
+        'PRE_PUSH_EDGE_CASES_OK: late shortcut handshake, failed position save/Esc, deferred position load and bounded artwork fallback',
       );
       console.log(
         'PLAYER_OVERLAY_SHORTCUTS_UI_OK: grouped keycaps, capture/cancel, transparent noninteractive view, position editor, mouse/keyboard move and saved position',

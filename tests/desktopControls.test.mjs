@@ -217,3 +217,34 @@ test('Failure to persist disabled overlay leaves it enabled and its shortcut reg
   assert.ok(f.keys.has(DEFAULT_SHORTCUTS.overlay));
   assert.throws(() => f.controls.setOverlayEnabled('false'), /INVALID_OVERLAY_ENABLED/);
 });
+
+test('A damaged layout preserves overlay opt-out and valid custom shortcuts', (t) => {
+  const f = setup(t);
+  fs.writeFileSync(
+    path.join(f.dir, 'desktop-controls.json'),
+    JSON.stringify({
+      overlayEnabled: false,
+      shortcuts: { ...DEFAULT_SHORTCUTS, next: 'F8' },
+      layout: { track: { x: null, y: 0 } },
+    }),
+  );
+  const restored = new DesktopControls(f.dir, f.registry, () => {});
+  assert.equal(restored.status().overlayEnabled, false);
+  assert.equal(restored.status().shortcuts.next, 'F8');
+  assert.deepEqual(restored.getLayout().track, { x: 0.04, y: 0.75 });
+  restored.dispose();
+});
+
+test('Damaged shortcut settings do not enable an opted-out overlay or discard a valid position', (t) => {
+  const f = setup(t),
+    layout = { track: { x: 0.8, y: 0.2 }, controls: { x: 0.1, y: 0.3 } };
+  fs.writeFileSync(
+    path.join(f.dir, 'desktop-controls.json'),
+    JSON.stringify({ overlayEnabled: false, shortcuts: { next: 'bad key' }, layout }),
+  );
+  const restored = new DesktopControls(f.dir, f.registry, () => {});
+  assert.equal(restored.status().overlayEnabled, false);
+  assert.deepEqual(restored.status().shortcuts, DEFAULT_SHORTCUTS);
+  assert.deepEqual(restored.getLayout(), layout);
+  restored.dispose();
+});
