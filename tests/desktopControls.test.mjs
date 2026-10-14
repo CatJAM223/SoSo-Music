@@ -94,6 +94,7 @@ test('IPC enforces separate permissions for player settings and overlay interact
     contents = { mainFrame: {} },
     overlayContents = { mainFrame: {} };
   let calls = 0;
+  let editing = false;
   const main = { isDestroyed: () => false, webContents: contents },
     event = { sender: contents, senderFrame: contents.mainFrame },
     overlayEvent = { sender: overlayContents, senderFrame: overlayContents.mainFrame };
@@ -117,7 +118,9 @@ test('IPC enforces separate permissions for player settings and overlay interact
     {
       owns: (e) => e.sender === overlayContents && e.senderFrame === overlayContents.mainFrame,
       toggle: () => true,
-      interactive: () => {},
+      edit: () => (editing = true),
+      isEditing: () => editing,
+      finishEditing: () => (editing = false),
     },
     () => null,
   );
@@ -125,9 +128,21 @@ test('IPC enforces separate permissions for player settings and overlay interact
   assert.equal(calls, 0);
   assert.throws(() => handlers.get('overlay:saveLayout')(event, {}));
   assert.equal(calls, 0);
-  assert.throws(() => handlers.get('overlay:interactive')(overlayEvent, 'yes'));
+  assert.throws(() => handlers.get('overlay:edit')(overlayEvent));
+  assert.throws(() => handlers.get('overlay:isEditing')(event));
+  assert.throws(() => handlers.get('overlay:finishEditing')(event));
+  assert.throws(() => handlers.get('overlay:edit')({ ...event, senderFrame: {} }));
+  assert.equal(handlers.get('overlay:isEditing')(overlayEvent), false);
+  assert.throws(() => handlers.get('overlay:saveLayout')(overlayEvent, {}), /editing required/);
+  assert.equal(handlers.get('overlay:edit')(event), true);
+  assert.equal(handlers.get('overlay:isEditing')(overlayEvent), true);
+  handlers.get('overlay:saveLayout')(overlayEvent, {});
+  assert.equal(calls, 1);
+  assert.equal(handlers.get('overlay:finishEditing')(overlayEvent), false);
+  assert.throws(() => handlers.get('overlay:saveLayout')(overlayEvent, {}), /editing required/);
+  assert.equal(handlers.has('overlay:interactive'), false);
   assert.throws(() => handlers.get('desktopControls:capture')(event, {}));
   assert.equal(handlers.get('overlay:toggle')(overlayEvent), true);
   handlers.get('desktopControls:get')(event);
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 });

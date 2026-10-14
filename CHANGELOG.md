@@ -2,7 +2,7 @@
 
 ### [3.1.0]
 
-- Global configurable shortcuts for playback and a transparent player overlay with independently movable track and controls panels.
+- Global configurable shortcuts for playback and a transparent, click-through track overlay with a separate position editor and compact keycap settings.
 - Background GitHub release checks with a minimal update announcement that preserves playback.
 - Language selection moved to Appearance.
 - My Wave spaces liked recordings between other available songs, including across batch boundaries.

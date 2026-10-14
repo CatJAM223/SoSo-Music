@@ -19,7 +19,14 @@ const api: ElectronAPI = {
   getOverlayState: () => ipcRenderer.invoke('overlay:getState'),
   getOverlayLayout: () => ipcRenderer.invoke('overlay:getLayout'),
   saveOverlayLayout: (layout) => ipcRenderer.invoke('overlay:saveLayout', layout),
-  setOverlayInteractive: (enabled) => ipcRenderer.invoke('overlay:interactive', enabled),
+  editPlayerOverlay: () => ipcRenderer.invoke('overlay:edit'),
+  getOverlayEditing: () => ipcRenderer.invoke('overlay:isEditing'),
+  finishOverlayEditing: () => ipcRenderer.invoke('overlay:finishEditing'),
+  onOverlayEditingChanged: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, editing: boolean) => callback(editing);
+    ipcRenderer.on('overlay:editingChanged', handler);
+    return () => ipcRenderer.removeListener('overlay:editingChanged', handler);
+  },
   getLastFmApiKeyStatus: () => ipcRenderer.invoke('lastfm:keyStatus'),
   saveLastFmApiKey: (key) => ipcRenderer.invoke('lastfm:saveKey', key),
   setInterfaceLanguage: (language) => ipcRenderer.invoke('app:setInterfaceLanguage', language),

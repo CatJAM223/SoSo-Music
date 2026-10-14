@@ -1,5 +1,22 @@
 // Russian source phrases are stable translation keys. Never translate catalog or user data.
 export const english: Record<string, string> = {
+  'Работают, даже когда плеер свёрнут.': 'Available even when the player is minimized.',
+  'Нажмите на клавиши, чтобы изменить сочетание. Esc — отмена.':
+    'Click the keys to change a shortcut. Esc cancels.',
+  'Обложка и название трека поверх других окон. Клики проходят насквозь.':
+    'Artwork and track title above other windows. Clicks pass through.',
+  'Положение на экране': 'Position on screen',
+  'Переместите карточку в удобное место. Положение сохранится.':
+    'Move the card wherever you like. Its position is saved.',
+  'Настроить положение': 'Adjust position',
+  'Настройка положения': 'Adjusting position',
+  'Перетащите карточку или используйте стрелки.': 'Drag the card or use the arrow keys.',
+  'В играх используйте оконный режим или окно без рамок.':
+    'Use windowed or borderless mode in games.',
+  'Не удалось открыть настройку оверлея.': 'Could not open overlay positioning.',
+  'Изменить сочетание': 'Change shortcut',
+  'Действия с сочетанием': 'Shortcut options',
+  Пробел: 'Space',
   'Перетащить трек': 'Drag track',
   'Действия с треком': 'Track actions',
   'В очереди пока нет следующих треков.': 'No upcoming tracks yet.',

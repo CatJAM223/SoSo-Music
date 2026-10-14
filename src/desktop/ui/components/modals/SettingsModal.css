@@ -1,16 +1,1 @@
 @import '../../../../shared/components/settings/settings.css';
-
-.settings-shortcut-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
-}
-.settings-shortcuts .settings-row {
-  gap: 18px;
-}
-.settings-shortcuts [role='alert'] {
-  color: #fca5a5;
-  margin-top: 16px;
-}

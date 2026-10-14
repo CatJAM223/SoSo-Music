@@ -853,22 +853,50 @@ app
       await window.webContents.executeJavaScript(`(async()=>{
         let step=0;const wait=async(fn)=>{step++;for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Hotkey settings timed out step '+step+' '+document.querySelector('.settings-shortcuts')?.textContent);};
         window.fixtureSetupShortcuts();window.renderSettingsFixture();await wait(()=>document.querySelector('[role="tab"]'));
-        [...document.querySelectorAll('[role="tab"]')].find(el=>el.textContent==='Горячие клавиши').click();await wait(()=>document.querySelector('.settings-shortcuts button')?.textContent==='Control+Shift+Space');
-        document.querySelector('.settings-shortcuts button').click();await wait(()=>window.fixtureShortcutCapture&&document.querySelector('.settings-shortcuts button').textContent.includes('Нажмите'));
-        window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyO',ctrlKey:true,shiftKey:true,bubbles:true}));await wait(()=>document.querySelector('.settings-shortcuts button').textContent==='Control+Shift+O');
+        [...document.querySelectorAll('[role="tab"]')].find(el=>el.textContent==='Горячие клавиши').click();
+        const binding=()=>document.querySelector('[data-shortcut-action="overlay"]');
+        await wait(()=>binding()?.querySelectorAll('kbd').length===3);
+        if(document.querySelectorAll('.shortcuts-group').length!==2||document.querySelectorAll('.shortcut-keys kbd').length!==12)throw Error('Missing grouped keycaps');
+        binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));
+        window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyO',ctrlKey:true,shiftKey:true,bubbles:true}));await wait(()=>binding().textContent==='CtrlShiftO');
         if(window.fixtureShortcutCalls[0].key!=='Control+Shift+O')throw Error('Hotkey not saved');
+        binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape',bubbles:true}));await wait(()=>!window.fixtureShortcutCapture);
+        if(window.fixtureShortcutCalls.length!==1)throw Error('Cancel overwrote shortcut');
+        const menuButton=()=>binding().closest('.shortcut-row').querySelector('.shortcut-more');
+        menuButton().click();await wait(()=>document.querySelector('.shortcut-menu'));document.querySelectorAll('.shortcut-menu button')[1].click();await wait(()=>binding().textContent==='Не назначено');
+        if(window.fixtureShortcutCalls.at(-1).key!=='')throw Error('Disable menu failed');
+        menuButton().click();await wait(()=>document.querySelector('.shortcut-menu'));document.querySelector('.shortcut-menu button').click();await wait(()=>binding().textContent==='CtrlShiftПробел');
+        if(window.fixtureShortcutCalls.at(-1).key!=='Control+Shift+Space')throw Error('Reset menu failed');
+      })()`);
+      fs.writeFileSync(
+        path.join(path.dirname(output), 'shortcuts-dark.png'),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+      await window.webContents.executeJavaScript(
+        'document.documentElement.classList.remove("dark");window.fixtureSetLocale("en");',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      fs.writeFileSync(
+        path.join(path.dirname(output), 'shortcuts-light-en.png'),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+      await window.webContents.executeJavaScript(`(async()=>{
+        const wait=async(fn)=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Overlay fixture timed out');};
+        document.documentElement.classList.add('dark');window.fixtureSetLocale('ru');
+        if(!document.querySelector('.shortcuts-position button'))throw Error('Missing positioning entry');
+        document.querySelector('.shortcuts-position button').click();await wait(()=>window.fixtureOverlayEditing);
         [...document.querySelectorAll('[role="tab"]')].find(el=>el.textContent==='Обзор').click();await wait(()=>!document.querySelector('.settings-shortcuts'));
         if(window.fixtureShortcutCapture)throw Error('Global shortcuts left suspended after tab close');
-        window.renderOverlayFixture();await wait(()=>document.querySelector('.overlay-track strong')?.textContent==='Overlay song');
-        document.querySelector('.overlay-buttons button[aria-label="Следующий трек"]').click();document.querySelector('.overlay-play').click();document.querySelector('.overlay-buttons button[aria-label="Предыдущий трек"]').click();
-        if(JSON.stringify(window.fixtureOverlayCommands)!==JSON.stringify(['next','togglePlay','prev']))throw Error('Overlay playback routing failed');
-        const controlsBefore=JSON.stringify(window.fixtureOverlayLayout.controls);
+        window.fixtureOverlayEditing=false;window.renderOverlayFixture();await wait(()=>document.querySelector('.overlay-track strong')?.textContent==='Overlay song');
+        if(document.querySelectorAll('[data-overlay-panel]').length!==1||document.querySelector('.player-overlay button'))throw Error('Viewing overlay has playback controls or handles');
+        if(getComputedStyle(document.querySelector('.overlay-panel')).pointerEvents!=='none')throw Error('Track card intercepts clicks');
+        if(getComputedStyle(document.querySelector('.overlay-panel')).backgroundColor!=='rgba(0, 0, 0, 0)')throw Error('Viewing overlay is not transparent');
+        document.querySelector('.overlay-panel').dispatchEvent(new MouseEvent('mouseenter',{bubbles:true}));
+        if(document.querySelector('.overlay-grip'))throw Error('Hover activated overlay controls');
+        window.fixtureOverlayEditing=true;window.fixtureOverlayModeListener(true);await wait(()=>document.querySelector('.overlay-grip'));
         document.querySelector('.overlay-track .overlay-grip').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));await wait(()=>window.fixtureOverlayLayout.track.x>.04);
-        if(JSON.stringify(window.fixtureOverlayLayout.controls)!==controlsBefore)throw Error('Track movement shifted controls');
-        const saved=window.fixtureOverlayLayout.track.x,oldListener=window.fixtureOverlayListener;window.renderOverlayFixture();await wait(()=>{if(!window.fixtureOverlayListener||window.fixtureOverlayListener===oldListener)return false;const r=document.querySelector('.overlay-track')?.getBoundingClientRect();return r&&Math.abs(r.left-saved*(innerWidth-r.width))<1;});
+        const saved=window.fixtureOverlayLayout.track.x,oldListener=window.fixtureOverlayListener;window.renderOverlayFixture();await wait(()=>{if(!window.fixtureOverlayListener||window.fixtureOverlayListener===oldListener)return false;const r=document.querySelector('.overlay-track')?.getBoundingClientRect();return r&&document.querySelector('.overlay-grip')&&Math.abs(r.left-saved*(innerWidth-r.width))<1;});
         window.fixtureOverlayListener({...window.fixtureOverlayState,track:{...window.fixtureOverlayState.track,title:'New overlay song'},isPlaying:false});await wait(()=>document.querySelector('.overlay-track strong').textContent==='New overlay song');
-        if(getComputedStyle(document.querySelector('.player-overlay')).pointerEvents!=='none'||getComputedStyle(document.querySelector('.overlay-panel')).pointerEvents!=='auto')throw Error('Overlay empty area captures input');
-        document.querySelector('.overlay-buttons button[aria-label="Скрыть оверлей"]').click();if(!window.fixtureOverlayClosed)throw Error('Overlay close not connected');
       })()`);
       const dragPoint = await window.webContents.executeJavaScript(
         "(()=>{const r=document.querySelector('.overlay-track .overlay-grip').getBoundingClientRect();return {x:Math.round(r.left+30),y:Math.round(r.top+10)};})()",
@@ -905,8 +933,22 @@ app
         path.join(path.dirname(output), 'player-overlay.png'),
         (await window.webContents.capturePage()).toPNG(),
       );
+      await window.webContents.executeJavaScript(`(async()=>{
+        document.querySelector('.overlay-done').click();
+        for(let i=0;i<100&&document.querySelector('.overlay-done');i++)await new Promise(r=>setTimeout(r,20));
+        if(document.querySelector('.player-overlay button')||window.fixtureOverlayEditing||getComputedStyle(document.querySelector('.overlay-panel')).pointerEvents!=='none')throw Error('Position editor did not return to click-through view');
+        window.fixtureOverlayListener({...window.fixtureOverlayState,track:null});
+        for(let i=0;i<100&&document.querySelector('.overlay-track');i++)await new Promise(r=>setTimeout(r,20));
+        if(document.querySelector('.overlay-track'))throw Error('Empty overlay shows a waiting card');
+        window.fixtureOverlayListener(window.fixtureOverlayState);
+      })()`);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      fs.writeFileSync(
+        path.join(path.dirname(output), 'player-overlay-view.png'),
+        (await window.webContents.capturePage()).toPNG(),
+      );
       console.log(
-        'PLAYER_OVERLAY_SHORTCUTS_UI_OK: independent panels, saved position, live metadata, controls, shortcut capture and cleanup',
+        'PLAYER_OVERLAY_SHORTCUTS_UI_OK: grouped keycaps, capture/cancel, transparent noninteractive view, position editor, mouse/keyboard move and saved position',
       );
       await window.webContents.executeJavaScript(`(async()=>{
         const wait=async(fn)=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Update notification timed out');};

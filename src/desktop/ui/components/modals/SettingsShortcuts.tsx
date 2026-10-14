@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { MoreHorizontal, Move, RotateCcw, X } from 'lucide-react';
+import './SettingsShortcuts.css';
 import {
-  SHORTCUT_ACTIONS,
   DEFAULT_SHORTCUTS,
   shortcutFromKey,
   type ShortcutAction,
@@ -19,7 +20,8 @@ export function SettingsShortcuts() {
   const [status, setStatus] = useState<DesktopControlsStatus | null>(null),
     [recording, setRecording] = useState<ShortcutAction | null>(null),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState('');
+    [error, setError] = useState(''),
+    [menu, setMenu] = useState<ShortcutAction | null>(null);
   const alive = useRef(true),
     saving = useRef(false),
     generation = useRef(0);
@@ -46,6 +48,7 @@ export function SettingsShortcuts() {
     saving.current = true;
     generation.current++;
     setBusy(true);
+    setMenu(null);
     setError('');
     try {
       const value = await window.electronAPI?.setDesktopShortcut?.(action, key);
@@ -96,74 +99,132 @@ export function SettingsShortcuts() {
       if (alive.current) setBusy(false);
     }
   }
+  useEffect(() => {
+    if (!menu) return;
+    const outside = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.shortcut-menu-wrap'))
+        setMenu(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenu(null);
+    };
+    window.addEventListener('pointerdown', outside);
+    window.addEventListener('keydown', escape);
+    return () => {
+      window.removeEventListener('pointerdown', outside);
+      window.removeEventListener('keydown', escape);
+    };
+  }, [menu]);
+  async function editOverlay() {
+    setError('');
+    try {
+      await window.electronAPI?.editPlayerOverlay?.();
+    } catch {
+      if (alive.current) setError(t('Не удалось открыть настройку оверлея.'));
+    }
+  }
+  function row(action: ShortcutAction) {
+    const names: Record<string, string> = {
+      Control: 'Ctrl',
+      Super: 'Win',
+      Space: t('Пробел'),
+      Left: '←',
+      Right: '→',
+      Up: '↑',
+      Down: '↓',
+      PageUp: 'PgUp',
+      PageDown: 'PgDn',
+    };
+    const shortcut = status?.shortcuts[action];
+    return (
+      <div className="shortcut-row" key={action}>
+        <div className="shortcut-copy">
+          <span>{t(labels[action])}</span>
+          {status?.unavailable.includes(action) && (
+            <small role="status">{t('Сочетание занято другим приложением.')}</small>
+          )}
+        </div>
+        <div className="shortcut-binding">
+          <button
+            className={'shortcut-keys' + (recording === action ? ' is-recording' : '')}
+            data-shortcut-action={action}
+            disabled={!status || busy || !!recording}
+            onClick={() => void begin(action)}
+            aria-label={t(labels[action])}
+            title={t('Изменить сочетание')}
+          >
+            {recording === action ? (
+              <span className="shortcut-recording">{t('Нажмите сочетание…')}</span>
+            ) : shortcut ? (
+              shortcut.split('+').map((key) => <kbd key={key}>{names[key] || key}</kbd>)
+            ) : (
+              <span className="shortcut-unassigned">{t('Не назначено')}</span>
+            )}
+          </button>
+          <div className="shortcut-menu-wrap">
+            <button
+              className="shortcut-more"
+              aria-label={t('Действия с сочетанием')}
+              aria-expanded={menu === action}
+              disabled={!status || busy || !!recording}
+              onClick={() => setMenu(menu === action ? null : action)}
+            >
+              <MoreHorizontal size={17} />
+            </button>
+            {menu === action && (
+              <div className="shortcut-menu">
+                <button onClick={() => void save(action, DEFAULT_SHORTCUTS[action])}>
+                  <RotateCcw size={14} />
+                  {t('Сбросить')}
+                </button>
+                <button disabled={!shortcut} onClick={() => void save(action, '')}>
+                  <X size={14} />
+                  {t('Отключить')}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="settings-page settings-shortcuts">
-      <section className="settings-section">
-        <h4>{t('Горячие клавиши')}</h4>
-        <p className="settings-description">
-          {t(
-            'Работают, пока плеер запущен, даже если его окно свёрнуто. Нажмите сочетание для изменения; Esc отменяет ввод.',
-          )}
+      <section className="shortcuts-section">
+        <h4>{t('Воспроизведение')}</h4>
+        <p className="shortcuts-description">{t('Работают, даже когда плеер свёрнут.')}</p>
+        <div className="shortcuts-group">
+          {(['togglePlay', 'next', 'prev'] as ShortcutAction[]).map(row)}
+        </div>
+        <p className="shortcuts-hint">
+          {t('Нажмите на клавиши, чтобы изменить сочетание. Esc — отмена.')}
         </p>
-        {SHORTCUT_ACTIONS.map((action) => (
-          <div className="settings-row" key={action}>
-            <div className="settings-row-copy">
-              <strong>{t(labels[action])}</strong>
-              {status?.unavailable.includes(action) && (
-                <span role="status">{t('Сочетание занято другим приложением.')}</span>
-              )}
-            </div>
-            <div className="settings-shortcut-actions">
-              <button
-                className="settings-action"
-                disabled={!status || busy || !!recording}
-                onClick={() => void begin(action)}
-                aria-label={t(labels[action])}
-              >
-                {recording === action
-                  ? t('Нажмите сочетание…')
-                  : status?.shortcuts[action] || t('Не назначено')}
-              </button>
-              <button
-                className="settings-action"
-                disabled={!status || busy}
-                title={t('Сбросить')}
-                onClick={() => void save(action, DEFAULT_SHORTCUTS[action])}
-              >
-                ↺
-              </button>
-              <button
-                className="settings-action"
-                disabled={!status || busy || !!recording || !status.shortcuts[action]}
-                title={t('Отключить')}
-                onClick={() => void save(action, '')}
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        ))}
-        {error && <p role="alert">{error}</p>}
       </section>
-      <section className="settings-section">
+      <section className="shortcuts-section">
         <h4>{t('Оверлей плеера')}</h4>
-        <p className="settings-description">
-          {t(
-            'Перетащите обложку с названием и панель управления за верхние ручки. Положение сохраняется. Пустая область пропускает клики в игру.',
-          )}
+        <p className="shortcuts-description">
+          {t('Обложка и название трека поверх других окон. Клики проходят насквозь.')}
         </p>
-        <p className="settings-description">
-          {t(
-            'Для игр используйте оконный режим или окно без рамок. Эксклюзивный полноэкранный режим может скрывать оверлей.',
-          )}
+        <div className="shortcuts-group">{row('overlay')}</div>
+        <div className="shortcuts-position">
+          <div>
+            <strong>{t('Положение на экране')}</strong>
+            <p>{t('Переместите карточку в удобное место. Положение сохранится.')}</p>
+          </div>
+          <button className="shortcut-position-button" onClick={() => void editOverlay()}>
+            <Move size={15} />
+            {t('Настроить положение')}
+          </button>
+        </div>
+        <p className="shortcuts-hint">
+          {t('В играх используйте оконный режим или окно без рамок.')}
         </p>
-        <button
-          className="settings-action settings-action-primary"
-          onClick={() => void window.electronAPI?.togglePlayerOverlay?.()}
-        >
-          {t('Показать / скрыть оверлей')}
-        </button>
       </section>
+      {error && (
+        <p className="shortcuts-error" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

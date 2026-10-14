@@ -440,7 +440,10 @@ export interface ElectronAPI {
   getOverlayState?: () => Promise<WidgetState | null>;
   getOverlayLayout?: () => Promise<OverlayLayout>;
   saveOverlayLayout?: (layout: OverlayLayout) => Promise<OverlayLayout>;
-  setOverlayInteractive?: (enabled: boolean) => Promise<void>;
+  editPlayerOverlay?: () => Promise<boolean>;
+  getOverlayEditing?: () => Promise<boolean>;
+  finishOverlayEditing?: () => Promise<boolean>;
+  onOverlayEditingChanged?: (callback: (editing: boolean) => void) => () => void;
   getLastFmApiKeyStatus?: () => Promise<{ configured: boolean }>;
   saveLastFmApiKey?: (key: string) => Promise<{ configured: boolean }>;
   setInterfaceLanguage?: (language: 'ru' | 'en') => Promise<void>;

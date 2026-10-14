@@ -9,6 +9,7 @@ export default {
       captureDesktopShortcut: async () => ({ shortcuts: DEFAULT_SHORTCUTS, unavailable: [] }),
       setDesktopShortcut: async () => ({ shortcuts: DEFAULT_SHORTCUTS, unavailable: [] }),
       togglePlayerOverlay: async () => true,
+      editPlayerOverlay: async () => true,
     });
     return <SettingsShortcuts />;
   },
@@ -16,7 +17,10 @@ export default {
 export const Defaults = {
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await new Promise((r) => setTimeout(r, 100));
-    if (!canvasElement.textContent?.includes('Control+Shift+Space'))
+    if (
+      canvasElement.querySelector('[data-shortcut-action=overlay]')?.querySelectorAll('kbd')
+        .length !== 3
+    )
       throw Error('Missing overlay shortcut');
   },
 };

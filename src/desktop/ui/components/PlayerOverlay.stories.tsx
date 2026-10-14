@@ -21,17 +21,20 @@ export default {
         volume: 1,
       }),
       saveOverlayLayout: async (value: unknown) => value,
-      setOverlayInteractive: async () => {},
+      getOverlayEditing: async () => false,
+      finishOverlayEditing: async () => false,
+      onOverlayEditingChanged: () => () => {},
       togglePlayerOverlay: async () => false,
       onWidgetStateUpdate: () => () => {},
     });
     return <PlayerOverlay />;
   },
 };
-export const Panels = {
+export const TrackInfo = {
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await new Promise((r) => setTimeout(r, 100));
-    if (canvasElement.querySelectorAll('[data-overlay-panel]').length !== 2)
-      throw Error('Expected independent track and controls panels');
+    if (canvasElement.querySelectorAll('[data-overlay-panel]').length !== 1)
+      throw Error('Expected a single track card');
+    if (canvasElement.querySelector('button')) throw Error('Viewing overlay must have no controls');
   },
 };

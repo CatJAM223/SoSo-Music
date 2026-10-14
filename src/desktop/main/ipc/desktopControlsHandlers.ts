@@ -4,7 +4,9 @@ import { assertMainWindowSender } from './mainWindowHandlers.ts';
 type Overlay = {
   owns: (event: IpcMainInvokeEvent) => boolean;
   toggle: () => boolean;
-  interactive: (enabled: boolean) => void;
+  edit: () => boolean;
+  isEditing: () => boolean;
+  finishEditing: () => boolean;
 };
 export function registerDesktopControlsHandlers(
   ipc: Pick<IpcMain, 'handle'>,
@@ -33,6 +35,18 @@ export function registerDesktopControlsHandlers(
     if (!overlay.owns(event)) assertMainWindowSender(event, main());
     return overlay.toggle();
   });
+  ipc.handle('overlay:edit', (event) => {
+    assertMainWindowSender(event, main());
+    return overlay.edit();
+  });
+  ipc.handle('overlay:isEditing', (event) => {
+    assertOverlay(event);
+    return overlay.isEditing();
+  });
+  ipc.handle('overlay:finishEditing', (event) => {
+    assertOverlay(event);
+    return overlay.finishEditing();
+  });
   ipc.handle('overlay:getLayout', (event) => {
     assertOverlay(event);
     return controls.getLayout();
@@ -43,11 +57,7 @@ export function registerDesktopControlsHandlers(
   });
   ipc.handle('overlay:saveLayout', (event, value: unknown) => {
     assertOverlay(event);
+    if (!overlay.isEditing()) throw Error('Overlay editing required');
     return controls.saveLayout(value);
-  });
-  ipc.handle('overlay:interactive', (event, value: unknown) => {
-    assertOverlay(event);
-    if (typeof value !== 'boolean') throw Error('Invalid interaction mode');
-    overlay.interactive(value);
   });
 }

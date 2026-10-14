@@ -6,17 +6,32 @@ export function createPlayerOverlayWindow(
 ) {
   let window: BrowserWindow | null = null;
   let visible = false;
+  let editing = false;
+  function applyMode() {
+    if (!window || window.isDestroyed()) return;
+    window.setFocusable(editing);
+    // Normal viewing always passes every mouse event through, including the artwork.
+    window.setIgnoreMouseEvents(!editing);
+    window.webContents.send('overlay:editingChanged', editing);
+  }
+  function show() {
+    if (!window || window.isDestroyed()) return;
+    if (editing) {
+      window.show();
+      window.focus();
+    } else window.showInactive();
+  }
   function toggle() {
     visible = !visible;
+    editing = false;
     if (window && !window.isDestroyed()) {
+      applyMode();
       if (!visible) {
         window.hide();
-        window.setIgnoreMouseEvents(true, { forward: true });
         return false;
       }
       window.setBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds);
-      window.setIgnoreMouseEvents(true, { forward: true });
-      window.showInactive();
+      show();
       return true;
     }
     const win = new BrowserWindow({
@@ -43,14 +58,21 @@ export function createPlayerOverlayWindow(
     });
     window = win;
     win.setAlwaysOnTop(true, 'screen-saver');
-    win.setIgnoreMouseEvents(true, { forward: true });
+    win.setIgnoreMouseEvents(true);
     win.webContents.on('will-navigate', (event) => event.preventDefault());
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.once('ready-to-show', () => {
-      if (!win.isDestroyed() && visible) win.showInactive();
+      if (!win.isDestroyed() && visible) {
+        applyMode();
+        show();
+      }
     });
     win.on('closed', () => {
-      if (window === win) window = null;
+      if (window === win) {
+        window = null;
+        visible = false;
+        editing = false;
+      }
     });
     const adjust = () => {
       if (!win.isDestroyed()) win.setBounds(screen.getDisplayMatching(win.getBounds()).bounds);
@@ -76,13 +98,25 @@ export function createPlayerOverlayWindow(
   return {
     toggle,
     owns,
-    hide: () => {
-      visible = false;
-      window?.hide();
+    isEditing: () => editing,
+    edit: () => {
+      if (!visible || !window || window.isDestroyed()) toggle();
+      editing = true;
+      applyMode();
+      if (!window?.webContents.isLoading()) show();
+      return true;
+    },
+    finishEditing: () => {
+      editing = false;
+      applyMode();
       return false;
     },
-    interactive: (enabled: boolean) => {
-      window?.setIgnoreMouseEvents(!enabled, { forward: true });
+    hide: () => {
+      visible = false;
+      editing = false;
+      applyMode();
+      window?.hide();
+      return false;
     },
     sendState: (state: unknown) => {
       if (window && !window.isDestroyed()) window.webContents.send('widget:stateUpdate', state);
@@ -90,6 +124,8 @@ export function createPlayerOverlayWindow(
     dispose: () => {
       window?.destroy();
       window = null;
+      visible = false;
+      editing = false;
     },
   };
 }
