@@ -1,3 +1,7 @@
+import { startAppUpdateMonitor } from './services/appUpdateMonitor';
+import { DesktopControls } from './services/desktopControls';
+import { createPlayerOverlayWindow } from './services/playerOverlayWindow';
+import { registerDesktopControlsHandlers } from './ipc/desktopControlsHandlers';
 import { LastFmService } from './services/lastfm';
 import { LastFmKeyStore } from './services/lastfmKeyStore';
 import { t, setLocale as setUiLocale } from '../../shared/i18n/locale';
@@ -10,6 +14,7 @@ import { registerWaveHandlers } from './ipc/waveHandlers';
 import { electronFetch } from './services/electronFetch.ts';
 import {
   app,
+  globalShortcut,
   BrowserWindow,
   ipcMain,
   shell,
@@ -112,6 +117,11 @@ app.commandLine.appendSwitch('dns-over-https-templates', 'https://dns.adguard-dn
 
 let mainWindow: BrowserWindow | null = null;
 let widgetWindow: BrowserWindow | null = null;
+let playerOverlay: ReturnType<typeof createPlayerOverlayWindow> | null = null;
+let desktopControls: DesktopControls | null = null;
+let overlayPlaybackState: unknown = null;
+let stopAppUpdateMonitor: (() => void) | null = null;
+let availableAppUpdate: import('../../shared/types').AppUpdateStatus | null = null;
 const localListenServer = new LocalListenServer();
 let listenRendererReady = false;
 let pendingListenTrack: Track | null = null;
@@ -303,6 +313,8 @@ async function createWindow() {
   });
 
   // Prevent navigation to external sites inside main window
+  mainWindow.on('blur', () => desktopControls?.capture(false));
+  mainWindow.webContents.once('destroyed', () => desktopControls?.capture(false));
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
     const devServer = process.env.VITE_DEV_SERVER_URL;
     if (devServer && navigationUrl.startsWith(devServer)) {
@@ -420,6 +432,16 @@ function createWidgetWindow() {
 // ================= IPC HANDLERS =================
 
 function registerIpcHandlers() {
+  registerDesktopControlsHandlers(
+    ipcMain,
+    () => mainWindow,
+    desktopControls!,
+    playerOverlay!,
+    () => {
+      mainWindow?.webContents.send('widget:command', 'requestState');
+      return overlayPlaybackState;
+    },
+  );
   ipcMain.handle('app:setInterfaceLanguage', (_event, language: unknown) => {
     if (language !== 'ru' && language !== 'en')
       throw new TypeError('Unsupported interface language');
@@ -453,13 +475,36 @@ function registerIpcHandlers() {
     return widgetWindow !== null && !widgetWindow.isDestroyed() && widgetWindow.isVisible();
   });
 
-  ipcMain.on('widget:sendState', (_event: any, state: any) => {
+  ipcMain.on('widget:sendState', (event, state: any) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame
+    )
+      return;
+    overlayPlaybackState = state;
+    playerOverlay?.sendState(state);
     if (widgetWindow && !widgetWindow.isDestroyed()) {
       widgetWindow.webContents.send('widget:stateUpdate', state);
     }
   });
 
-  ipcMain.on('widget:command', (_event: any, { command, data }: any) => {
+  ipcMain.on('widget:command', (event, payload: unknown) => {
+    const fromWidget =
+      widgetWindow &&
+      !widgetWindow.isDestroyed() &&
+      event.sender === widgetWindow.webContents &&
+      event.senderFrame === widgetWindow.webContents.mainFrame;
+    if (!fromWidget && !playerOverlay?.owns(event)) return;
+    if (!payload || typeof payload !== 'object') return;
+    const { command, data } = payload as { command: string; data?: unknown };
+    if (
+      !['requestState', 'togglePlay', 'next', 'prev', 'seek', 'setVolume', 'toggleLike'].includes(
+        command,
+      )
+    )
+      return;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('widget:command', command, data);
     }
@@ -901,6 +946,17 @@ let youtubeAccount: YouTubeAccountService | null = null;
 let disposeAccountHandlers: (() => void) | null = null;
 
 app.whenReady().then(async () => {
+  playerOverlay = createPlayerOverlayWindow(
+    path.join(__dirname, 'preload.js'),
+    path.join(__dirname, '../dist/index.html'),
+    process.env.VITE_DEV_SERVER_URL,
+  );
+  desktopControls = new DesktopControls(app.getPath('userData'), globalShortcut, (action) => {
+    if (action === 'overlay') playerOverlay?.toggle();
+    else if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send('widget:command', action);
+  });
+  desktopControls.start();
   void fs.promises
     .readFile(path.join(app.getAppPath(), 'public', 'compute', 'soso-core.wasm'))
     .then((bytes) => initializeRustCompute(bytes))
@@ -941,9 +997,26 @@ app.whenReady().then(async () => {
     youtubeAccount,
   );
   setDesktopFetch((url, init) => electronFetch(url, init));
+  const checkUpdates = createAppUpdateChecker(app.getVersion(), desktopFetch);
+  const publishUpdate = (status: import('../../shared/types').AppUpdateStatus) => {
+    const previous = availableAppUpdate?.latestVersion;
+    if (status.status !== 'available') {
+      availableAppUpdate = null;
+      return;
+    }
+    availableAppUpdate = status;
+    if (previous !== status.latestVersion && mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send('app:updateAvailable', status);
+  };
   registerMainWindowHandlers(ipcMain, () => mainWindow, {
-    'app:checkUpdates': createAppUpdateChecker(app.getVersion(), desktopFetch),
+    'app:checkUpdates': async () => {
+      const status = await checkUpdates();
+      if (status.status !== 'error') publishUpdate(status);
+      return status;
+    },
+    'app:getAvailableUpdate': () => availableAppUpdate,
   });
+  stopAppUpdateMonitor = startAppUpdateMonitor(checkUpdates, publishUpdate);
   setDesktopNetworkRecovery(async () => {
     // Re-read proxy rules without interrupting other media, downloads or prefetches.
     await session.defaultSession.forceReloadProxyConfig();
@@ -1213,6 +1286,9 @@ app.on('before-quit', (event) => {
       }
     }
   }
+  stopAppUpdateMonitor?.();
+  desktopControls?.dispose();
+  playerOverlay?.dispose();
   libraryTaste.dispose();
   disposeAccountHandlers?.();
   youtubeAccount?.dispose();

@@ -16,6 +16,7 @@ const scratch = path.join(root, 'scratch');
 fs.mkdirSync(scratch, { recursive: true });
 const output = fs.mkdtempSync(path.join(scratch, 'ui-regression-'));
 const entry = [
+  'import packageInfo from "./package.json";window.fixtureAppVersion=packageInfo.version;',
   'import { setLocale } from "./src/shared/i18n/locale";window.fixtureSetLocale=setLocale;',
   'import { WaveControl } from "./src/desktop/ui/components/WaveControl";import { QueueDrawer } from "./src/shared/components/QueueDrawer";',
   'import React from "react"; import { createRoot } from "react-dom/client";',
@@ -44,6 +45,13 @@ const entry = [
   'window.renderTourFixture=()=>{window.fixtureTourClosed=0;window.electronAPI={findZapretConfig:async()=>({found:true,path:"fixture/list-general.txt",hasSoundcloud:false,hasSndcdn:false}),applyZapretDomains:async()=>{window.fixtureDomainsApplied=true;return {success:true,message:"Домены добавлены"};}};root.render(<React.StrictMode><OnboardingTour isOpen={true} onClose={()=>{window.fixtureTourClosed++;root.render(<div/>);}}/></React.StrictMode>);};',
   'window.setKaraokeClock=(time,playing=false)=>{window.fixtureAudioState.currentTime=time;window.fixtureAudioState.isPlaying=playing;root.render(<React.StrictMode><LyricsModal key={window.fixtureKaraokeLayout} layout={window.fixtureKaraokeLayout} isOpen={true} onClose={()=>{}}/></React.StrictMode>);};',
   'window.renderWaveQueueFixture=()=>{const track=(id,title)=>({id,title,source:"soundcloud",artist:{name:"Русский исполнитель"},album:{},duration:100});const tracks=[track("old","Old"),track("current","Моя волна"),track("next","Следующая песня")];Object.assign(window.fixtureAudioState,{currentTrack:tracks[1],queue:tracks,queueIndex:1,isWaveActive:true,isShuffle:false,repeatMode:"all",shuffledUpcomingIndices:[]});root.render(<React.StrictMode><WaveControl mood="mix" source="all" isActive={false} isPlaying={false} isLoading={false} isStarting={false} onToggle={()=>{}} onSelectSource={()=>{}} onSelectMood={()=>{}} onReset={()=>{}}/><QueueDrawer isOpen={true} onClose={()=>{}}/></React.StrictMode>);};',
+  'import {PlayerOverlay} from "./src/desktop/ui/components/PlayerOverlay";import {DEFAULT_OVERLAY_LAYOUT,DEFAULT_SHORTCUTS} from "./src/shared/utils/desktopControls";',
+  'window.renderOverlayFixture=()=>{window.fixtureOverlayCommands=[];window.fixtureOverlayLayout??=structuredClone(DEFAULT_OVERLAY_LAYOUT);window.fixtureOverlayState={track:{id:"overlay-song",title:"Overlay song",artist:{name:"Overlay artist"},album:{},duration:200},isPlaying:true,currentTime:15,duration:200,isLiked:false,volume:1};Object.assign(window.electronAPI,{getOverlayState:async()=>window.fixtureOverlayState,getOverlayLayout:async()=>structuredClone(window.fixtureOverlayLayout),saveOverlayLayout:async value=>(window.fixtureOverlayLayout=structuredClone(value)),setOverlayInteractive:async value=>{window.fixtureOverlayInteractive=value;},togglePlayerOverlay:async()=>{window.fixtureOverlayClosed=true;return false;},onWidgetStateUpdate:fn=>{window.fixtureOverlayListener=fn;return()=>{window.fixtureOverlayListener=null;};},sendWidgetCommand:command=>window.fixtureOverlayCommands.push(command)});root.render(<React.StrictMode><PlayerOverlay key={Date.now()}/></React.StrictMode>);};',
+  'window.fixtureSetupShortcuts=()=>{window.fixtureShortcutCalls=[];Object.assign(window.electronAPI,{getDesktopControls:async()=>({shortcuts:{...DEFAULT_SHORTCUTS},unavailable:[]}),captureDesktopShortcut:async value=>{window.fixtureShortcutCapture=value;return {shortcuts:DEFAULT_SHORTCUTS,unavailable:[]};},setDesktopShortcut:async(action,key)=>{window.fixtureShortcutCalls.push({action,key});return {shortcuts:{...DEFAULT_SHORTCUTS,[action]:key},unavailable:[]};},togglePlayerOverlay:async()=>true});};',
+  'import {useAppUpdateNotice} from "./src/desktop/ui/hooks/useAppUpdateNotice";import {AppUpdateNotice} from "./src/desktop/ui/components/AppUpdateNotice";',
+  'function UpdateDemo(){const {update,dismiss}=useAppUpdateNotice();return <><div className="fixture-playing-bar" style={{position:"fixed",bottom:0,height:92,left:0,right:0,background:"#111",color:"white",padding:20}}>Текущий трек · воспроизведение продолжается</div>{update&&<AppUpdateNotice update={update} onDismiss={dismiss}/>}</>;}',
+  'window.renderUpdateFixture=()=>{localStorage.removeItem("soso_update_dismissed_version");window.fixtureUpdateListener=null;Object.assign(window.electronAPI,{getAvailableAppUpdate:async()=>null,onAppUpdateAvailable:fn=>{window.fixtureUpdateListener=fn;return()=>window.fixtureUpdateListener=null;}});root.render(<React.StrictMode><UpdateDemo/></React.StrictMode>);};',
+  'window.renderRichQueueFixture=()=>{window.fixtureQueuePlayCalls=[];const track=(id,title,artist)=>({id,title,source:"youtube",artist:{name:artist},album:{},duration:200});Object.assign(window.fixtureAudioState,{currentTrack:track("current","Heart-Shaped Box","Nirvana"),queue:[track("current","Heart-Shaped Box","Nirvana"),track("next","Hate.","ThxSoMch"),track("later","Drain You","Nirvana"),track("last","Animal I Have Become","Three Days Grace")],queueIndex:0,isWaveActive:true,isShuffle:false,repeatMode:"all",shuffledUpcomingIndices:[]});root.render(<React.StrictMode><QueueDrawer isOpen={true} onClose={()=>{}}/></React.StrictMode>);};',
   'window.renderFixture("desktop");',
 ].join('\n');
 try {
@@ -72,14 +80,14 @@ try {
                 contents: [
                   'const track={id:"yt_fixture1234",title:"Fixture song",artist:{name:"Fixture artist"},duration:120,album:{}};',
                   'const state={currentTrack:track,currentTime:0,duration:120,isPlaying:false,crossfadeDuration:4,likedTrackIds:new Set(),seek(){},togglePlay(){},getPlaybackTime:()=>{window.fixtureKaraokeClockRead=state.currentTime;return state.currentTime;}};',
-                  'window.fixtureAudioState=state; export const useAudio=()=>state; export const useAudioState=()=>state;export const useAudioProgress=()=>({snippetProgress:0});export const useAudioControls=()=>({playTrack:t=>window.fixtureTrackClicks?.push(t.id),togglePlay(){},previewSnippet(){},stopSnippet(){},toggleLike(){},isOfflineCached:()=>false,cacheTrackForOffline:async()=>false,removeOfflineCachedTrack:async()=>false,refreshLikedTracks:async()=>{},refreshSavedAlbums:async()=>{},refreshFollowedArtists:async()=>{},setCrossfadeDuration(){},toggleVolumeNormalization(){}});',
+                  'window.fixtureAudioState=state; export const useAudio=()=>state; export const useAudioState=()=>state;export const useAudioProgress=()=>({snippetProgress:0});export const useAudioControls=()=>({playTrack:(t,q,wave)=>{window.fixtureTrackClicks?.push(t.id);window.fixtureQueuePlayCalls?.push({id:t.id,wave});},togglePlay(){},previewSnippet(){},stopSnippet(){},toggleLike(){},isOfflineCached:()=>false,cacheTrackForOffline:async()=>false,removeOfflineCachedTrack:async()=>false,refreshLikedTracks:async()=>{},refreshSavedAlbums:async()=>{},refreshFollowedArtists:async()=>{},setCrossfadeDuration(){},toggleVolumeNormalization(){}});',
                 ].join('\n'),
                 loader: 'js',
               };
             if (args.path.endsWith('ThemeContext'))
               return {
                 contents:
-                  'export const useTheme=()=>({accentColor:"yellow",themeMode:"dark"}); export const THEME_OPTIONS=[]; export const EASTER_EGG_THEME_OPTION={id:"fixture",label:"Fixture"}; export const ACCENT_COLOR_OPTIONS=[{id:"yellow",color:"#eab308",rgb:"234, 179, 8"}];',
+                  'export const useTheme=()=>({accentColor:"yellow",themeMode:"dark"}); export const THEME_OPTIONS=[]; export const EASTER_EGG_THEME_OPTION={id:"fixture",name:"Fixture",label:"Fixture"}; export const ACCENT_COLOR_OPTIONS=[{id:"yellow",color:"#eab308",rgb:"234, 179, 8"}];',
                 loader: 'js',
               };
             if (args.path.endsWith('ToastContext'))
@@ -111,6 +119,10 @@ try {
         'src/desktop/ui/components/DesktopConnectionDialogs.css',
         'src/desktop/ui/components/OnboardingTour.css',
         'src/desktop/ui/components/WaveControl.css',
+        'src/desktop/ui/components/PlayerOverlay.css',
+        'src/shared/components/QueueDrawer.css',
+        'src/desktop/ui/components/AppUpdateNotice.css',
+        'src/desktop/ui/components/modals/SettingsModal.css',
         'src/desktop/ui/components/YouTubeAccessDialog.css',
       ]
         .map((p) => fs.readFileSync(path.join(root, p), 'utf8').replace(/^@import[^;]+;/gm, ''))

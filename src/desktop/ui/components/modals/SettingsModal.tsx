@@ -1,6 +1,7 @@
+import { SettingsShortcuts } from './SettingsShortcuts';
 import { useLastFmKeySettings } from '../../hooks/useLastFmKeySettings';
 import { useLocale } from '../../../../shared/i18n/useLocale';
-import { t, setLocale } from '../../../../shared/i18n/locale';
+import { t } from '../../../../shared/i18n/locale';
 import { useYouTubeAccountSettings } from '../../hooks/useYouTubeAccountSettings';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
@@ -41,11 +42,13 @@ interface StatusFeedback {
   details?: string;
 }
 
-type SettingsTab = 'general' | 'appearance' | 'audio' | 'stats' | 'integrations' | 'data' | 'about';
+type SettingsTab =
+  'general' | 'shortcuts' | 'appearance' | 'audio' | 'stats' | 'integrations' | 'data' | 'about';
 
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'general', label: 'Обзор' },
   { id: 'appearance', label: 'Внешний вид' },
+  { id: 'shortcuts', label: 'Горячие клавиши' },
   { id: 'audio', label: 'Воспроизведение' },
   { id: 'stats', label: 'Статистика' },
   { id: 'integrations', label: 'Интеграции' },
@@ -58,7 +61,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   initialTab = 'general',
 }) => {
-  const locale = useLocale();
+  useLocale();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const lastFm = useLastFmKeySettings(isOpen && activeTab === 'integrations');
   const [showApiHelp, setShowApiHelp] = useState(false);
@@ -626,41 +629,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         >
           {activeTab === 'general' && (
             <>
-              <section
-                className="settings-section settings-language"
-                aria-label={t('Язык интерфейса')}
-              >
-                <div className="settings-row">
-                  <div className="settings-row-copy">
-                    <strong>{t('Язык интерфейса')}</strong>
-                    <span>Русский / English</span>
-                  </div>
-                  <div
-                    className="settings-segmented"
-                    role="group"
-                    aria-label={t('Язык интерфейса')}
-                  >
-                    <button
-                      type="button"
-                      lang="ru"
-                      aria-pressed={locale === 'ru'}
-                      className={locale === 'ru' ? 'selected' : ''}
-                      onClick={() => setLocale('ru')}
-                    >
-                      RU
-                    </button>
-                    <button
-                      type="button"
-                      lang="en"
-                      aria-pressed={locale === 'en'}
-                      className={locale === 'en' ? 'selected' : ''}
-                      onClick={() => setLocale('en')}
-                    >
-                      EN
-                    </button>
-                  </div>
-                </div>
-              </section>
               <SettingsOverview
                 stats={listeningStats}
                 themeLabel={themeMode === 'dark' ? t('Тёмная') : t('Светлая')}
@@ -672,6 +640,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               />
             </>
           )}
+          {activeTab === 'shortcuts' && <SettingsShortcuts />}
           {activeTab === 'about' && <SettingsAbout />}
           {activeTab === 'appearance' && (
             <SettingsAppearance

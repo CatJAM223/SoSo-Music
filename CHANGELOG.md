@@ -1,5 +1,13 @@
 # Changelog
 
+### [3.1.0]
+
+- Global configurable shortcuts for playback and a transparent player overlay with independently movable track and controls panels.
+- Background GitHub release checks with a minimal update announcement that preserves playback.
+- Language selection moved to Appearance.
+- My Wave spaces liked recordings between other available songs, including across batch boundaries.
+- Queue fits below the title bar, keeps the current track visible, and offers clearer rows and compact track actions.
+
 ### [3.0.5]
 
 - English and Russian interface with a persistent RU/EN switch in Settings.

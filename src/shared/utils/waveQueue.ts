@@ -263,6 +263,11 @@ function sequenceWaveTracksUncached(
     likedSeeds.flatMap((track) => getWaveArtistKeys(track, knownArtists)),
   );
   const likedSongs = likedSeeds.map((track) => buildWaveSongIdentity(track, knownArtists));
+  const likedIds = new Set(likedSeeds.map((track) => String(track.id)));
+  const isLikedSong = (track: Track) =>
+    track.waveSeedWeight === 2 ||
+    likedIds.has(String(track.id)) ||
+    likedSongs.some((liked) => areSameWaveSong(liked, buildWaveSongIdentity(track, knownArtists)));
   const skippedIds = new Set((options.skippedTracks || []).map((track) => String(track.id)));
   const lastHeard = [...(options.recentTracks || [])]
     .reverse()
@@ -284,6 +289,7 @@ function sequenceWaveTracksUncached(
         track,
         artists,
         song,
+        liked: isLikedSong(track),
         matrixIndex,
         music,
         musicScore:
@@ -352,7 +358,15 @@ function sequenceWaveTracksUncached(
     ? Math.max(0, Math.floor(options.sequenceOffset!))
     : 0;
 
+  let previousLiked = Boolean(
+    options.recentTracks?.length &&
+    isLikedSong(options.recentTracks[options.recentTracks.length - 1]),
+  );
   while (remaining.length > 0 && result.length < limit) {
+    // Familiar artists can supply new songs. Separate actual likes from those discoveries.
+    // Keep a playable fallback when a provider yields only saved recordings.
+    const spaceLikes =
+      mood !== 'favorites' && previousLiked && remaining.some((candidate) => !candidate.liked);
     const previousSource = result[result.length - 1]?.source;
     const position = offset + result.length;
     const wantsFamiliar =
@@ -372,6 +386,7 @@ function sequenceWaveTracksUncached(
       artistFeedback: options.artistFeedback,
     };
     for (let index = 0; index < remaining.length; index++) {
+      if (spaceLikes && remaining[index].liked) continue;
       const score = scoreWaveCandidate(remaining[index], index, ranking);
       if (score > bestScore) {
         bestScore = score;
@@ -381,6 +396,7 @@ function sequenceWaveTracksUncached(
 
     const [chosen] = remaining.splice(bestIndex, 1);
     result.push(chosen.track);
+    previousLiked = chosen.liked;
     previousMusic = chosen.music;
     recent.push(chosen.artists);
     for (const artist of chosen.artists)

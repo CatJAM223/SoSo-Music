@@ -3,7 +3,7 @@
   <h1>SoSo Music</h1>
   <p>Your favorites, new discoveries and lyrics. Together in a Windows music player.</p>
   <p><a href="https://github.com/CatJAM223/SoSo-Music/releases">Download</a> · <a href="README.ru.md">Русский</a> · <a href="https://github.com/CatJAM223/SoSo-Music/issues">Report an issue</a></p>
-  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-3.0.5-eab308" alt="Version 3.0.5"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
+  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-3.1.0-eab308" alt="Version 3.1.0"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
 </div>
 
 Search SoundCloud and YouTube Music, build a personal library, and let **My Wave** find your next track. Switch between listening, karaoke and guitar practice without leaving the player.
@@ -33,9 +33,13 @@ The current distribution is a portable Windows build. Moving only the executable
 
 - Search for music and select the heart beside tracks you enjoy. Add playlists and follow artists to build your library.
 - Open **My Wave** and use the gear button to choose a mode and music source.
-- Change the interface language using **RU / EN** in **Settings → Overview**. The choice is remembered and applies immediately.
+- Change the interface language using **RU / EN** in **Settings → Appearance**. The choice is remembered and applies immediately.
 - Add your own Last.fm API key in **Settings → Integrations** using the [Get a Last.fm key](https://www.last.fm/api/account/create) link, then visit **Settings → Statistics** to analyze genres. The key stays in local application settings and is excluded from source code, builds and library exports. This optional analysis sends track titles and artist names to Last.fm; liked tracks carry more weight. [How the taste profile works](docs/library-taste.md).
 - Use the lyrics button for karaoke and guitar. Repeat the introductory tour from **Settings → Appearance**.
+
+**Overlay and shortcuts:** open **Settings → Keyboard shortcuts**. Defaults: **Ctrl+Shift+Space** shows/hides the overlay; **Ctrl+Alt+Right/Left** changes tracks; **Ctrl+Alt+Space** pauses/resumes. Drag the top handles to move the track card and controls independently. Positions and custom shortcuts are saved locally. For games, use windowed or borderless mode; exclusive fullscreen may hide the overlay.
+
+**Updates:** the running app checks stable GitHub Releases about every 90 seconds and shows the new version without interrupting playback. Later dismisses that version; downloading opens its release page. Network failures and rate limits reduce check frequency. Existing 3.0.5 builds require a manual check to obtain this feature.
 
 The player restores your last track, position and queue. Playback resumes when you press Play.
 
@@ -91,7 +95,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Some checks la
 
 GitHub Actions checks formatting, types, architecture and regression tests when code or configuration changes. Documentation-only and empty pushes do not start CI; newer runs cancel outdated ones.
 
-Use the **Windows release** workflow manually to download a build artifact, or push a tag matching the package version (for example, v3.0.5) to build and publish a GitHub Release with its ZIP and SHA-256 checksum. Desktop builds are not produced for every commit.
+Use the **Windows release** workflow manually to download a build artifact, or push a tag matching the package version (for example, v3.1.0) to build and publish a GitHub Release with its ZIP and SHA-256 checksum. Desktop builds are not produced for every commit.
 
 ### Project layout
 

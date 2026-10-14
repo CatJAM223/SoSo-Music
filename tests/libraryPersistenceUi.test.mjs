@@ -90,6 +90,9 @@ function quitFixture({ fail = false, choice = 0 } = {}) {
   const context = {
     t,
     libraryTaste: { dispose() {} },
+    stopAppUpdateMonitor: () => events.push('updates-stopped'),
+    desktopControls: { dispose: () => events.push('shortcuts-disposed') },
+    playerOverlay: { dispose: () => events.push('overlay-disposed') },
     databaseReady: true,
     isQuitting: true,
     app: {
@@ -132,6 +135,8 @@ test('Failed quit save keeps services alive until the user explicitly chooses un
   const confirmed = quitFixture({ fail: true, choice: 1 });
   confirmed.run();
   assert.ok(confirmed.events.includes('account-disposed'));
+  for (const name of ['updates-stopped', 'shortcuts-disposed', 'overlay-disposed'])
+    assert.ok(confirmed.events.includes(name));
   assert.ok(!confirmed.events.includes('prevented'));
 });
 

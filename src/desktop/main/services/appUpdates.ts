@@ -19,7 +19,7 @@ export function compareReleaseVersion(latest: string, current: string): number |
     if (a[index] !== b[index]) return a[index] > b[index] ? 1 : -1;
   return 0;
 }
-/** Read-only and manual: no timers, GitHub credentials, installation or renderer-provided URLs. */
+/** Read-only checker shared by manual checks and the background monitor; never installs. */
 export function createAppUpdateChecker(currentVersion: string, fetcher: Fetcher) {
   let pending: Promise<AppUpdateStatus> | null = null;
   const run = async (): Promise<AppUpdateStatus> => {
@@ -52,6 +52,16 @@ export function createAppUpdateChecker(currentVersion: string, fetcher: Fetcher)
           status: 'error',
           currentVersion,
           message: 'GitHub временно ограничил запросы. Попробуйте позже.',
+          retryAfterMs: Math.min(
+            3_600_000,
+            Math.max(
+              90_000,
+              response.headers.has('x-ratelimit-reset')
+                ? Number(response.headers.get('x-ratelimit-reset')) * 1000 - Date.now()
+                : 900_000,
+              Number(response.headers.get('retry-after')) * 1000 || 0,
+            ),
+          ),
         };
       if (!response.ok) throw Error('GitHub request failed');
       const release = await response.json();

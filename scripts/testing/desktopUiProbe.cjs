@@ -657,7 +657,7 @@ app
         ).toPNG(),
       );
       await window.webContents.executeJavaScript(
-        '(async()=>{window.renderSettingsFixture();for(let i=0;i<100&&!document.querySelector(".settings-tabs");i++)await new Promise(r=>setTimeout(r,20));const tab=[...document.querySelectorAll(".settings-tabs button")].find(button=>button.textContent==="О приложении");if(!tab)throw Error("About tab missing");tab.click();for(let i=0;i<100&&!document.querySelector(".settings-about");i++)await new Promise(r=>setTimeout(r,20));const page=document.querySelector(".settings-about");if(!page.textContent.includes("3.0.5")||!page.textContent.includes("CatJAM223"))throw Error("About metadata mismatch");if(page.querySelector("a").href!=="https://github.com/CatJAM223/SoSo-Music")throw Error("Repository link mismatch");const button=page.querySelector("button");if(button.disabled||window.fixtureUpdateChecks)throw Error("Updates must be manual and enabled");button.click();for(let i=0;i<100&&!page.querySelector("[role=status]");i++)await new Promise(r=>setTimeout(r,20));if(!page.textContent.includes("нет опубликованных релизов")||window.fixtureUpdateChecks!==1)throw Error("Manual check did not display the result");window.fixtureUpdateStatus={status:"available",currentVersion:"3.0.5",latestVersion:"3.1.0",releaseUrl:"https://github.com/CatJAM223/SoSo-Music/releases/tag/v3.1.0",message:"Доступна версия 3.1.0."};button.click();for(let i=0;i<100&&!page.querySelector(".settings-update-link");i++)await new Promise(r=>setTimeout(r,20));if(!page.querySelector(".settings-update-link"))throw Error("New release action missing");window.fixtureUpdateStatus={status:"error",currentVersion:"3.0.5",message:"Не удалось проверить обновления."};button.click();for(let i=0;i<100&&!page.querySelector(".settings-feedback.error");i++)await new Promise(r=>setTimeout(r,20));if(page.querySelector(".settings-update-link"))throw Error("Failed checks must not retain stale release actions");})()',
+        '(async()=>{window.renderSettingsFixture();for(let i=0;i<100&&!document.querySelector(".settings-tabs");i++)await new Promise(r=>setTimeout(r,20));const tab=[...document.querySelectorAll(".settings-tabs button")].find(button=>button.textContent==="О приложении");if(!tab)throw Error("About tab missing");tab.click();for(let i=0;i<100&&!document.querySelector(".settings-about");i++)await new Promise(r=>setTimeout(r,20));const page=document.querySelector(".settings-about");if(!page.textContent.includes(window.fixtureAppVersion)||!page.textContent.includes("CatJAM223"))throw Error("About metadata mismatch");if(page.querySelector("a").href!=="https://github.com/CatJAM223/SoSo-Music")throw Error("Repository link mismatch");const button=page.querySelector("button");if(button.disabled||window.fixtureUpdateChecks)throw Error("Manual update button must be enabled");button.click();for(let i=0;i<100&&!page.querySelector("[role=status]");i++)await new Promise(r=>setTimeout(r,20));if(!page.textContent.includes("нет опубликованных релизов")||window.fixtureUpdateChecks!==1)throw Error("Manual check did not display the result");window.fixtureUpdateStatus={status:"available",currentVersion:"3.0.5",latestVersion:"3.1.0",releaseUrl:"https://github.com/CatJAM223/SoSo-Music/releases/tag/v3.1.0",message:"Доступна версия 3.1.0."};button.click();for(let i=0;i<100&&!page.querySelector(".settings-update-link");i++)await new Promise(r=>setTimeout(r,20));if(!page.querySelector(".settings-update-link"))throw Error("New release action missing");window.fixtureUpdateStatus={status:"error",currentVersion:"3.0.5",message:"Не удалось проверить обновления."};button.click();for(let i=0;i<100&&!page.querySelector(".settings-feedback.error");i++)await new Promise(r=>setTimeout(r,20));if(page.querySelector(".settings-update-link"))throw Error("Failed checks must not retain stale release actions");})()',
       );
       fs.writeFileSync(
         path.join(screenshots, 'settings-about.png'),
@@ -798,7 +798,9 @@ app
       );
       const localeResult = await window.webContents.executeJavaScript(`(async()=>{
         const wait=async(fn)=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Locale fixture timed out');};
-        window.renderSettingsFixture();await wait(()=>document.querySelector('.settings-language'));
+        window.renderSettingsFixture();await wait(()=>document.querySelector('.settings-overview'));
+        if(document.querySelector('.settings-language'))throw Error('Language remains in Overview');
+        [...document.querySelectorAll('[role="tab"]')].find(e=>e.textContent==='Внешний вид').click();await wait(()=>document.querySelector('.settings-language'));
         const originalTrack=window.fixtureAudioState.currentTrack;
         document.querySelector('.settings-language button[lang="en"]').click();
         await wait(()=>document.querySelector('#desktop-settings-title').textContent==='Settings');
@@ -821,6 +823,7 @@ app
         await new Promise(r=>setTimeout(r,650));
         const hiddenShapes=[...document.querySelectorAll('.wave-slice-shape')];
         if(hiddenShapes.length!==6||hiddenShapes.some(e=>getComputedStyle(e).opacity!=='0'))throw Error('Closed wave button leaks mode colours');
+        const queueRect=document.querySelector('[data-queue-drawer]').getBoundingClientRect();if(innerWidth>=768&&(queueRect.top<43.5||queueRect.bottom>innerHeight-95.5))throw Error('Queue overlaps title or player bar');
         if(!document.body.textContent.includes('Next up (1)'))throw Error('Wave queue wraps already played tracks');
         if(!document.body.textContent.includes('Следующая песня')||!document.body.textContent.includes('Русский исполнитель'))throw Error('Music metadata was translated');
         if(document.body.textContent.includes('Queue repeat is on')||document.body.textContent.includes('On repeat'))throw Error('Repeat labels remain');
@@ -847,6 +850,99 @@ app
       );
       await window.webContents.executeJavaScript(`window.fixtureSetLocale('ru')`);
 
+      await window.webContents.executeJavaScript(`(async()=>{
+        let step=0;const wait=async(fn)=>{step++;for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Hotkey settings timed out step '+step+' '+document.querySelector('.settings-shortcuts')?.textContent);};
+        window.fixtureSetupShortcuts();window.renderSettingsFixture();await wait(()=>document.querySelector('[role="tab"]'));
+        [...document.querySelectorAll('[role="tab"]')].find(el=>el.textContent==='Горячие клавиши').click();await wait(()=>document.querySelector('.settings-shortcuts button')?.textContent==='Control+Shift+Space');
+        document.querySelector('.settings-shortcuts button').click();await wait(()=>window.fixtureShortcutCapture&&document.querySelector('.settings-shortcuts button').textContent.includes('Нажмите'));
+        window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyO',ctrlKey:true,shiftKey:true,bubbles:true}));await wait(()=>document.querySelector('.settings-shortcuts button').textContent==='Control+Shift+O');
+        if(window.fixtureShortcutCalls[0].key!=='Control+Shift+O')throw Error('Hotkey not saved');
+        [...document.querySelectorAll('[role="tab"]')].find(el=>el.textContent==='Обзор').click();await wait(()=>!document.querySelector('.settings-shortcuts'));
+        if(window.fixtureShortcutCapture)throw Error('Global shortcuts left suspended after tab close');
+        window.renderOverlayFixture();await wait(()=>document.querySelector('.overlay-track strong')?.textContent==='Overlay song');
+        document.querySelector('.overlay-buttons button[aria-label="Следующий трек"]').click();document.querySelector('.overlay-play').click();document.querySelector('.overlay-buttons button[aria-label="Предыдущий трек"]').click();
+        if(JSON.stringify(window.fixtureOverlayCommands)!==JSON.stringify(['next','togglePlay','prev']))throw Error('Overlay playback routing failed');
+        const controlsBefore=JSON.stringify(window.fixtureOverlayLayout.controls);
+        document.querySelector('.overlay-track .overlay-grip').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));await wait(()=>window.fixtureOverlayLayout.track.x>.04);
+        if(JSON.stringify(window.fixtureOverlayLayout.controls)!==controlsBefore)throw Error('Track movement shifted controls');
+        const saved=window.fixtureOverlayLayout.track.x,oldListener=window.fixtureOverlayListener;window.renderOverlayFixture();await wait(()=>{if(!window.fixtureOverlayListener||window.fixtureOverlayListener===oldListener)return false;const r=document.querySelector('.overlay-track')?.getBoundingClientRect();return r&&Math.abs(r.left-saved*(innerWidth-r.width))<1;});
+        window.fixtureOverlayListener({...window.fixtureOverlayState,track:{...window.fixtureOverlayState.track,title:'New overlay song'},isPlaying:false});await wait(()=>document.querySelector('.overlay-track strong').textContent==='New overlay song');
+        if(getComputedStyle(document.querySelector('.player-overlay')).pointerEvents!=='none'||getComputedStyle(document.querySelector('.overlay-panel')).pointerEvents!=='auto')throw Error('Overlay empty area captures input');
+        document.querySelector('.overlay-buttons button[aria-label="Скрыть оверлей"]').click();if(!window.fixtureOverlayClosed)throw Error('Overlay close not connected');
+      })()`);
+      const dragPoint = await window.webContents.executeJavaScript(
+        "(()=>{const r=document.querySelector('.overlay-track .overlay-grip').getBoundingClientRect();return {x:Math.round(r.left+30),y:Math.round(r.top+10)};})()",
+      );
+      await window.webContents.executeJavaScript(
+        "window.fixturePointerLog=[];for(const name of ['pointerdown','pointermove','pointerup'])document.addEventListener(name,e=>window.fixturePointerLog.push({name,x:e.clientX,y:e.clientY,target:e.target.className}),{once:false});",
+      );
+      window.webContents.sendInputEvent({ type: 'mouseMove', ...dragPoint });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      window.webContents.sendInputEvent({
+        type: 'mouseDown',
+        ...dragPoint,
+        button: 'left',
+        clickCount: 1,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      window.webContents.sendInputEvent({
+        type: 'mouseMove',
+        x: dragPoint.x + 100,
+        y: dragPoint.y - 35,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      window.webContents.sendInputEvent({
+        type: 'mouseUp',
+        x: dragPoint.x + 100,
+        y: dragPoint.y - 35,
+        button: 'left',
+        clickCount: 1,
+      });
+      await window.webContents.executeJavaScript(
+        "(async()=>{for(let i=0;i<100;i++){if(window.fixtureOverlayLayout.track.x>.1)return;await new Promise(r=>setTimeout(r,20));}throw Error('Overlay mouse dragging failed '+JSON.stringify({layout:window.fixtureOverlayLayout,events:window.fixturePointerLog}));})()",
+      );
+      fs.writeFileSync(
+        path.join(path.dirname(output), 'player-overlay.png'),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+      console.log(
+        'PLAYER_OVERLAY_SHORTCUTS_UI_OK: independent panels, saved position, live metadata, controls, shortcut capture and cleanup',
+      );
+      await window.webContents.executeJavaScript(`(async()=>{
+        const wait=async(fn)=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Update notification timed out');};
+        const audio=new Audio();const bytes=new Uint8Array(44+44100*2*2),view=new DataView(bytes.buffer);const text=(offset,value)=>{for(let i=0;i<value.length;i++)bytes[offset+i]=value.charCodeAt(i);};text(0,'RIFF');view.setUint32(4,bytes.length-8,true);text(8,'WAVEfmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,44100,true);view.setUint32(28,88200,true);view.setUint16(32,2,true);view.setUint16(34,16,true);text(36,'data');view.setUint32(40,bytes.length-44,true);audio.src=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));audio.volume=0;audio.muted=true;audio.loop=true;await audio.play();
+        const originalTrack=window.fixtureAudioState.currentTrack;window.renderUpdateFixture();await wait(()=>window.fixtureUpdateListener);const before=audio.currentTime;
+        window.fixtureUpdateListener({status:'available',currentVersion:'3.1.0',latestVersion:'3.2.0',message:'Available'});await wait(()=>document.querySelector('.app-update-notice'));
+        if(document.querySelector('.app-update-notice').textContent.includes('Музыка продолжает играть')||document.querySelector('.app-update-notes')||!document.querySelector('.app-update-wave'))throw Error('Update notice ignores minimal design');
+        const panel=document.querySelector('.app-update-notice').getBoundingClientRect();if(panel.top<44||panel.bottom>innerHeight-92)throw Error('Update notice covers title or player bar');
+        await new Promise(r=>setTimeout(r,200));if(audio.paused||audio.currentTime<=before||window.fixtureAudioState.currentTrack!==originalTrack)throw Error('Update notice interrupted playback');
+        const oldOpen=window.open;window.open=url=>{window.fixtureUpdateURL=url;return null;};document.querySelector('.app-update-download').click();await wait(()=>!document.querySelector('.app-update-notice'));window.open=oldOpen;
+        if(window.fixtureUpdateURL!=='https://github.com/CatJAM223/SoSo-Music/releases/tag/v3.2.0')throw Error('Wrong update download target');
+        window.fixtureUpdateListener({status:'available',currentVersion:'3.1.0',latestVersion:'3.2.0'});await new Promise(r=>setTimeout(r,30));if(document.querySelector('.app-update-notice'))throw Error('Dismissed version nags again');
+        window.fixtureUpdateListener({status:'available',currentVersion:'3.1.0',latestVersion:'3.2.1'});await wait(()=>document.querySelector('.app-update-notice'));audio.pause();URL.revokeObjectURL(audio.src);
+      })()`);
+      fs.writeFileSync(
+        path.join(path.dirname(output), 'update-notification.png'),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+      console.log(
+        'LIVE_UPDATE_NOTICE_OK: arrives during playback, audio advances, minimal copy, stable dismissal and safe download link',
+      );
+      await window.webContents.executeJavaScript(`(async()=>{
+        const wait=async(fn)=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Queue redesign timed out');};
+        window.renderRichQueueFixture();await wait(()=>document.querySelector('[data-queue-next]'));
+        const row=document.querySelector('[data-queue-next]');row.querySelector('[role="button"]').click();if(window.fixtureQueuePlayCalls[0].wave!==true)throw Error('Queue selection exits My Wave');
+        row.querySelector('.queue-more').click();await wait(()=>!row.querySelector('[role="menu"]').hidden);if(!row.querySelector('[role="menuitem"]')||row.querySelector('.queue-track-info').getBoundingClientRect().width<160)throw Error('Queue actions squeeze track metadata');
+        row.querySelector('.queue-more').click();await wait(()=>row.querySelector('[role="menu"]').hidden);
+        await wait(()=>Math.abs(document.querySelector('[data-queue-drawer]').getBoundingClientRect().top-44)<.5);const rect=document.querySelector('[data-queue-drawer]').getBoundingClientRect();if(Math.abs(rect.top-44)>.5||rect.bottom>innerHeight-95.5)throw Error('Queue geometry differs from window bars');
+      })()`);
+      fs.writeFileSync(
+        path.join(path.dirname(output), 'queue-redesign.png'),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+      console.log(
+        'QUEUE_REDESIGN_OK: title/player bounds, readable metadata, track menu and preserved wave selection',
+      );
       assert.deepEqual(errors, [], 'React renderer must not throw');
       reportProgress('passed');
       clearTimeout(timeout);

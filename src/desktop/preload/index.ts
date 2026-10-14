@@ -2,6 +2,24 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { ElectronAPI } from '../../shared/types';
 
 const api: ElectronAPI = {
+  getAvailableAppUpdate: () => ipcRenderer.invoke('app:getAvailableUpdate'),
+  onAppUpdateAvailable: (callback) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      status: import('../../shared/types').AppUpdateStatus,
+    ) => callback(status);
+    ipcRenderer.on('app:updateAvailable', handler);
+    return () => ipcRenderer.removeListener('app:updateAvailable', handler);
+  },
+  getDesktopControls: () => ipcRenderer.invoke('desktopControls:get'),
+  setDesktopShortcut: (action, key) =>
+    ipcRenderer.invoke('desktopControls:setShortcut', action, key),
+  captureDesktopShortcut: (enabled) => ipcRenderer.invoke('desktopControls:capture', enabled),
+  togglePlayerOverlay: () => ipcRenderer.invoke('overlay:toggle'),
+  getOverlayState: () => ipcRenderer.invoke('overlay:getState'),
+  getOverlayLayout: () => ipcRenderer.invoke('overlay:getLayout'),
+  saveOverlayLayout: (layout) => ipcRenderer.invoke('overlay:saveLayout', layout),
+  setOverlayInteractive: (enabled) => ipcRenderer.invoke('overlay:interactive', enabled),
   getLastFmApiKeyStatus: () => ipcRenderer.invoke('lastfm:keyStatus'),
   saveLastFmApiKey: (key) => ipcRenderer.invoke('lastfm:saveKey', key),
   setInterfaceLanguage: (language) => ipcRenderer.invoke('app:setInterfaceLanguage', language),

@@ -12,13 +12,15 @@ import {
   ChevronUp,
   ChevronDown,
   CornerDownRight,
+  MoreHorizontal,
 } from 'lucide-react';
 import { useAudioState, useAudioControls } from '../context/AudioContext';
 import { Track } from '../types';
 import { advanceTrackArtwork } from '../utils/trackArtwork';
-import { detectTrackSource, resolveTrackCover } from '../utils/formatters';
+import { detectTrackSource, resolveTrackCover, formatTime } from '../utils/formatters';
 import { extractAllArtists } from '../utils/artistParser';
 import { SourceBadge } from './SourceBadge';
+import './QueueDrawer.css';
 
 interface QueueDrawerProps {
   isOpen: boolean;
@@ -35,7 +37,6 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
   useLocale();
   const {
     currentTrack,
-    snippetTrack,
     queue,
     queueIndex,
     repeatMode,
@@ -48,6 +49,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
     useAudioControls();
 
   const youtubeDisabled = useYouTubeAvailability();
+  const [actionsOpenFor, setActionsOpenFor] = useState<number | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [isGeneralDragOver, setIsGeneralDragOver] = useState<boolean>(false);
@@ -57,13 +59,14 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
           e.preventDefault();
-          onClose();
+          if (actionsOpenFor !== null) setActionsOpenFor(null);
+          else onClose();
         }
       };
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, actionsOpenFor]);
 
   if (!isOpen) return null;
 
@@ -157,10 +160,9 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
           setIsGeneralDragOver(true);
         }}
         onDragLeave={() => setIsGeneralDragOver(false)}
+        data-queue-drawer
         onDrop={handleGeneralDrop}
-        className={`fixed inset-x-0 bottom-0 md:inset-x-auto md:right-0 md:top-8 ${
-          currentTrack || snippetTrack ? 'md:bottom-24' : 'md:bottom-0'
-        } h-[85vh] md:h-auto w-full md:w-96 bg-white dark:bg-[#141416] backdrop-blur-2xl border-t md:border-t-0 md:border-l border-slate-200 dark:border-zinc-800 shadow-2xl rounded-t-3xl md:rounded-none z-50 flex flex-col animate-fade-in transition-all duration-200 select-none ${
+        className={`fixed inset-x-0 bottom-0 md:inset-x-auto md:right-0 md:top-11 md:bottom-24 h-[85vh] md:h-auto w-full md:w-[420px] bg-white dark:bg-[#141416] backdrop-blur-2xl border-t md:border-t-0 md:border-l border-slate-200 dark:border-zinc-800 shadow-2xl rounded-t-3xl md:rounded-none z-50 flex flex-col animate-fade-in transition-all duration-200 select-none ${
           isGeneralDragOver ? 'ring-2 ring-soso-brand ring-inset bg-soso-brand/[0.03]' : ''
         }`}
       >
@@ -180,7 +182,11 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
             </div>
           </div>
           <button
-            onClick={onClose}
+            aria-label={t('Закрыть')}
+            onClick={() => {
+              setActionsOpenFor(null);
+              onClose();
+            }}
             className="p-1.5 rounded-xl text-slate-400 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 active:scale-90 transition-all"
           >
             <X className="w-5 h-5" />
@@ -188,7 +194,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
         </div>
 
         {/* Queue Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+        <div className="shrink-0 px-4 pt-4 pb-3">
           {/* Now Playing Section */}
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-400 mb-2">
@@ -218,10 +224,11 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
               </p>
             )}
           </div>
-
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 queue-scroll">
           {/* Next Up Section */}
           <div>
-            <div className="flex items-center justify-between mb-2.5">
+            <div className="queue-list-heading flex items-center justify-between mb-2.5">
               <div className="flex items-center gap-1.5">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-400">
                   {t('Следующие треки (')}
@@ -230,7 +237,10 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
               </div>
               {queue.length > 1 && (
                 <button
-                  onClick={clearQueue}
+                  onClick={() => {
+                    setActionsOpenFor(null);
+                    clearQueue();
+                  }}
                   className="text-xs text-slate-400 dark:text-zinc-400 hover:text-red-500 active:scale-95 transition-all font-semibold"
                 >
                   {t('Очистить')}
@@ -241,13 +251,15 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
             {upcomingItems.length === 0 ? (
               <div className="py-8 text-center space-y-2">
                 <p className="text-xs text-slate-400 dark:text-zinc-500">
-                  {t('Очередь завершена. Перетащите сюда треки или включите')}{' '}
-                  <strong>{t('Повтор всех треков')}</strong>
-                  {t(', чтобы воспроизводить по кругу.')}
+                  {t(
+                    isWaveActive
+                      ? 'В очереди пока нет следующих треков.'
+                      : 'Перетащите сюда треки, чтобы продолжить прослушивание.',
+                  )}
                 </p>
               </div>
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-2" role="list">
                 {upcomingItems.map((item, idx) => {
                   const track = item.track;
                   const actualIndex = item.actualIndex;
@@ -271,7 +283,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                     <div
                       {...youtubeDisabledProps(track, youtubeDisabled)}
                       key={`${track.id}-${actualIndex}-${item.isLoopWrapped ? 'loop' : 'normal'}`}
-                      draggable
+                      role="listitem"
+                      data-queue-next={idx === 0 ? true : undefined}
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', String(actualIndex));
                         e.dataTransfer.setData(
@@ -289,7 +302,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                         setDragOverIndex(null);
                       }}
                       onDrop={(e) => handleItemDrop(e, actualIndex)}
-                      className={`group relative flex items-center justify-between p-2 rounded-lg transition-colors duration-150 cursor-grab active:cursor-grabbing ${
+                      className={`queue-row ${idx === 0 ? 'queue-row-next' : ''} group relative flex items-center justify-between p-2.5 rounded-xl transition-colors duration-150 cursor-grab active:cursor-grabbing ${
                         isDragging
                           ? 'opacity-30 scale-[0.97] bg-soso-brand/10 border-2 border-dashed border-soso-brand'
                           : isOver
@@ -309,21 +322,44 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                       )}
 
                       {/* Drag Grip Handle */}
-                      <div className="text-slate-300 dark:text-zinc-600 group-hover:text-slate-600 dark:group-hover:text-zinc-300 pr-1 flex-shrink-0">
+                      <div
+                        className="queue-grip text-slate-300 dark:text-zinc-600 pr-1 flex-shrink-0"
+                        draggable
+                        title={t('Перетащить трек')}
+                      >
+                        <span className="queue-position">{idx + 1}</span>
                         <GripVertical className="w-4 h-4" />
                       </div>
 
                       {/* Track Info */}
                       <div
-                        onClick={() => playTrack(track)}
-                        className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                        onClick={() => {
+                          setActionsOpenFor(null);
+                          playTrack(track, undefined, isWaveActive);
+                        }}
+                        className="queue-track-info flex items-center gap-3 min-w-0 flex-1 cursor-pointer"
+                        role="button"
+                        tabIndex={0}
+                        title={
+                          track.title +
+                          ' — ' +
+                          extractAllArtists(track.artist, track.title).join(', ')
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            setActionsOpenFor(null);
+                            playTrack(track, undefined, isWaveActive);
+                          }
+                        }}
                       >
                         <div className="relative flex-shrink-0">
                           <img
                             src={resolveTrackCover(track)}
                             alt={track.title}
                             onError={(event) => advanceTrackArtwork(event.currentTarget, track)}
-                            className="w-10 h-10 rounded-lg object-cover"
+                            className="w-12 h-12 rounded-lg object-cover"
+                            draggable={false}
                             loading="lazy"
                           />
                           {item.isLoopWrapped && (
@@ -337,30 +373,50 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-slate-900 dark:text-white truncate group-hover:text-soso-brand">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:text-soso-brand">
                             {track.title}
                           </p>
                           <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
                             <SourceBadge source={detectTrackSource(track)} size="sm" />
-                            <p className="text-[11px] text-slate-500 dark:text-zinc-400 truncate">
+                            <p className="text-xs text-slate-500 dark:text-zinc-400 truncate">
                               {extractAllArtists(track.artist, track.title).join(', ')}
                             </p>
                           </div>
                         </div>
                       </div>
 
+                      <span className="queue-duration">{formatTime(track.duration)}</span>
+                      <button
+                        className="queue-more"
+                        aria-label={t('Действия с треком')}
+                        aria-expanded={actionsOpenFor === actualIndex}
+                        aria-haspopup="menu"
+                        onClick={() =>
+                          setActionsOpenFor(actionsOpenFor === actualIndex ? null : actualIndex)
+                        }
+                      >
+                        <MoreHorizontal size={18} />
+                      </button>
                       {/* Actions: Move Up / Down & Remove */}
-                      <div className="flex items-center gap-1 opacity-90 md:opacity-0 md:group-hover:opacity-100 transition-opacity ml-1.5">
+                      <div
+                        role="menu"
+                        hidden={actionsOpenFor !== actualIndex}
+                        className={`queue-actions-menu ${idx > 1 && idx >= upcomingItems.length - 2 ? 'queue-menu-above' : ''}`}
+                      >
                         {idx > 0 && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              setActionsOpenFor(null);
                               reorderQueue(actualIndex, upcomingItems[idx - 1].actualIndex);
                             }}
+                            role="menuitem"
+                            title={t('Переместить выше')}
                             aria-label={t('Переместить выше')}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-90 transition-all"
                           >
                             <ChevronUp className="w-4 h-4" />
+                            <span>{t('Переместить выше')}</span>
                           </button>
                         )}
 
@@ -370,22 +426,29 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                               e.stopPropagation();
                               reorderQueue(actualIndex, upcomingItems[idx + 1].actualIndex);
                             }}
+                            role="menuitem"
+                            title={t('Переместить ниже')}
                             aria-label={t('Переместить ниже')}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-90 transition-all"
                           >
                             <ChevronDown className="w-4 h-4" />
+                            <span>{t('Переместить ниже')}</span>
                           </button>
                         )}
 
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            setActionsOpenFor(null);
                             removeFromQueue(actualIndex);
                           }}
+                          role="menuitem"
+                          title={t('Удалить из очереди')}
                           aria-label={t('Удалить из очереди')}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-90 transition-all"
                         >
                           <Trash2 className="w-4 h-4" />
+                          <span>{t('Удалить из очереди')}</span>
                         </button>
                       </div>
                     </div>
