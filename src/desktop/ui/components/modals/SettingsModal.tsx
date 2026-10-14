@@ -1,4 +1,5 @@
 import { SettingsShortcuts } from './SettingsShortcuts';
+import { useOverlaySettings } from '../../hooks/useOverlaySettings';
 import { useLastFmKeySettings } from '../../hooks/useLastFmKeySettings';
 import { useLocale } from '../../../../shared/i18n/useLocale';
 import { t } from '../../../../shared/i18n/locale';
@@ -64,6 +65,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useLocale();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const lastFm = useLastFmKeySettings(isOpen && activeTab === 'integrations');
+  const overlay = useOverlaySettings(isOpen && activeTab === 'integrations');
   const [showApiHelp, setShowApiHelp] = useState(false);
   const [showYouTubeSessionHelp, setShowYouTubeSessionHelp] = useState(false);
   const { youtubeAccount, youtubeAccountBusy, youtubeAccountFeedback, handleYouTubeAccount } =
@@ -800,6 +802,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
           {activeTab === 'integrations' && (
             <div className="settings-page">
+              <section className="settings-section overlay-integration-settings">
+                <h4>{t('Оверлей плеера')}</h4>
+                <div className="settings-row">
+                  <div className="settings-row-copy">
+                    <strong>{t('Включить оверлей')}</strong>
+                    <span>
+                      {t('Обложка и название трека поверх других окон. Клики проходят насквозь.')}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label={t('Включить оверлей')}
+                    aria-checked={overlay.enabled === true}
+                    className={'settings-switch' + (overlay.enabled ? ' enabled' : '')}
+                    disabled={
+                      overlay.enabled === null ||
+                      overlay.busy ||
+                      !window.electronAPI?.setPlayerOverlayEnabled
+                    }
+                    onClick={() => void overlay.save(!overlay.enabled)}
+                  >
+                    <span />
+                  </button>
+                </div>
+                <p className="settings-row-note">
+                  {t(
+                    'При отключении окно оверлея закрывается, его горячая клавиша освобождается. Управление музыкой продолжает работать.',
+                  )}
+                </p>
+                {overlay.error && (
+                  <p role="alert" className="settings-feedback error">
+                    {overlay.error}
+                  </p>
+                )}
+              </section>
               <section className="settings-section lastfm-key-settings" aria-label="Last.fm">
                 <h4>Last.fm</h4>
                 <div className="settings-row settings-api-row">

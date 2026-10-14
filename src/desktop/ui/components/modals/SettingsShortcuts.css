@@ -248,3 +248,8 @@
     gap: 12px;
   }
 }
+
+.shortcut-position-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

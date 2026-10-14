@@ -2,7 +2,11 @@ export const SHORTCUT_ACTIONS = ['overlay', 'next', 'prev', 'togglePlay'] as con
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number];
 export type PlaybackShortcuts = Record<ShortcutAction, string>;
 export type OverlayLayout = Record<'track' | 'controls', { x: number; y: number }>;
-export type DesktopControlsStatus = { shortcuts: PlaybackShortcuts; unavailable: ShortcutAction[] };
+export type DesktopControlsStatus = {
+  shortcuts: PlaybackShortcuts;
+  unavailable: ShortcutAction[];
+  overlayEnabled: boolean;
+};
 export const DEFAULT_SHORTCUTS: PlaybackShortcuts = {
   overlay: 'Control+Shift+Space',
   next: 'Control+Alt+Right',
@@ -21,8 +25,7 @@ export function normalizeShortcut(value: unknown): string {
   const modifiers = ['Control', 'Alt', 'Shift', 'Super'].filter((m) => parts.includes(m));
   if (
     parts.length !== modifiers.length ||
-    !modifiers.some((m) => m !== 'Shift') ||
-    !/^([A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Left|Right|Up|Down|Home|End|PageUp|PageDown)$/.test(
+    !/^([A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Left|Right|Up|Down|Home|End|PageUp|PageDown|Tab|Enter|Backspace|Delete|Insert|Capslock|Numlock|Scrolllock|PrintScreen|Plus|num[0-9]|numdec|numadd|numsub|nummult|numdiv|[;,./\\\[\]\x60=\-])$/.test(
       key,
     )
   )
@@ -32,7 +35,33 @@ export function normalizeShortcut(value: unknown): string {
 export function shortcutFromKey(
   event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey'>,
 ): string | null {
-  const key = event.code.replace(/^Key|^Digit/, '').replace(/^Arrow/, '');
+  const aliases: Record<string, string> = {
+    Equal: '=',
+    Minus: '-',
+    BracketLeft: '[',
+    BracketRight: ']',
+    Backslash: String.fromCharCode(92),
+    Semicolon: ';',
+    Comma: ',',
+    Period: '.',
+    Slash: '/',
+    Backquote: String.fromCharCode(96),
+    NumpadDecimal: 'numdec',
+    NumpadAdd: 'numadd',
+    NumpadSubtract: 'numsub',
+    NumpadMultiply: 'nummult',
+    NumpadDivide: 'numdiv',
+    NumpadEnter: 'Enter',
+    CapsLock: 'Capslock',
+    NumLock: 'Numlock',
+    ScrollLock: 'Scrolllock',
+  };
+  const key =
+    aliases[event.code] ||
+    event.code
+      .replace(/^Key|^Digit/, '')
+      .replace(/^Arrow/, '')
+      .replace(/^Numpad(?=[0-9]$)/, 'num');
   try {
     return normalizeShortcut(
       [

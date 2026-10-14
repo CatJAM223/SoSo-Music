@@ -1,5 +1,20 @@
 // Russian source phrases are stable translation keys. Never translate catalog or user data.
 export const english: Record<string, string> = {
+  'Включить оверлей': 'Enable overlay',
+  'При отключении окно оверлея закрывается, его горячая клавиша освобождается. Управление музыкой продолжает работать.':
+    'Disabling closes the overlay and releases its shortcut. Music controls keep working.',
+  'Не удалось загрузить настройки оверлея.': 'Could not load overlay settings.',
+  'Не удалось сохранить настройки оверлея.': 'Could not save overlay settings.',
+  'Оверлей отключён. Включить его можно в Настройки → Интеграции.':
+    'Overlay is disabled. Enable it in Settings → Integrations.',
+  'Одна клавиша или сочетание, например F8, Shift+F8 или Ctrl+Space. Нажмите для изменения; Esc — отмена.':
+    'Use a single key or a combination, such as F8, Shift+F8 or Ctrl+Space. Click to change; Esc cancels.',
+  'Клавиша не поддерживается. Попробуйте F8 или Ctrl+Space.':
+    'This key is not supported. Try F8 or Ctrl+Space.',
+  'Показывать обложку и название трека поверх других окон? Управляйте музыкой горячими клавишами, клики проходят насквозь.':
+    'Show artwork and the track title above other windows? Control music with shortcuts; clicks pass through.',
+  'Позже можно изменить в Настройки → Интеграции.':
+    'You can change this later in Settings → Integrations.',
   'Работают, даже когда плеер свёрнут.': 'Available even when the player is minimized.',
   'Нажмите на клавиши, чтобы изменить сочетание. Esc — отмена.':
     'Click the keys to change a shortcut. Esc cancels.',

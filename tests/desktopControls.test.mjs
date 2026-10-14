@@ -78,9 +78,9 @@ test('Recording suspends shortcuts and resuming reports unavailable external bin
   assert.deepEqual(status.unavailable, ['overlay']);
   assert.equal(f.keys.size, 3);
 });
-test('Malformed input cannot install unmodified typing keys or non-finite panel coordinates', (t) => {
+test('Malformed input cannot install invalid shortcuts or non-finite panel coordinates', (t) => {
   const f = setup(t);
-  for (const key of ['A', 'Shift+A', 'Control+Control+A', 'Control+Escape', null])
+  for (const key of ['Control', 'Shift', 'A+B', 'Control+Control+A', 'Control+Escape', null])
     assert.throws(() => normalizeShortcut(key));
   assert.equal(
     shortcutFromKey({ code: 'KeyO', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false }),
@@ -110,6 +110,10 @@ test('IPC enforces separate permissions for player settings and overlay interact
         calls++;
       },
       capture: () => {},
+      setOverlayEnabled: (value) => {
+        if (typeof value !== 'boolean') throw Error('INVALID_OVERLAY_ENABLED');
+        return { overlayEnabled: value };
+      },
       getLayout: () => ({}),
       saveLayout: () => {
         calls++;
@@ -118,12 +122,16 @@ test('IPC enforces separate permissions for player settings and overlay interact
     {
       owns: (e) => e.sender === overlayContents && e.senderFrame === overlayContents.mainFrame,
       toggle: () => true,
+      setEnabled: () => {},
       edit: () => (editing = true),
       isEditing: () => editing,
       finishEditing: () => (editing = false),
     },
     () => null,
   );
+  assert.throws(() => handlers.get('overlay:setEnabled')(overlayEvent, false));
+  assert.throws(() => handlers.get('overlay:setEnabled')(event, 'false'));
+  assert.equal(handlers.get('overlay:setEnabled')(event, false).overlayEnabled, false);
   assert.throws(() => handlers.get('desktopControls:get')(overlayEvent));
   assert.equal(calls, 0);
   assert.throws(() => handlers.get('overlay:saveLayout')(event, {}));
@@ -145,4 +153,67 @@ test('IPC enforces separate permissions for player settings and overlay interact
   assert.equal(handlers.get('overlay:toggle')(overlayEvent), true);
   handlers.get('desktopControls:get')(event);
   assert.equal(calls, 2);
+});
+
+test('Single keys, modifier/key pairs and numpad keys can be recorded and survive restart', (t) => {
+  const f = setup(t);
+  for (const key of [
+    'F8',
+    'A',
+    'Space',
+    'Shift+F8',
+    'Control+Space',
+    'Alt+Left',
+    'Enter',
+    'num5',
+    'numadd',
+    '-',
+    '=',
+  ])
+    assert.equal(normalizeShortcut(key), key);
+  const event = { code: 'F8', ctrlKey: false, shiftKey: false, altKey: false, metaKey: false };
+  assert.equal(shortcutFromKey(event), 'F8');
+  assert.equal(shortcutFromKey({ ...event, shiftKey: true }), 'Shift+F8');
+  assert.equal(shortcutFromKey({ ...event, code: 'Numpad5' }), 'num5');
+  assert.equal(shortcutFromKey({ ...event, code: 'ControlLeft', ctrlKey: true }), null);
+  f.controls.update('next', 'F8');
+  f.controls.update('prev', 'Shift+F8');
+  assert.ok(f.keys.has('F8'));
+  assert.ok(f.keys.has('Shift+F8'));
+  f.controls.dispose();
+  const restored = new DesktopControls(f.dir, f.registry, () => {});
+  assert.equal(restored.status().shortcuts.next, 'F8');
+  assert.equal(restored.status().shortcuts.prev, 'Shift+F8');
+  restored.dispose();
+});
+
+test('Disabling overlay releases only its binding, survives layout writes/restart and preserves assigned shortcuts', (t) => {
+  const f = setup(t),
+    original = f.controls.status().shortcuts;
+  assert.equal(f.controls.setOverlayEnabled(false).overlayEnabled, false);
+  assert.ok(!f.keys.has(DEFAULT_SHORTCUTS.overlay));
+  for (const action of ['next', 'prev', 'togglePlay'])
+    assert.ok(f.keys.has(DEFAULT_SHORTCUTS[action]));
+  f.controls.update('next', 'F8');
+  f.keys.get('F8')();
+  assert.deepEqual(f.actions, ['next']);
+  f.controls.saveLayout(f.controls.getLayout());
+  f.controls.dispose();
+  const restored = new DesktopControls(f.dir, f.registry, () => {});
+  restored.start();
+  assert.equal(restored.status().overlayEnabled, false);
+  assert.ok(!f.keys.has(DEFAULT_SHORTCUTS.overlay));
+  restored.setOverlayEnabled(true);
+  assert.ok(f.keys.has(DEFAULT_SHORTCUTS.overlay));
+  assert.equal(restored.status().shortcuts.overlay, original.overlay);
+  restored.dispose();
+});
+
+test('Failure to persist disabled overlay leaves it enabled and its shortcut registered', (t) => {
+  const f = setup(t);
+  fs.mkdirSync(path.join(f.dir, 'desktop-controls.json'));
+  assert.throws(() => f.controls.setOverlayEnabled(false));
+  assert.equal(f.controls.status().overlayEnabled, true);
+  assert.ok(f.keys.has(DEFAULT_SHORTCUTS.overlay));
+  assert.throws(() => f.controls.setOverlayEnabled('false'), /INVALID_OVERLAY_ENABLED/);
 });

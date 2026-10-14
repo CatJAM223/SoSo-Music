@@ -592,7 +592,7 @@ app
         'YOUTUBE_CLIP_HINT_INTEGRATION_OK: actual clip error opens hint, fills viewport, persisted suppression survives reload',
       );
 
-      // Native radio/switch preferences are exercised through all ten actual tour steps.
+      // Native radio/switch preferences are exercised through all twelve actual tour steps.
       const tourResult = await window.webContents.executeJavaScript(String.raw`(async()=>{
       const wait=async check=>{for(let i=0;i<150;i++){if(check())return;await new Promise(r=>setTimeout(r,20));}throw Error('Tour did not reach expected state');};
       localStorage.setItem('soso_guitar_player','false');localStorage.setItem('soso_guitar_mode','tabs');localStorage.setItem('soso_find_clips','false');
@@ -604,6 +604,8 @@ app
       for(let i=0;i<4;i++)await next();
       if(!document.querySelector('input[value="none"]').checked)throw Error('Existing guitar preference was overwritten on tour entry');
       document.querySelector('input[value="tabs"]').click();await next();const toggle=document.querySelector('.onboarding-panel [role="switch"]');if(toggle.getAttribute('aria-checked')!=='false')throw Error('Existing clip preference missing');toggle.click();await next();
+      const overlayToggle=document.querySelector('.onboarding-overlay [role="switch"]');if(!overlayToggle||overlayToggle.disabled||overlayToggle.getAttribute('aria-checked')!=='true')throw Error('Missing overlay onboarding choice');overlayToggle.click();await next();
+      if(window.fixtureOverlayPreferenceCalls.length)throw Error('Overlay applied before tour completion');
       if(document.querySelector('.onboarding-lastfm a')?.href!=='https://www.last.fm/api/account/create')throw Error('Last.fm key link missing in tour');
       await next();
       await wait(()=>[...document.querySelectorAll('.onboarding-panel button')].some(b=>b.textContent==='Добавить домены'));
@@ -611,7 +613,8 @@ app
       await next();if(localStorage.getItem('soso_guitar_player')!=='false')throw Error('Preferences were applied before finishing');
       document.querySelector('.onboarding-panel [data-initial-focus]').click();await wait(()=>window.fixtureTourClosed===1);
       if(localStorage.getItem('soso_guitar_player')!=='true'||localStorage.getItem('soso_guitar_mode')!=='tabs'||localStorage.getItem('soso_find_clips')!=='true'||localStorage.getItem('soso_onboarding_completed')!=='true')throw Error('Completed tour did not save chosen settings');
-      return {steps:11,missingTargetHandled:true,preferencesSaved:true,domainsAdded:true};
+      if(window.fixtureOverlayEnabled!==false||JSON.stringify(window.fixtureOverlayPreferenceCalls)!=='[false]')throw Error('Tour overlay choice not persisted');
+      return {steps:12,missingTargetHandled:true,preferencesSaved:true,domainsAdded:true,overlayChoiceSaved:true};
     })()`);
       console.log('ONBOARDING_FLOW_OK ' + JSON.stringify(tourResult));
       const overviewMetrics = await window.webContents.executeJavaScript(`(async()=>{
@@ -649,7 +652,16 @@ app
       await wait(()=>document.querySelector('.settings-feedback.error'));
       if(!getRefresh()||getRefresh().disabled)throw Error('Failed refresh removed the retry action or disconnected the account');
     })()`);
-      console.log('SETTINGS_SESSION_REFRESH_OK');
+      await window.webContents.executeJavaScript(`(async()=>{
+        const wait=async check=>{for(let i=0;i<100;i++){if(check())return;await new Promise(r=>setTimeout(r,20));}throw Error('Overlay integration switch timed out');};
+        const toggle=()=>document.querySelector('.overlay-integration-settings [role="switch"]');
+        await wait(()=>toggle()&&!toggle().disabled);if(toggle().getAttribute('aria-checked')!=='false')throw Error('Saved overlay choice missing in integrations');
+        toggle().click();await wait(()=>window.fixtureOverlayEnabled&&toggle().getAttribute('aria-checked')==='true');
+        toggle().click();await wait(()=>!window.fixtureOverlayEnabled&&toggle().getAttribute('aria-checked')==='false');
+        const original=window.electronAPI.setPlayerOverlayEnabled;window.electronAPI.setPlayerOverlayEnabled=async()=>{throw Error('write failed');};toggle().click();await wait(()=>document.querySelector('.overlay-integration-settings [role="alert"]'));if(toggle().getAttribute('aria-checked')!=='false')throw Error('Failed setting changed UI state');window.electronAPI.setPlayerOverlayEnabled=original;
+      })()`);
+      console.log('SETTINGS_SESSION_REFRESH_OK; OVERLAY_INTEGRATION_SWITCH_OK');
+
       fs.writeFileSync(
         path.join(screenshots, 'settings-session-refresh.png'),
         (
@@ -816,7 +828,7 @@ app
         await wait(()=>!keyPanel.querySelector('.settings-action-primary').disabled);keyPanel.querySelector('.settings-action-primary').click();
         await wait(()=>keyInput.value===''&&keyPanel.textContent.includes('saved on this computer'));
         window.renderTourFixture();await wait(()=>document.querySelector('#onboarding-title')?.textContent==='Welcome');
-        if(document.querySelector('.onboarding-progress').getAttribute('aria-valuemax')!=='11')throw Error('Missing tour progress');
+        if(document.querySelector('.onboarding-progress').getAttribute('aria-valuemax')!=='12')throw Error('Missing tour progress');
         document.querySelector('.onboarding-panel [data-initial-focus]').click();await wait(()=>document.querySelector('#onboarding-title').textContent==='Navigation and library');
         if(!document.querySelector('#onboarding-description').textContent.includes('playlists'))throw Error('Tour descriptions stayed Russian');
         window.renderWaveQueueFixture();await wait(()=>document.querySelector('.wave-control'));
@@ -867,6 +879,11 @@ app
         if(window.fixtureShortcutCalls.at(-1).key!=='')throw Error('Disable menu failed');
         menuButton().click();await wait(()=>document.querySelector('.shortcut-menu'));document.querySelector('.shortcut-menu button').click();await wait(()=>binding().textContent==='CtrlShiftПробел');
         if(window.fixtureShortcutCalls.at(-1).key!=='Control+Shift+Space')throw Error('Reset menu failed');
+        for (const sample of [{code:'F8',key:'F8',expected:'F8'},{code:'F8',key:'F8',shiftKey:true,expected:'Shift+F8'},{code:'Space',key:' ',ctrlKey:true,expected:'Control+Space'}]) {
+          binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));
+          window.dispatchEvent(new KeyboardEvent('keydown',{...sample,bubbles:true}));await wait(()=>window.fixtureShortcutCalls.at(-1)?.key===sample.expected&&!window.fixtureShortcutCapture);
+          await wait(()=>!binding().disabled);
+        }
       })()`);
       fs.writeFileSync(
         path.join(path.dirname(output), 'shortcuts-dark.png'),

@@ -956,6 +956,7 @@ app.whenReady().then(async () => {
     else if (mainWindow && !mainWindow.isDestroyed())
       mainWindow.webContents.send('widget:command', action);
   });
+  playerOverlay.setEnabled(desktopControls.status().overlayEnabled);
   desktopControls.start();
   void fs.promises
     .readFile(path.join(app.getAppPath(), 'public', 'compute', 'soso-core.wasm'))

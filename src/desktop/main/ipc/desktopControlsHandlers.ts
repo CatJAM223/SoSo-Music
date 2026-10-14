@@ -4,6 +4,7 @@ import { assertMainWindowSender } from './mainWindowHandlers.ts';
 type Overlay = {
   owns: (event: IpcMainInvokeEvent) => boolean;
   toggle: () => boolean;
+  setEnabled: (enabled: boolean) => void;
   edit: () => boolean;
   isEditing: () => boolean;
   finishEditing: () => boolean;
@@ -30,6 +31,12 @@ export function registerDesktopControlsHandlers(
     assertMainWindowSender(event, main());
     if (typeof enabled !== 'boolean') throw Error('Invalid capture mode');
     return controls.capture(enabled);
+  });
+  ipc.handle('overlay:setEnabled', (event, value: unknown) => {
+    assertMainWindowSender(event, main());
+    const status = controls.setOverlayEnabled(value);
+    overlay.setEnabled(status.overlayEnabled);
+    return status;
   });
   ipc.handle('overlay:toggle', (event) => {
     if (!overlay.owns(event)) assertMainWindowSender(event, main());

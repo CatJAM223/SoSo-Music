@@ -1,4 +1,5 @@
 import { BrowserWindow, screen, type IpcMainInvokeEvent } from 'electron';
+import type { WidgetState } from '../../../shared/types';
 export function createPlayerOverlayWindow(
   preload: string,
   renderer: string,
@@ -7,6 +8,31 @@ export function createPlayerOverlayWindow(
   let window: BrowserWindow | null = null;
   let visible = false;
   let editing = false;
+  let enabled = true;
+  let lastState: unknown = null;
+  let lastTrackKey: string | null = null;
+  function sendTrack(force = false) {
+    if (
+      lastState === null ||
+      !visible ||
+      !window ||
+      window.isDestroyed() ||
+      window.webContents.isLoading()
+    )
+      return;
+    const track = (lastState as WidgetState | null)?.track;
+    const key = JSON.stringify([
+      track?.id,
+      track?.title,
+      track?.artist?.name,
+      track?.album?.cover,
+      track?.album?.cover_small,
+      track?.album?.cover_medium,
+    ]);
+    if (!force && key === lastTrackKey) return;
+    lastTrackKey = key;
+    window.webContents.send('widget:stateUpdate', lastState);
+  }
   function applyMode() {
     if (!window || window.isDestroyed()) return;
     window.setFocusable(editing);
@@ -16,12 +42,14 @@ export function createPlayerOverlayWindow(
   }
   function show() {
     if (!window || window.isDestroyed()) return;
+    sendTrack(true);
     if (editing) {
       window.show();
       window.focus();
     } else window.showInactive();
   }
   function toggle() {
+    if (!enabled) return false;
     visible = !visible;
     editing = false;
     if (window && !window.isDestroyed()) {
@@ -100,6 +128,7 @@ export function createPlayerOverlayWindow(
     owns,
     isEditing: () => editing,
     edit: () => {
+      if (!enabled) throw Error('OVERLAY_DISABLED');
       if (!visible || !window || window.isDestroyed()) toggle();
       editing = true;
       applyMode();
@@ -119,7 +148,19 @@ export function createPlayerOverlayWindow(
       return false;
     },
     sendState: (state: unknown) => {
-      if (window && !window.isDestroyed()) window.webContents.send('widget:stateUpdate', state);
+      lastState = state;
+      sendTrack();
+    },
+    setEnabled: (value: boolean) => {
+      enabled = value;
+      if (!enabled) {
+        window?.destroy();
+        window = null;
+        visible = false;
+        editing = false;
+        lastTrackKey = null;
+        lastState = null;
+      }
     },
     dispose: () => {
       window?.destroy();

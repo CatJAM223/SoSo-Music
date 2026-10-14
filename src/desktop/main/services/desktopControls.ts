@@ -25,6 +25,7 @@ export class DesktopControls {
   private layout: OverlayLayout = structuredClone(DEFAULT_OVERLAY_LAYOUT);
   private unavailable: ShortcutAction[] = [];
   private capturing = false;
+  private overlayEnabled = true;
   constructor(directory: string, registry: Registry, dispatch: (action: ShortcutAction) => void) {
     this.filename = path.join(directory, 'desktop-controls.json');
     this.registry = registry;
@@ -37,6 +38,7 @@ export class DesktopControls {
       this.validateUnique(shortcuts);
       this.shortcuts = shortcuts;
       this.layout = normalizeOverlayLayout(data.layout);
+      this.overlayEnabled = data.overlayEnabled !== false;
     } catch {
       /* Missing or invalid local preferences use defaults. */
     }
@@ -55,10 +57,12 @@ export class DesktopControls {
     if (this.capturing) return;
     for (const action of SHORTCUT_ACTIONS) {
       const key = shortcuts[action];
-      if (!key) continue;
+      if (!key || (action === 'overlay' && !this.overlayEnabled)) continue;
       let registered = false;
       try {
-        registered = this.registry.register(key, () => this.dispatch(action));
+        registered = this.registry.register(key, () => {
+          if (action !== 'overlay' || this.overlayEnabled) this.dispatch(action);
+        });
       } catch {}
       if (registered) this.keys.add(key);
       else this.unavailable.push(action);
@@ -74,16 +78,26 @@ export class DesktopControls {
     return this.status();
   }
   status(): DesktopControlsStatus {
-    return { shortcuts: { ...this.shortcuts }, unavailable: [...this.unavailable] };
+    return {
+      shortcuts: { ...this.shortcuts },
+      unavailable: [...this.unavailable],
+      overlayEnabled: this.overlayEnabled,
+    };
   }
   getLayout() {
     return structuredClone(this.layout);
   }
-  private persist(shortcuts: PlaybackShortcuts, layout: OverlayLayout) {
+  private persist(
+    shortcuts: PlaybackShortcuts,
+    layout: OverlayLayout,
+    overlayEnabled = this.overlayEnabled,
+  ) {
     fs.mkdirSync(path.dirname(this.filename), { recursive: true });
     const tmp = this.filename + '.' + randomUUID() + '.tmp';
     try {
-      fs.writeFileSync(tmp, JSON.stringify({ shortcuts, layout }) + '\n', { flag: 'wx' });
+      fs.writeFileSync(tmp, JSON.stringify({ shortcuts, layout, overlayEnabled }) + '\n', {
+        flag: 'wx',
+      });
       fs.renameSync(tmp, this.filename);
     } finally {
       fs.rmSync(tmp, { force: true });
@@ -109,6 +123,14 @@ export class DesktopControls {
       this.register(this.shortcuts);
       throw error;
     }
+  }
+  setOverlayEnabled(value: unknown) {
+    if (typeof value !== 'boolean') throw Error('INVALID_OVERLAY_ENABLED');
+    if (value === this.overlayEnabled) return this.status();
+    this.persist(this.shortcuts, this.layout, value);
+    this.overlayEnabled = value;
+    this.register(this.shortcuts);
+    return this.status();
   }
   saveLayout(value: unknown) {
     const next = normalizeOverlayLayout(value);

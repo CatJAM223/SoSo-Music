@@ -437,6 +437,7 @@ export interface ElectronAPI {
   setDesktopShortcut?: (action: ShortcutAction, key: string) => Promise<DesktopControlsStatus>;
   captureDesktopShortcut?: (enabled: boolean) => Promise<DesktopControlsStatus>;
   togglePlayerOverlay?: () => Promise<boolean>;
+  setPlayerOverlayEnabled?: (enabled: boolean) => Promise<DesktopControlsStatus>;
   getOverlayState?: () => Promise<WidgetState | null>;
   getOverlayLayout?: () => Promise<OverlayLayout>;
   saveOverlayLayout?: (layout: OverlayLayout) => Promise<OverlayLayout>;

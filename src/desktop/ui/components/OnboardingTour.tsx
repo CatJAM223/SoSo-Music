@@ -1,3 +1,4 @@
+import { useOverlaySettings } from '../hooks/useOverlaySettings';
 import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -17,6 +18,7 @@ type TourStep =
   | 'spotlight-settings'
   | 'pref-guitar'
   | 'pref-clips'
+  | 'pref-overlay'
   | 'pref-lastfm'
   | 'pref-zapret'
   | 'finish';
@@ -29,6 +31,7 @@ const sequence: TourStep[] = [
   'spotlight-settings',
   'pref-guitar',
   'pref-clips',
+  'pref-overlay',
   'pref-lastfm',
   'pref-zapret',
   'finish',
@@ -95,6 +98,9 @@ function TourSession({ onClose }: { onClose: () => void }) {
         : 'chords',
   );
   const [clips, setClips] = useState(() => readPreference('soso_find_clips', 'true') !== 'false');
+  const overlay = useOverlaySettings(true);
+  const [overlayChoice, setOverlayChoice] = useState<boolean | null>(null);
+  const overlayEnabled = overlayChoice ?? overlay.enabled ?? true;
   const [zapret, setZapret] = useState<ZapretCheckResult | null>(null);
   const [scanning, setScanning] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -200,7 +206,9 @@ function TourSession({ onClose }: { onClose: () => void }) {
       setApplying(false);
     }
   };
-  const complete = () => {
+  const complete = async () => {
+    if (applying || overlay.busy) return;
+    if (overlayChoice !== null && !(await overlay.save(overlayChoice))) return;
     try {
       const preferences = { soso_guitar_player: guitar !== 'none', soso_find_clips: clips };
       for (const [key, value] of Object.entries(preferences)) {
@@ -253,7 +261,7 @@ function TourSession({ onClose }: { onClose: () => void }) {
               type="button"
               className="settings-close"
               aria-label={t('Закрыть обучение')}
-              disabled={applying}
+              disabled={applying || overlay.busy}
               onClick={markCompleted}
             >
               <X size={19} />
@@ -282,6 +290,7 @@ function TourSession({ onClose }: { onClose: () => void }) {
                 welcome: t('Добро пожаловать'),
                 'pref-guitar': t('Режим гитары'),
                 'pref-clips': t('Клипы'),
+                'pref-overlay': t('Оверлей плеера'),
                 'pref-lastfm': 'Last.fm',
                 'pref-zapret': t('Подключение SoundCloud'),
                 finish: t('Можно начинать'),
@@ -297,6 +306,9 @@ function TourSession({ onClose }: { onClose: () => void }) {
                 ),
                 'pref-guitar': t('Выберите, что показывать рядом с караоке.'),
                 'pref-clips': t('Плеер может искать официальные клипы к текущему треку.'),
+                'pref-overlay': t(
+                  'Показывать обложку и название трека поверх других окон? Управляйте музыкой горячими клавишами, клики проходят насквозь.',
+                ),
                 'pref-lastfm': t(
                   'Last.fm помогает находить жанры любимой музыки. Получите API key и добавьте его в Настройки → Интеграции. Этот шаг можно пропустить.',
                 ),
@@ -352,6 +364,27 @@ function TourSession({ onClose }: { onClose: () => void }) {
             >
               <span />
             </button>
+          </div>
+        )}
+        {step === 'pref-overlay' && (
+          <div className="onboarding-overlay">
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>{t('Включить оверлей')}</strong>
+                <span>{t('Позже можно изменить в Настройки → Интеграции.')}</span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-label={t('Включить оверлей')}
+                aria-checked={overlayEnabled}
+                className={'settings-switch' + (overlayEnabled ? ' enabled' : '')}
+                disabled={overlay.enabled === null || overlay.busy}
+                onClick={() => setOverlayChoice(!overlayEnabled)}
+              >
+                <span />
+              </button>
+            </div>
           </div>
         )}
         {step === 'pref-lastfm' && (
@@ -454,12 +487,21 @@ function TourSession({ onClose }: { onClose: () => void }) {
               <span>{clips ? t('Включён') : t('Выключен')}</span>
             </div>
             <div className="settings-row">
+              <span>{t('Оверлей плеера')}</span>
+              <span>{overlayEnabled ? t('Включён') : t('Выключен')}</span>
+            </div>
+            <div className="settings-row">
               <span>{t('Домены SoundCloud')}</span>
               <span>
                 {zapret?.hasSoundcloud && zapret.hasSndcdn ? t('Добавлены') : t('Без изменений')}
               </span>
             </div>
           </div>
+        )}
+        {overlay.error && (
+          <p role="alert" className="settings-feedback error">
+            {overlay.error}
+          </p>
         )}
         <footer>
           <div>
@@ -490,7 +532,10 @@ function TourSession({ onClose }: { onClose: () => void }) {
               className="settings-action settings-action-primary"
               data-initial-focus
               disabled={applying}
-              onClick={() => (step === 'finish' ? complete() : setStep(sequence[index + 1]))}
+              onClick={() => {
+                if (step === 'finish') void complete();
+                else setStep(sequence[index + 1]);
+              }}
             >
               {step === 'finish'
                 ? t('Начать слушать')

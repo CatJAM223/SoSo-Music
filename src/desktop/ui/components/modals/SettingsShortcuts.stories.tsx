@@ -5,7 +5,11 @@ export default {
   component: SettingsShortcuts,
   render: () => {
     Object.assign(window.electronAPI || {}, {
-      getDesktopControls: async () => ({ shortcuts: DEFAULT_SHORTCUTS, unavailable: [] }),
+      getDesktopControls: async () => ({
+        shortcuts: DEFAULT_SHORTCUTS,
+        unavailable: [],
+        overlayEnabled: true,
+      }),
       captureDesktopShortcut: async () => ({ shortcuts: DEFAULT_SHORTCUTS, unavailable: [] }),
       setDesktopShortcut: async () => ({ shortcuts: DEFAULT_SHORTCUTS, unavailable: [] }),
       togglePlayerOverlay: async () => true,

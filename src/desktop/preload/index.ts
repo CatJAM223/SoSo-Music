@@ -16,6 +16,7 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('desktopControls:setShortcut', action, key),
   captureDesktopShortcut: (enabled) => ipcRenderer.invoke('desktopControls:capture', enabled),
   togglePlayerOverlay: () => ipcRenderer.invoke('overlay:toggle'),
+  setPlayerOverlayEnabled: (enabled) => ipcRenderer.invoke('overlay:setEnabled', enabled),
   getOverlayState: () => ipcRenderer.invoke('overlay:getState'),
   getOverlayLayout: () => ipcRenderer.invoke('overlay:getLayout'),
   saveOverlayLayout: (layout) => ipcRenderer.invoke('overlay:saveLayout', layout),

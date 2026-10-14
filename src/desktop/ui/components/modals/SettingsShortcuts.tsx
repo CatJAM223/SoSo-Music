@@ -69,7 +69,7 @@ export function SettingsShortcuts() {
     const stop = () => setRecording(null);
     const keydown = (event: KeyboardEvent) => {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       if (event.repeat) return;
       if (event.code === 'Escape') {
         stop();
@@ -77,6 +77,8 @@ export function SettingsShortcuts() {
       }
       const key = shortcutFromKey(event);
       if (key) void save(recording, key);
+      else if (!/^(Control|Alt|Shift|Meta)(Left|Right)$/.test(event.code))
+        setError(t('Клавиша не поддерживается. Попробуйте F8 или Ctrl+Space.'));
     };
     window.addEventListener('keydown', keydown, true);
     window.addEventListener('blur', stop);
@@ -89,6 +91,7 @@ export function SettingsShortcuts() {
   async function begin(action: ShortcutAction) {
     if (busy || recording) return;
     setBusy(true);
+    setMenu(null);
     setError('');
     try {
       await window.electronAPI?.captureDesktopShortcut?.(true);
@@ -148,7 +151,9 @@ export function SettingsShortcuts() {
           <button
             className={'shortcut-keys' + (recording === action ? ' is-recording' : '')}
             data-shortcut-action={action}
-            disabled={!status || busy || !!recording}
+            disabled={
+              !status || busy || !!recording || (action === 'overlay' && !status.overlayEnabled)
+            }
             onClick={() => void begin(action)}
             aria-label={t(labels[action])}
             title={t('Изменить сочетание')}
@@ -197,7 +202,9 @@ export function SettingsShortcuts() {
           {(['togglePlay', 'next', 'prev'] as ShortcutAction[]).map(row)}
         </div>
         <p className="shortcuts-hint">
-          {t('Нажмите на клавиши, чтобы изменить сочетание. Esc — отмена.')}
+          {t(
+            'Одна клавиша или сочетание, например F8, Shift+F8 или Ctrl+Space. Нажмите для изменения; Esc — отмена.',
+          )}
         </p>
       </section>
       <section className="shortcuts-section">
@@ -206,12 +213,21 @@ export function SettingsShortcuts() {
           {t('Обложка и название трека поверх других окон. Клики проходят насквозь.')}
         </p>
         <div className="shortcuts-group">{row('overlay')}</div>
+        {status && !status.overlayEnabled && (
+          <p className="shortcuts-hint">
+            {t('Оверлей отключён. Включить его можно в Настройки → Интеграции.')}
+          </p>
+        )}
         <div className="shortcuts-position">
           <div>
             <strong>{t('Положение на экране')}</strong>
             <p>{t('Переместите карточку в удобное место. Положение сохранится.')}</p>
           </div>
-          <button className="shortcut-position-button" onClick={() => void editOverlay()}>
+          <button
+            className="shortcut-position-button"
+            disabled={!status?.overlayEnabled}
+            onClick={() => void editOverlay()}
+          >
             <Move size={15} />
             {t('Настроить положение')}
           </button>
