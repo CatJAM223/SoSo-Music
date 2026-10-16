@@ -76,17 +76,13 @@ const disliked = membershipCache('dislikedTrackIds', async () =>
 );
 const saved = membershipCache('savedAlbumIds', async () => {
   const ids = new Set<string>();
-  for (const album of (await platformBridge.getSavedAlbums()) || []) {
-    if (album.id) ids.add(String(album.id));
-    if (album.album_id) ids.add(String(album.album_id));
-  }
+  for (const albumId of (await platformBridge.getSavedAlbumIds()) || []) ids.add(String(albumId));
   return ids;
 });
 const followed = membershipCache('followedArtistIds', async () => {
   const ids = new Set<string>();
-  for (const artist of (await platformBridge.getFollowedArtists()) || []) {
+  for (const artist of (await platformBridge.getArtistMembership()) || []) {
     if (artist.id) ids.add(String(artist.id));
-    if (artist.artist_id) ids.add(String(artist.artist_id));
     if (artist.name) ids.add(String(artist.name).toLowerCase());
   }
   return ids;

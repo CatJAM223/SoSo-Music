@@ -244,7 +244,8 @@ test('wave IPC samples likes beyond the fixed first profile page without mutatin
       'getDislikedWaveTracks',
     ].map((name) => [name, () => []]),
   );
-  db.getLikedTracks = () => likes;
+  db.getTastePolicy = () => ({ revision: 0, exclusions: [] });
+  db.getTasteLikedTracks = () => likes;
   t.mock.method(MusicAggregatorService, 'getWaveBatch', async (_mood, seeds) => seeds);
   const handlers = new Map();
   registerWaveHandlers({ handle: (name, callback) => handlers.set(name, callback) }, db);

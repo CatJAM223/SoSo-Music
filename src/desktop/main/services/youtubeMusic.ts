@@ -1,3 +1,10 @@
+import {
+  assertStreamResolveActive,
+  currentStreamResolveSignal,
+  streamWait,
+  streamShared,
+} from './streamResolveContext.ts';
+import { sharedStreamResolver } from './sharedStreamResolver.ts';
 import { BoundedMap } from '../../../shared/utils/boundedCache.ts';
 import {
   createStreamResolveError,
@@ -132,6 +139,7 @@ export class YouTubeMusicService {
   /** Account changes invalidate denied/cached URLs without touching stored credentials. */
   public static invalidateSessionCaches(): void {
     this.sessionEpoch++;
+    sharedStreamResolver.invalidate();
     this.cachedVisitorData = null;
     this.visitorDataRequest = null;
     this.streamCache.clear();
@@ -267,9 +275,10 @@ export class YouTubeMusicService {
     forceRefresh: boolean = false,
     formatOptions: StreamResolveOptions = {},
   ): Promise<string> {
+    assertStreamResolveActive();
     const cleanVid = this.cleanVideoId(videoId);
     if (!cleanVid) return '';
-    if (this.sessionRecoveryRequest) await this.sessionRecoveryRequest;
+    if (this.sessionRecoveryRequest) await streamShared(() => this.sessionRecoveryRequest);
     // A working cached stream remains usable even if another video requires sign-in.
     const cached = this.streamCache.get(cleanVid);
     if (
@@ -292,15 +301,19 @@ export class YouTubeMusicService {
       !!formatOptions.allowSessionRecovery,
       this.sessionEpoch,
     ]);
-    const pending = this.audioStreamRequests.get(key);
+    const scoped = !!currentStreamResolveSignal();
+    const pending = !scoped && this.audioStreamRequests.get(key);
     if (pending) return pending;
     const epoch = this.sessionEpoch;
     const request = (async () => {
       try {
         if (blocked && Date.now() < blocked.expiresAt) throw new Error(blocked.code);
         if (blocked) this.audioAccessFailures.delete(cleanVid);
-        return await this.requestSharedAudioStream(cleanVid, isRetry, forceRefresh, formatOptions);
+        return await streamWait(
+          this.requestSharedAudioStream(cleanVid, isRetry, forceRefresh, formatOptions),
+        );
       } catch (error) {
+        assertStreamResolveActive();
         if (
           !formatOptions.allowSessionRecovery ||
           isRetry ||
@@ -313,20 +326,24 @@ export class YouTubeMusicService {
         if (!pendingReset && !sessionChanged && Date.now() - this.lastSessionRecoveryAt < 30000)
           throw error;
         try {
-          if (pendingReset) await pendingReset;
-          else if (!sessionChanged) await this.resetSession();
+          if (pendingReset) await streamShared(() => pendingReset);
+          else if (!sessionChanged) await streamShared(() => this.resetSession());
         } catch (resetError) {
+          assertStreamResolveActive();
           PlaybackLogger.warn('[YouTubeMusic:Session] Session reset failed', resetError);
           throw error;
         }
         try {
-          const url = await this.requestSharedAudioStream(cleanVid, true, false, formatOptions);
+          const url = await streamWait(
+            this.requestSharedAudioStream(cleanVid, true, false, formatOptions),
+          );
           PlaybackLogger.info(
             '[YouTubeMusic:Session] Playback retry completed' +
               (url ? ' successfully' : ' without a stream'),
           );
           return url;
         } catch (retryError) {
+          assertStreamResolveActive();
           PlaybackLogger.warn(
             '[YouTubeMusic:Session] Verification still required after session reset',
           );
@@ -334,9 +351,9 @@ export class YouTubeMusicService {
         }
       }
     })();
-    this.audioStreamRequests.set(key, request);
+    if (!scoped) this.audioStreamRequests.set(key, request);
     try {
-      return await request;
+      return await streamWait(request);
     } finally {
       if (this.audioStreamRequests.get(key) === request) this.audioStreamRequests.delete(key);
     }
@@ -349,6 +366,7 @@ export class YouTubeMusicService {
     forceRefresh: boolean,
     options: StreamResolveOptions,
   ): Promise<string> {
+    assertStreamResolveActive();
     const key = JSON.stringify([
       videoId,
       isRetry,
@@ -357,6 +375,8 @@ export class YouTubeMusicService {
       options.excludeItag || 0,
       this.sessionEpoch,
     ]);
+    if (currentStreamResolveSignal())
+      return this.requestDirectAudioStream(videoId, isRetry, forceRefresh, options);
     const pending = this.playerStreamRequests.get(key);
     if (pending) {
       // A click can join speculative work while the account request is in flight.
@@ -370,7 +390,7 @@ export class YouTubeMusicService {
     const request = this.requestDirectAudioStream(videoId, isRetry, forceRefresh, sharedOptions);
     this.playerStreamRequests.set(key, request);
     try {
-      return await request;
+      return await streamWait(request);
     } finally {
       if (this.playerStreamRequests.get(key) === request) {
         this.playerStreamRequests.delete(key);
@@ -385,6 +405,7 @@ export class YouTubeMusicService {
     forceRefresh: boolean = false,
     formatOptions: StreamResolveOptions = {},
   ): Promise<string> {
+    assertStreamResolveActive();
     if (!videoId) return '';
     const cleanVid = videoId.replace(/^yt_/, '').trim();
     if (!cleanVid) return '';
@@ -403,8 +424,10 @@ export class YouTubeMusicService {
     if (this.accountResolver) {
       let accountStream: YouTubeAccountStream | null = null;
       try {
-        accountStream = await this.accountResolver(cleanVid, formatOptions);
+        accountStream = await streamWait(this.accountResolver(cleanVid, formatOptions));
       } catch (error) {
+        assertStreamResolveActive();
+        if (getStreamResolveFailure(error)) throw error;
         // Never use a result belonging to an account that changed during resolution.
         if (epoch !== this.sessionEpoch) throw new Error('YOUTUBE_AUDIO_LOGIN_REQUIRED');
         if (error instanceof Error && getYouTubeAudioAccessError(error) === 'age-restricted') {
@@ -434,7 +457,7 @@ export class YouTubeMusicService {
         accountStream.audioContainer === 'progressive' &&
         !accountStream.deliveryVerified
       ) {
-        const playable = await this.checkAccountMediaUrl(accountStream.url, 'audio');
+        const playable = await streamWait(this.checkAccountMediaUrl(accountStream.url, 'audio'));
         if (epoch !== this.sessionEpoch) throw new Error('YOUTUBE_AUDIO_LOGIN_REQUIRED');
         if (!playable) {
           PlaybackLogger.warn(
@@ -473,10 +496,10 @@ export class YouTubeMusicService {
       if (forceRefresh && !isRetry) {
         // Refresh this track without discarding healthy prefetches or its shared visitor session.
         this.videoStreamCache.delete(cleanVid);
-        await recoverDesktopNetwork();
+        await streamShared(() => recoverDesktopNetwork());
       }
-      const visitorData = await this.getVisitorData(
-        isRetry || (forceRefresh && !!formatOptions.preferAlternateFormat),
+      const visitorData = await streamShared(() =>
+        this.getVisitorData(isRetry || (forceRefresh && !!formatOptions.preferAlternateFormat)),
       );
 
       const payload = {
@@ -511,21 +534,23 @@ export class YouTubeMusicService {
         headers['X-Goog-Visitor-Id'] = visitorData;
       }
 
-      const res = await YouTubeMusicTransport.postPlayer(payload, headers);
+      const res = await streamWait(YouTubeMusicTransport.postPlayer(payload, headers));
 
       if (!res.ok) {
         PlaybackLogger.warn(
           `[YouTubeMusic] Player API HTTP ${res.status} for ${cleanVid} after ${Date.now() - startMs}ms`,
         );
         if (!isRetry && (res.status === 401 || res.status === 403)) {
-          return await this.requestDirectAudioStream(cleanVid, true, forceRefresh, formatOptions);
+          return await streamWait(
+            this.requestDirectAudioStream(cleanVid, true, forceRefresh, formatOptions),
+          );
         }
         const failure = streamHttpFailure(res.status);
         if (failure) throw createStreamResolveError(failure);
         return '';
       }
 
-      const json = await res.json();
+      const json = await streamWait(res.json());
       const status = json?.playabilityStatus?.status;
       const reason = json?.playabilityStatus?.reason || '';
       if (status !== 'OK') {
@@ -550,7 +575,9 @@ export class YouTubeMusicService {
           throw new Error(accessCode);
         }
         if (!isRetry && !reason.includes('Music Premium') && status === 'UNPLAYABLE') {
-          return await this.requestDirectAudioStream(cleanVid, true, forceRefresh, formatOptions);
+          return await streamWait(
+            this.requestDirectAudioStream(cleanVid, true, forceRefresh, formatOptions),
+          );
         }
         console.warn(
           `[YouTubeMusicService] Player returned non-OK status: ${status}${reason ? ` (${reason})` : ''} for ${cleanVid}`,
@@ -615,6 +642,7 @@ export class YouTubeMusicService {
         return bestStreamUrl;
       }
     } catch (e) {
+      assertStreamResolveActive();
       if (getYouTubeAudioAccessError(e)) {
         if (accountDeliveryRejected && getYouTubeAudioAccessError(e) !== 'age-restricted') {
           this.audioAccessFailures.delete(cleanVid);
@@ -632,8 +660,11 @@ export class YouTubeMusicService {
       console.warn('[YouTubeMusicService] resolveDirectAudioStream error:', e);
       const failure = getStreamResolveFailure(e) || streamTransportFailure(e);
       if (!isRetry && failure !== 'rate-limit') {
-        return await this.requestDirectAudioStream(cleanVid, true, forceRefresh, formatOptions);
+        return await streamWait(
+          this.requestDirectAudioStream(cleanVid, true, forceRefresh, formatOptions),
+        );
       }
+      if (getStreamResolveFailure(e)) throw e;
       throw createStreamResolveError(failure);
     }
 
@@ -684,7 +715,8 @@ export class YouTubeMusicService {
     url: string,
     kind: 'audio' | 'video',
   ): Promise<boolean> {
-    return (await probeYouTubeMedia(url, kind)).ok;
+    assertStreamResolveActive();
+    return (await streamWait(probeYouTubeMedia(url, kind))).ok;
   }
 
   private static async requestDirectVideoStream(
@@ -883,6 +915,7 @@ export class YouTubeMusicService {
    * Posts to music.youtube.com/youtubei/v1 using WEB_REMIX client context (ytmusicapi architecture)
    */
   private static async postInnertube(path: string, body: any, signal?: AbortSignal): Promise<any> {
+    assertStreamResolveActive();
     signal?.throwIfAborted();
     if (
       this.consecutiveFailures >= 4 &&
@@ -895,22 +928,20 @@ export class YouTubeMusicService {
     }
 
     try {
-      const res = await YouTubeMusicTransport.postMusic(
-        path,
-        body,
-        this.INNERTUBE_TIMEOUT_MS,
-        signal,
+      const res = await streamWait(
+        YouTubeMusicTransport.postMusic(path, body, this.INNERTUBE_TIMEOUT_MS, signal),
       );
       if (res.ok) {
-        const json = await res.json();
+        const json = await streamWait(res.json());
         this.consecutiveFailures = 0;
         return json;
       }
-      await res.body?.cancel().catch(() => {});
+      await streamWait(res.body?.cancel().catch(() => {}));
       PlaybackLogger.warn('[YouTubeMusic:API] endpoint=' + path + ' status=' + res.status);
       this.consecutiveFailures++;
       this.lastFailureTime = Date.now();
     } catch (e) {
+      assertStreamResolveActive();
       signal?.throwIfAborted();
       this.consecutiveFailures++;
       this.lastFailureTime = Date.now();
@@ -947,6 +978,7 @@ export class YouTubeMusicService {
     limit: number = 25,
     signal?: AbortSignal,
   ): Promise<{ data: Track[]; total: number }> {
+    assertStreamResolveActive();
     signal?.throwIfAborted();
     if (!query || !query.trim()) {
       return { data: [], total: 0 };
@@ -991,14 +1023,16 @@ export class YouTubeMusicService {
       };
 
       // 1. Fetch official Songs filter first (guarantees studio tracks)
-      const songsJson = await this.postInnertube(
-        '/youtubei/v1/search',
-        {
-          context: clientContext,
-          query: cleanQ,
-          params: this.PARAMS.SONGS,
-        },
-        signal,
+      const songsJson = await streamWait(
+        this.postInnertube(
+          '/youtubei/v1/search',
+          {
+            context: clientContext,
+            query: cleanQ,
+            params: this.PARAMS.SONGS,
+          },
+          signal,
+        ),
       );
 
       receivedSearchResponse ||= !!songsJson?.contents;
@@ -1023,14 +1057,16 @@ export class YouTubeMusicService {
 
       // 2. If songs filter was below requested limit, fetch official Videos filter
       if (tracks.length < limit) {
-        const videosJson = await this.postInnertube(
-          '/youtubei/v1/search',
-          {
-            context: clientContext,
-            query: cleanQ,
-            params: this.PARAMS.VIDEOS,
-          },
-          signal,
+        const videosJson = await streamWait(
+          this.postInnertube(
+            '/youtubei/v1/search',
+            {
+              context: clientContext,
+              query: cleanQ,
+              params: this.PARAMS.VIDEOS,
+            },
+            signal,
+          ),
         );
 
         receivedSearchResponse ||= !!videosJson?.contents;
@@ -1057,13 +1093,15 @@ export class YouTubeMusicService {
 
       // 3. If results are still sparse, fallback to generic search and parse Top Card + standard shelves
       if (tracks.length < 5) {
-        const genericJson = await this.postInnertube(
-          '/youtubei/v1/search',
-          {
-            context: clientContext,
-            query: cleanQ,
-          },
-          signal,
+        const genericJson = await streamWait(
+          this.postInnertube(
+            '/youtubei/v1/search',
+            {
+              context: clientContext,
+              query: cleanQ,
+            },
+            signal,
+          ),
         );
 
         receivedSearchResponse ||= !!genericJson?.contents;
@@ -1162,6 +1200,7 @@ export class YouTubeMusicService {
         this.searchCache.set(cacheKey, result);
       return result;
     } catch (e) {
+      assertStreamResolveActive();
       signal?.throwIfAborted();
       console.warn('[YouTubeMusicService] Search error:', e);
       return { data: [], total: 0 };
@@ -1177,6 +1216,7 @@ export class YouTubeMusicService {
     track: Track,
     options: StreamResolveOptions = {},
   ): Promise<string> {
+    assertStreamResolveActive();
     if (!track) return '';
 
     // Extract videoId from track ID or preview URL
@@ -1190,11 +1230,8 @@ export class YouTubeMusicService {
     }
 
     if (videoId) {
-      const stream = await this.resolveDirectAudioStream(
-        videoId,
-        false,
-        options.forceRefresh,
-        options,
+      const stream = await streamWait(
+        this.resolveDirectAudioStream(videoId, false, options.forceRefresh, options),
       );
       if (stream) {
         const cachedDur = this.videoDurationCache.get(videoId);

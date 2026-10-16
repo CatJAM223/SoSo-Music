@@ -1,4 +1,10 @@
 import {
+  assertStreamResolveActive,
+  currentStreamResolveSignal,
+  streamWait,
+  streamShared,
+} from './streamResolveContext.ts';
+import {
   isSoundCloudRestrictedTrack,
   isFullSoundCloudTranscoding,
   isSoundCloudPreviewUrl,
@@ -206,6 +212,7 @@ export class SoundCloudService {
     limit: number = 30,
     signal?: AbortSignal,
   ): Promise<{ data: Track[]; total: number }> {
+    assertStreamResolveActive();
     if (!query || !query.trim()) return { data: [], total: 0 };
     const cleanQ = query.trim();
 
@@ -217,9 +224,9 @@ export class SoundCloudService {
 
     signal?.throwIfAborted();
     try {
-      const clientId = await this.getSoundCloudKey();
+      const clientId = await streamShared(() => this.getSoundCloudKey());
       const url = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(cleanQ)}&client_id=${clientId}&limit=${limit}`;
-      const json = await this.fetchWithRelay(url, false, false, signal);
+      const json = await streamWait(this.fetchWithRelay(url, false, false, signal));
       // A failed request is not an authoritative empty catalog; allow the next search to recover.
       if (!Array.isArray(json?.collection)) return { data: [], total: 0 };
 
@@ -237,6 +244,7 @@ export class SoundCloudService {
       this.setCache(cacheKey, result);
       return result;
     } catch (e) {
+      assertStreamResolveActive();
       signal?.throwIfAborted();
       console.error('[SoundCloudService] Search error:', e);
       return { data: [], total: 0 };
@@ -720,6 +728,7 @@ export class SoundCloudService {
     attempted = new Set<string>(),
     fullDuration = 0,
   ): Promise<string | null> {
+    assertStreamResolveActive();
     if (!Array.isArray(transcodings) || transcodings.length === 0) return null;
 
     const validTranscodings = transcodings.filter((t) =>
@@ -760,7 +769,7 @@ export class SoundCloudService {
         attempted.add(endpointKey);
         const sep = tc.url.includes('?') ? '&' : '?';
         const streamEndpoint = `${tc.url}${sep}client_id=${clientId}`;
-        const streamJson = await this.fetchWithRelay(streamEndpoint, false, true);
+        const streamJson = await streamWait(this.fetchWithRelay(streamEndpoint, false, true));
         if (
           streamJson?.url &&
           typeof streamJson.url === 'string' &&
@@ -770,6 +779,7 @@ export class SoundCloudService {
           return streamJson.url;
         }
       } catch (e) {
+        assertStreamResolveActive();
         if (getStreamResolveFailure(e) === 'rate-limit') throw e;
         if (getStreamResolveFailure(e)) temporaryFailure = e;
         // Continue to next transcoding
@@ -885,18 +895,20 @@ export class SoundCloudService {
     track: Track,
     options: StreamResolveOptions = {},
   ): Promise<string> {
+    assertStreamResolveActive();
     if (!track) return '';
     const id = String(track.id || track.preview || track.title);
     const fresh = !!options.forceRefresh || !!(track as any).forDownload;
     if (fresh) this.unavailableStreams.delete(id);
     else if ((this.unavailableStreams.get(id) || 0) > Date.now()) return '';
     const key = id + (fresh ? ':fresh' : ':normal');
+    if (currentStreamResolveSignal()) return this.resolveFullStreamUrl(track, options);
     const pending = this.pendingStreams.get(key);
     if (pending) return pending;
     const request = this.resolveFullStreamUrl(track, options);
     this.pendingStreams.set(key, request);
     try {
-      const url = await request;
+      const url = await streamWait(request);
       if (url) this.unavailableStreams.delete(id);
       else if (
         !fresh &&
@@ -916,6 +928,7 @@ export class SoundCloudService {
     track: Track,
     options: StreamResolveOptions,
   ): Promise<string> {
+    assertStreamResolveActive();
     if (!track) return '';
 
     const startMs = Date.now();
@@ -964,7 +977,7 @@ export class SoundCloudService {
     PlaybackLogger.info(`[SoundCloud] Resolving stream for "${track.title}" (id: ${track.id})...`);
 
     try {
-      const clientId = await this.getSoundCloudKey();
+      const clientId = await streamShared(() => this.getSoundCloudKey());
 
       // Step 1: Fetch full track details to get progressive MP3 transcodings directly
       const rawId = String(track.id || '');
@@ -975,7 +988,7 @@ export class SoundCloudService {
       }
       if (/^\d+$/.test(numericId)) {
         const trackEndpoint = `https://api-v2.soundcloud.com/tracks/${numericId}?client_id=${clientId}`;
-        const trackJson = await this.fetchWithRelay(trackEndpoint, false, true);
+        const trackJson = await streamWait(this.fetchWithRelay(trackEndpoint, false, true));
         if (trackJson?.id !== undefined && String(trackJson.id) !== numericId) {
           PlaybackLogger.warn(
             '[SoundCloud:Identity] Metadata belongs to another recording; refusing playback',
@@ -989,11 +1002,8 @@ export class SoundCloudService {
         );
         const transcodings: any[] = trackJson?.media?.transcodings || [];
 
-        const streamUrl = await this.resolveStreamFromTranscodings(
-          transcodings,
-          clientId,
-          attempted,
-          fullDuration,
+        const streamUrl = await streamWait(
+          this.resolveStreamFromTranscodings(transcodings, clientId, attempted, fullDuration),
         );
         if (streamUrl) {
           if (this.streamCache.size >= this.MAX_CACHE_SIZE) {
@@ -1022,7 +1032,7 @@ export class SoundCloudService {
       ) {
         const sep = track.preview.includes('?') ? '&' : '?';
         const streamEndpoint = `${track.preview}${sep}client_id=${clientId}`;
-        const streamJson = await this.fetchWithRelay(streamEndpoint, false, true);
+        const streamJson = await streamWait(this.fetchWithRelay(streamEndpoint, false, true));
         if (
           streamJson?.url &&
           typeof streamJson.url === 'string' &&
@@ -1044,6 +1054,7 @@ export class SoundCloudService {
         }
       }
     } catch (e) {
+      assertStreamResolveActive();
       PlaybackLogger.warn(
         `[SoundCloud] Error resolving stream for "${track.title}" (id: ${track.id}) after ${Date.now() - startMs}ms:`,
         e,

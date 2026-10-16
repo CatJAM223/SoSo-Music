@@ -1,3 +1,4 @@
+import { normalizePlaybackOrigin } from './tastePolicy.ts';
 import { normalizeWaveSource } from '../services/waveSource.ts';
 import { waveMusicMetadata, waveMusicProfile, waveMoodScore } from './waveMusicProfile.ts';
 import type { Track, WaveBatchContext, WaveMood } from '../types/index.ts';
@@ -36,6 +37,7 @@ export function normalizeWaveBatchContext(value: unknown): WaveBatchContext {
       .filter((track): track is Track => Boolean(track))
       .map((track) => ({
         id: String(track.id).slice(0, 128),
+        queueOrigin: normalizePlaybackOrigin(track.queueOrigin),
         title: track.title.slice(0, 500),
         artist: { name: track.artist.name.slice(0, 500) },
         album: { title: '' },
@@ -55,6 +57,7 @@ export function normalizeWaveBatchContext(value: unknown): WaveBatchContext {
     }
   }
   return {
+    tasteRevision: Number.isSafeInteger(input.tasteRevision) ? input.tasteRevision : undefined,
     source: normalizeWaveSource(input.source),
     recentTracks,
     offeredTracks,

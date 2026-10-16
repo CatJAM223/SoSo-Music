@@ -6,6 +6,7 @@ import {
   PLAYBACK_SESSION_KEY,
 } from '../src/shared/services/playbackSession.ts';
 import { ShuffleCycle } from '../src/shared/utils/shuffleCycle.ts';
+import * as queueEntries from '../src/shared/utils/queueEntry.ts';
 import { hookRuntime } from './helpers/hookRuntime.mjs';
 
 const track = (id) => ({
@@ -142,6 +143,7 @@ test('Restored queue hook starts with the saved cursor and modes and next insert
   const restored = readPlaybackSession(store);
   const h = hookRuntime(new URL('../src/shared/hooks/useQueueManager.ts', import.meta.url), {
     '../utils/shuffleCycle': { ShuffleCycle },
+    '../utils/queueEntry': queueEntries,
   });
   const api = h.render(restored);
   assert.equal(api.queue[api.queueIndex].id, 'yt_b');

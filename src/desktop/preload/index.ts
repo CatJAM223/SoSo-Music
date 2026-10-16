@@ -31,6 +31,17 @@ const api: ElectronAPI = {
   getLastFmApiKeyStatus: () => ipcRenderer.invoke('lastfm:keyStatus'),
   saveLastFmApiKey: (key) => ipcRenderer.invoke('lastfm:saveKey', key),
   setInterfaceLanguage: (language) => ipcRenderer.invoke('app:setInterfaceLanguage', language),
+  getTastePolicy: () => ipcRenderer.invoke('tastePolicy:get'),
+  setTasteExcluded: (value) => ipcRenderer.invoke('tastePolicy:setExcluded', value),
+  getTasteProfile: () => ipcRenderer.invoke('tastePolicy:profile'),
+  onTastePolicyChanged: (callback) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      value: import('../../shared/types/tastePolicy').TastePolicySnapshot,
+    ) => callback(value);
+    ipcRenderer.on('tastePolicy:changed', handler);
+    return () => ipcRenderer.removeListener('tastePolicy:changed', handler);
+  },
   getLibraryTaste: () => ipcRenderer.invoke('libraryTaste:status'),
   analyzeLibraryTaste: () => ipcRenderer.invoke('libraryTaste:analyze'),
   cancelLibraryTaste: () => ipcRenderer.invoke('libraryTaste:cancel'),
@@ -119,8 +130,9 @@ const api: ElectronAPI = {
   cancelWaveBatch: (requestId) => ipcRenderer.invoke('music:cancelWaveBatch', requestId),
   getRecommendedTracks: (previousIds) =>
     ipcRenderer.invoke('music:getRecommendedTracks', previousIds),
-  getFullStreamUrl: (track, options) =>
-    ipcRenderer.invoke('music:getFullStreamUrl', track, options),
+  getFullStreamUrl: (track, options, requestId) =>
+    ipcRenderer.invoke('music:getFullStreamUrl', track, options, requestId),
+  cancelStreamResolve: (requestId) => ipcRenderer.invoke('music:cancelStreamResolve', requestId),
   downloadAudioBuffer: (url: string, requestId?: string) =>
     ipcRenderer.invoke('music:downloadAudioBuffer', url, requestId),
   onAudioDownloadProgress: (callback) => {
@@ -153,6 +165,11 @@ const api: ElectronAPI = {
   // Desktop Mini-Widget
   toggleWidget: () => ipcRenderer.invoke('widget:toggle'),
   isWidgetOpen: () => ipcRenderer.invoke('widget:isOpen'),
+  onWidgetVisibilityChanged: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, open: boolean) => callback(open);
+    ipcRenderer.on('widget:visibilityChanged', handler);
+    return () => ipcRenderer.removeListener('widget:visibilityChanged', handler);
+  },
   sendWidgetState: (state: any) => ipcRenderer.send('widget:sendState', state),
   sendWidgetCommand: (command: string, data?: any) =>
     ipcRenderer.send('widget:command', { command, data }),
@@ -166,6 +183,12 @@ const api: ElectronAPI = {
     ipcRenderer.on('widget:stateUpdate', handler);
     return () => ipcRenderer.removeListener('widget:stateUpdate', handler);
   },
+
+  getLibraryPage: (request) => ipcRenderer.invoke('db:getLibraryPage', request),
+  getLibraryStats: () => ipcRenderer.invoke('db:getLibraryStats'),
+  getLibraryPlaybackTracks: (request) => ipcRenderer.invoke('db:getLibraryPlaybackTracks', request),
+  getSavedAlbumIds: () => ipcRenderer.invoke('db:getSavedAlbumIds'),
+  getArtistMembership: () => ipcRenderer.invoke('db:getArtistMembership'),
 
   // SQLite - Liked Tracks
   getLikedTrackIds: () => ipcRenderer.invoke('db:getLikedTrackIds'),

@@ -40,6 +40,16 @@ export function useLibraryTaste(active: boolean) {
     };
   }, [active, revision]);
 
+  useEffect(() => {
+    if (!active) return;
+    const changed = () => {
+      actionVersion.current++;
+      setRevision((value) => value + 1);
+    };
+    window.addEventListener('soso:taste-policy-changed', changed);
+    return () => window.removeEventListener('soso:taste-policy-changed', changed);
+  }, [active]);
+
   const run = useCallback(
     async (action: Action, enabled?: boolean) => {
       const current = generation.current;

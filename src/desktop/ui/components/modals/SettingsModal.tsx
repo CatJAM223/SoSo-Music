@@ -6,7 +6,7 @@ import { t } from '../../../../shared/i18n/locale';
 import { useYouTubeAccountSettings } from '../../hooks/useYouTubeAccountSettings';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, CircleHelp } from 'lucide-react';
+import { X, CircleHelp, Move } from 'lucide-react';
 import discordSymbol from '../../assets/discord-symbol.svg';
 import soundcloudSymbol from '../../assets/soundcloud-symbol.webp';
 import { useTheme } from '../../../../shared/context/ThemeContext';
@@ -44,7 +44,15 @@ interface StatusFeedback {
 }
 
 type SettingsTab =
-  'general' | 'shortcuts' | 'appearance' | 'audio' | 'stats' | 'integrations' | 'data' | 'about';
+  | 'general'
+  | 'shortcuts'
+  | 'appearance'
+  | 'audio'
+  | 'stats'
+  | 'integrations'
+  | 'api'
+  | 'data'
+  | 'about';
 
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'general', label: 'Обзор' },
@@ -53,6 +61,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'audio', label: 'Воспроизведение' },
   { id: 'stats', label: 'Статистика' },
   { id: 'integrations', label: 'Интеграции' },
+  { id: 'api', label: 'API' },
   { id: 'data', label: 'Данные' },
   { id: 'about', label: 'О приложении' },
 ];
@@ -64,7 +73,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   useLocale();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
-  const lastFm = useLastFmKeySettings(isOpen && activeTab === 'integrations');
+  const lastFm = useLastFmKeySettings(isOpen && activeTab === 'api');
   const overlay = useOverlaySettings(isOpen && activeTab === 'integrations');
   const [showApiHelp, setShowApiHelp] = useState(false);
   const [showYouTubeSessionHelp, setShowYouTubeSessionHelp] = useState(false);
@@ -751,41 +760,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <span />
                   </button>
                 </div>
-                {isFindClipsEnabled && (
-                  <>
-                    <div className="settings-row settings-api-row">
-                      <div className="settings-row-copy">
-                        <strong className="inline-flex items-center gap-2">
-                          YouTube Data API v3
-                          <button
-                            type="button"
-                            aria-label={t('Что такое ключ YouTube API')}
-                            aria-expanded={showApiHelp}
-                            aria-controls="youtube-api-help"
-                            onClick={() => setShowApiHelp((value) => !value)}
-                            className="text-zinc-400 hover:text-soso-brand"
-                          >
-                            <CircleHelp size={17} />
-                          </button>
-                        </strong>
-                      </div>
-                      <input
-                        type="password"
-                        value={youtubeApiKey}
-                        onChange={(event) => handleYoutubeApiKeyChange(event.target.value)}
-                        placeholder={t('Ключ API')}
-                        aria-label={t('Ключ YouTube Data API')}
-                      />
-                    </div>
-                    {showApiHelp && (
-                      <p id="youtube-api-help" className="settings-row-note" role="note">
-                        {t(
-                          'Необязательный ключ Google для поиска официальных видеоклипов в караоке. Для поиска музыки и прослушивания он не нужен. Создайте проект в Google Cloud, включите YouTube Data API v3 и получите API key в разделе Credentials. Google ограничивает число запросов дневной квотой. Ключ хранится локально в приложении; не публикуйте его.',
-                        )}
-                      </p>
-                    )}
-                  </>
-                )}
               </section>
             </div>
           )}
@@ -800,41 +774,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <SettingsLibraryTaste active={isOpen} />
             </>
           )}
-          {activeTab === 'integrations' && (
+          {activeTab === 'api' && (
             <div className="settings-page">
-              <section className="settings-section overlay-integration-settings">
-                <h4>{t('Оверлей плеера')}</h4>
-                <div className="settings-row">
+              <section className="settings-section youtube-api-settings">
+                <h4>YouTube</h4>
+                <div className="settings-row settings-api-row">
                   <div className="settings-row-copy">
-                    <strong>{t('Включить оверлей')}</strong>
-                    <span>
-                      {t('Обложка и название трека поверх других окон. Клики проходят насквозь.')}
-                    </span>
+                    <strong className="inline-flex items-center gap-2">
+                      YouTube Data API v3
+                      <button
+                        type="button"
+                        aria-label={t('Что такое ключ YouTube API')}
+                        aria-expanded={showApiHelp}
+                        aria-controls="youtube-api-help"
+                        onClick={() => setShowApiHelp((value) => !value)}
+                        className="text-zinc-400 hover:text-soso-brand"
+                      >
+                        <CircleHelp size={17} />
+                      </button>
+                    </strong>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-label={t('Включить оверлей')}
-                    aria-checked={overlay.enabled === true}
-                    className={'settings-switch' + (overlay.enabled ? ' enabled' : '')}
-                    disabled={
-                      overlay.enabled === null ||
-                      overlay.busy ||
-                      !window.electronAPI?.setPlayerOverlayEnabled
-                    }
-                    onClick={() => void overlay.save(!overlay.enabled)}
-                  >
-                    <span />
-                  </button>
+                  <input
+                    type="password"
+                    value={youtubeApiKey}
+                    onChange={(event) => handleYoutubeApiKeyChange(event.target.value)}
+                    placeholder={t('Ключ API')}
+                    aria-label={t('Ключ YouTube Data API')}
+                  />
                 </div>
-                <p className="settings-row-note">
-                  {t(
-                    'При отключении окно оверлея закрывается, его горячая клавиша освобождается. Управление музыкой продолжает работать.',
-                  )}
-                </p>
-                {overlay.error && (
-                  <p role="alert" className="settings-feedback error">
-                    {overlay.error}
+                {showApiHelp && (
+                  <p id="youtube-api-help" className="settings-row-note" role="note">
+                    {t(
+                      'Необязательный ключ Google для поиска официальных видеоклипов в караоке. Для поиска музыки и прослушивания он не нужен. Создайте проект в Google Cloud, включите YouTube Data API v3 и получите API key в разделе Credentials. Google ограничивает число запросов дневной квотой. Ключ хранится локально в приложении; не публикуйте его.',
+                    )}
                   </p>
                 )}
               </section>
@@ -901,6 +873,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 )}
               </section>
+            </div>
+          )}
+          {activeTab === 'integrations' && (
+            <div className="settings-page">
+              <section className="settings-section overlay-integration-settings">
+                <h4>{t('Оверлей плеера')}</h4>
+                <div className="settings-row">
+                  <div className="settings-row-copy">
+                    <strong>{t('Включить оверлей')}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label={t('Включить оверлей')}
+                    aria-checked={overlay.enabled === true}
+                    className={'settings-switch' + (overlay.enabled ? ' enabled' : '')}
+                    disabled={
+                      overlay.enabled === null ||
+                      overlay.busy ||
+                      !window.electronAPI?.setPlayerOverlayEnabled
+                    }
+                    onClick={() => void overlay.save(!overlay.enabled)}
+                  >
+                    <span />
+                  </button>
+                </div>
+                <p className="settings-row-note">
+                  {t('В играх используйте оконный режим или окно без рамок.')}
+                </p>
+                <div className="settings-row overlay-position-row">
+                  <div className="settings-row-copy">
+                    <strong>{t('Положение на экране')}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="settings-action"
+                    disabled={
+                      overlay.enabled !== true ||
+                      overlay.busy ||
+                      !window.electronAPI?.editPlayerOverlay
+                    }
+                    onClick={() => void overlay.edit()}
+                  >
+                    <Move size={15} />
+                    {t('Настроить положение')}
+                  </button>
+                </div>
+                {overlay.error && (
+                  <p role="alert" className="settings-feedback error">
+                    {overlay.error}
+                  </p>
+                )}
+              </section>
+
               <section className="settings-section">
                 <h4>YouTube Music</h4>
                 <div className="settings-row">

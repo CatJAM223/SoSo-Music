@@ -57,7 +57,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
     useAudioControls();
 
   const youtubeDisabled = useYouTubeAvailability();
-  const daily = useDailyRecommendations();
+  const daily = useDailyRecommendations(dislikedTrackIds);
   const recommendedTracks = daily.tracks.filter((track) => !dislikedTrackIds.has(String(track.id)));
   const [likedTracks, setLikedTracks] = useState<LikedTrack[]>([]);
   const [savedAlbums, setSavedAlbums] = useState<SavedAlbum[]>([]);

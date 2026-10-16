@@ -661,6 +661,25 @@ app
         const original=window.electronAPI.setPlayerOverlayEnabled;window.electronAPI.setPlayerOverlayEnabled=async()=>{throw Error('write failed');};toggle().click();await wait(()=>document.querySelector('.overlay-integration-settings [role="alert"]'));if(toggle().getAttribute('aria-checked')!=='false')throw Error('Failed setting changed UI state');window.electronAPI.setPlayerOverlayEnabled=original;
       })()`);
       console.log('SETTINGS_SESSION_REFRESH_OK; OVERLAY_INTEGRATION_SWITCH_OK');
+      await window.webContents.executeJavaScript(`(async()=>{
+        const wait=async check=>{for(let i=0;i<100;i++){if(check())return;await new Promise(r=>setTimeout(r,20));}throw Error('API settings did not load');};
+        const tabs=()=>[...document.querySelectorAll('[role="tab"]')];
+        if(document.querySelector('input[aria-label="Ключ API Last.fm"]'))throw Error('Key form remained in integrations');
+        const forbidden=['Обложка и название трека поверх других окон. Клики проходят насквозь.','При отключении окно оверлея закрывается, его горячая клавиша освобождается. Управление музыкой продолжает работать.'];
+        if(forbidden.some(text=>document.querySelector('.settings-modal-content').textContent.includes(text)))throw Error('Removed overlay help remains visible');
+        tabs().find(tab=>tab.textContent==='API').click();
+        await wait(()=>document.querySelector('.lastfm-key-settings input')&&!document.querySelector('.lastfm-key-settings button.settings-action-primary').disabled===false);
+        const youtube=document.querySelector('input[aria-label="Ключ YouTube Data API"]');
+        if(!youtube||!document.querySelector('input[aria-label="Ключ API Last.fm"]'))throw Error('Both key forms must share API tab');
+        const set=(input,value)=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));};
+        set(youtube,'fixture-youtube-key');await wait(()=>localStorage.getItem('soso_youtube_api_key')==='fixture-youtube-key');
+        const lastfm=document.querySelector('input[aria-label="Ключ API Last.fm"]');set(lastfm,'a'.repeat(32));
+        await wait(()=>!document.querySelector('.lastfm-key-settings .settings-action-primary').disabled);
+        document.querySelector('.lastfm-key-settings .settings-action-primary').click();await wait(()=>document.querySelector('.lastfm-key-settings [role="status"]'));
+        tabs().find(tab=>tab.textContent==='Воспроизведение').click();await wait(()=>document.querySelector('[aria-label="Искать клип"]'));
+        if(document.querySelector('input[aria-label="Ключ YouTube Data API"]'))throw Error('YouTube key form remained in playback');
+      })()`);
+      console.log('API_SETTINGS_FORMS_OK');
 
       fs.writeFileSync(
         path.join(screenshots, 'settings-session-refresh.png'),
@@ -820,7 +839,7 @@ app
         if(window.fixtureAudioState.currentTrack!==originalTrack)throw Error('Language reset the player');
         const tabs=[...document.querySelectorAll('[role="tab"]')].map(e=>e.textContent);
         if(!tabs.includes('Appearance')||!tabs.includes('Integrations'))throw Error('Settings tabs stayed Russian');
-        [...document.querySelectorAll('[role="tab"]')].find(e=>e.textContent==='Integrations').click();
+        [...document.querySelectorAll('[role="tab"]')].find(e=>e.textContent==='API').click();
         await wait(()=>document.querySelector('.lastfm-key-settings input') && document.querySelector('.lastfm-key-settings').textContent.includes('Key saved'));
         const keyPanel=document.querySelector('.lastfm-key-settings'), keyInput=keyPanel.querySelector('input');
         if(keyInput.value!==''||keyInput.type!=='password'||keyPanel.querySelector('a').href!=='https://www.last.fm/api/account/create')throw Error('Last.fm settings expose a key or lack the registration link');
@@ -904,14 +923,22 @@ app
       await window.webContents.executeJavaScript(`(async()=>{
         const wait=async(fn)=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Overlay fixture timed out');};
         document.documentElement.classList.add('dark');window.fixtureSetLocale('ru');
-        if(!document.querySelector('.shortcuts-position button'))throw Error('Missing positioning entry');
-        document.querySelector('.shortcuts-position button').click();await wait(()=>window.fixtureOverlayEditing);
+        await wait(()=>[...document.querySelectorAll('[role="tab"]')].some(el=>el.textContent==='Интеграции'));
+        if(document.querySelector('.shortcuts-position'))throw Error('Position control remained in shortcuts');
+        if(document.querySelector('.settings-shortcuts').textContent.includes('Работают, даже когда плеер свёрнут.'))throw Error('Removed subtitle remained');
+        [...document.querySelectorAll('[role="tab"]')].find(el=>el.textContent==='Интеграции').click();
+        await wait(()=>document.querySelector('.overlay-position-row button')&&!document.querySelector('.overlay-position-row button').disabled);
+        document.querySelector('.overlay-position-row button').click();await wait(()=>window.fixtureOverlayEditing);
         [...document.querySelectorAll('[role="tab"]')].find(el=>el.textContent==='Обзор').click();await wait(()=>!document.querySelector('.settings-shortcuts'));
         if(window.fixtureShortcutCapture)throw Error('Global shortcuts left suspended after tab close');
         window.fixtureOverlayEditing=false;window.renderOverlayFixture();await wait(()=>document.querySelector('.overlay-track strong')?.textContent==='Overlay song');
         if(document.querySelectorAll('[data-overlay-panel]').length!==1||document.querySelector('.player-overlay button'))throw Error('Viewing overlay has playback controls or handles');
         if(getComputedStyle(document.querySelector('.overlay-panel')).pointerEvents!=='none')throw Error('Track card intercepts clicks');
         if(getComputedStyle(document.querySelector('.overlay-panel')).backgroundColor!=='rgba(0, 0, 0, 0)')throw Error('Viewing overlay is not transparent');
+        const title=document.querySelector('.overlay-track strong'),artist=document.querySelector('.overlay-track span'),info=document.querySelector('.overlay-track-info'),image=document.querySelector('.overlay-track img');
+        const tr=title.getBoundingClientRect(),ar=artist.getBoundingClientRect();
+        if(Math.abs(tr.left-ar.left)>.1||tr.bottom>ar.top)throw Error('Overlay title/artist lines are misaligned');
+        if(getComputedStyle(info).paddingLeft!=='3px'||getComputedStyle(info).textShadow!=='none'||getComputedStyle(image).boxShadow!=='none')throw Error('Overlay padding/shadow regression');
         document.querySelector('.overlay-panel').dispatchEvent(new MouseEvent('mouseenter',{bubbles:true}));
         if(document.querySelector('.overlay-grip'))throw Error('Hover activated overlay controls');
         window.fixtureOverlayEditing=true;window.fixtureOverlayModeListener(true);await wait(()=>document.querySelector('.overlay-grip'));
@@ -967,6 +994,21 @@ app
       fs.writeFileSync(
         path.join(path.dirname(output), 'player-overlay-view.png'),
         (await window.webContents.capturePage()).toPNG(),
+      );
+      await window.webContents.executeJavaScript(`(async()=>{
+        document.documentElement.style.background='#fff';document.body.style.background='#fff';
+        const left=document.querySelector('.overlay-track strong').getBoundingClientRect().left;
+        window.fixtureOverlayListener({...window.fixtureOverlayState,track:{...window.fixtureOverlayState.track,id:'white-background',title:'Священная война',artist:{name:'Урал Гайсин'}}});
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        const title=document.querySelector('.overlay-track strong').getBoundingClientRect(),artist=document.querySelector('.overlay-track span').getBoundingClientRect();
+        if(Math.abs(title.left-left)>.1||Math.abs(title.left-artist.left)>.1||title.bottom>artist.top)throw Error('Changing metadata shifted the overlay text');
+      })()`);
+      fs.writeFileSync(
+        path.join(path.dirname(output), 'player-overlay-white.png'),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+      await window.webContents.executeJavaScript(
+        "document.documentElement.style.background='transparent';document.body.style.background='transparent';",
       );
       await window.webContents.executeJavaScript(`(async()=>{
         const wait=async check=>{for(let i=0;i<100;i++){if(check())return;await new Promise(r=>setTimeout(r,20));}throw Error('Overlay edge case timed out');};

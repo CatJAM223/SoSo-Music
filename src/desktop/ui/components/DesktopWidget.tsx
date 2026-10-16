@@ -1,3 +1,4 @@
+import { ThemeProvider } from '../../../shared/context/ThemeContext';
 import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
 import React, { useEffect, useState, useCallback } from 'react';
@@ -5,7 +6,7 @@ import { Play, Pause, SkipBack, SkipForward, Heart, X, Volume2, VolumeX, Disc } 
 import { WidgetState } from '../../../shared/types';
 import { DEFAULT_COVER_SVG_DATA_URI } from '../../../shared/utils/placeholder';
 
-export const DesktopWidget: React.FC = () => {
+const WidgetContents: React.FC = () => {
   useLocale();
   const [state, setState] = useState<WidgetState>({
     track: null,
@@ -258,3 +259,10 @@ export const DesktopWidget: React.FC = () => {
     </div>
   );
 };
+
+// Keep saved appearance without mounting the main app or any playback provider.
+export const DesktopWidget: React.FC = () => (
+  <ThemeProvider>
+    <WidgetContents />
+  </ThemeProvider>
+);

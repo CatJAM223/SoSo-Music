@@ -9,8 +9,13 @@ import * as listening from '../src/shared/utils/listeningTime.ts';
 import * as recovery from '../src/shared/utils/playbackRecovery.ts';
 import * as fade from '../src/shared/utils/crossfade.ts';
 import * as shuffle from '../src/shared/utils/shuffleCycle.ts';
+import * as queueEntries from '../src/shared/utils/queueEntry.ts';
+import { AudioProgressWatchdog } from '../src/shared/utils/audioProgressWatchdog.ts';
+import * as queueOrder from '../src/shared/utils/playbackQueueOrder.ts';
+import * as playbackIntent from '../src/shared/utils/playbackIntent.ts';
 import * as networkFailures from '../src/shared/utils/streamResolveError.ts';
 import * as access from '../src/shared/utils/youtubeAudioAccessError.ts';
+import * as tastePolicy from '../src/shared/utils/tastePolicy.ts';
 import { HlsRecoveryBudget } from '../src/shared/utils/hlsRecovery.ts';
 
 import { AudioCrossfade } from '../src/shared/services/audioCrossfade.ts';
@@ -75,6 +80,7 @@ function fixture({
   native = false,
   realCrossfade = false,
   realDeadline = false,
+  now = () => performance.now(),
 } = {}) {
   const nativeLoads = [],
     nativePlans = [],
@@ -144,8 +150,14 @@ function fixture({
     playTrackRef: ref(null),
   };
   const bindings = {
+    '../utils/playbackIntent.ts': playbackIntent,
+    '../utils/playbackQueueOrder': queueOrder,
+    '../utils/tastePolicy': tastePolicy,
     '../utils/boundedCache': { BoundedMap, BoundedSet },
     './shuffleCycle.ts': shuffle,
+    './queueEntry.ts': queueEntries,
+    '../utils/queueEntry': queueEntries,
+    '../utils/audioProgressWatchdog': { AudioProgressWatchdog },
     '../services/playerStreamResolution': {
       source: new URL('../src/shared/services/playerStreamResolution.ts', import.meta.url),
     },
@@ -160,6 +172,7 @@ function fixture({
     },
     './useYouTubeAvailability': { useYouTubeAvailability: () => false },
     '../services/youtubeAvailability': {
+      isYouTubePlaybackDisabled: () => false,
       isYouTubeItemDisabled: () => false,
       availableQueueIndex: (q, i) => (i >= 0 && i < q.length ? i : -1),
     },
@@ -224,9 +237,9 @@ function fixture({
         recordPlaybackSession: async (data) => {
           statistics.push(data);
         },
-        getFullStreamUrl(t) {
+        getFullStreamUrl(t, options, signal) {
           bridgeCalls.push(t.id);
-          return resolve(t);
+          return resolve(t, options, signal);
         },
         addListeningHistory: async (data) => {
           history.push(data);
@@ -274,7 +287,7 @@ function fixture({
   const h = hookRuntime(
     new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
     bindings,
-    { window, navigator: connectivity },
+    { window, navigator: connectivity, performance: { now }, AbortSignal },
   );
   h.render(props);
   return {
@@ -1329,5 +1342,433 @@ test('an unavailable recording still advances an ordinary queue through the shar
   assert.equal(f.h.api().currentTrack.id, 'yt_two');
   assert.equal(f.audio.plays, 1);
   assert.ok(f.toasts.some((message) => message.includes('Включаем следующий')));
+  f.h.unmount();
+});
+
+async function bufferedFixture(options = {}, startIndex = 0) {
+  const f = fixture(options);
+  await f.h.api().playTrack(f.props.queueRef.current[startIndex]);
+  await f.h.flush();
+  f.audio.paused = false;
+  f.audio.readyState = 4;
+  f.audio.buffered = { length: 1, start: () => 0, end: () => 80 };
+  f.audio.currentTime = 2;
+  f.audio.dispatchEvent(new Event('playing'));
+  await f.h.flush();
+  return f;
+}
+async function prefetchTick(f, seconds = 2) {
+  f.audio.currentTime = seconds;
+  f.audio.dispatchEvent(new Event('timeupdate'));
+  await f.h.flush();
+}
+const prefetched = (f) => f.background.filter((row) => row[0] === 'prefetch').map((row) => row[1]);
+
+test('Shuffle prefetch matches actual next songs without consuming the announced order', async () => {
+  const queue = ['current', 'array-neighbor', 'actual-second', 'actual-first'].map(track);
+  const f = await bufferedFixture({ queue, shuffled: true });
+  f.props.shuffleCycleRef.current.prioritize(
+    queueEntries.queueEntryKey(f.props.queueRef.current[2]),
+  );
+  f.props.shuffleCycleRef.current.prioritize(
+    queueEntries.queueEntryKey(f.props.queueRef.current[3]),
+  );
+  const cycle = f.props.shuffleCycleRef.current;
+  const upcoming = cycle.upcoming.bind(cycle);
+  let preparations = 0;
+  cycle.upcoming = (...args) => {
+    preparations++;
+    return upcoming(...args);
+  };
+  await prefetchTick(f);
+  await prefetchTick(f, 10);
+  await prefetchTick(f, 11);
+  assert.deepEqual(prefetched(f), [queue[3].id, queue[2].id]);
+  assert.equal(preparations, 1, 'timeupdates reuse the plan until the queue changes');
+  await f.h.api().nextTrack();
+  await f.h.flush();
+  assert.equal(f.h.api().currentTrack.id, queue[3].id);
+  await f.h.api().nextTrack();
+  await f.h.flush();
+  assert.equal(f.h.api().currentTrack.id, queue[2].id);
+  f.h.unmount();
+});
+
+test('Editing the upcoming queue prepares the new successor while the current song continues', async () => {
+  const queue = ['current', 'next', 'later'].map(track);
+  const f = await bufferedFixture({ queue });
+  await prefetchTick(f);
+  const inserted = track('inserted');
+  f.props.setQueue([queue[0], inserted, queue[1], queue[2]]);
+  await prefetchTick(f, 3);
+  await prefetchTick(f, 4);
+  assert.deepEqual(prefetched(f), [queue[1].id, inserted.id]);
+  assert.equal(f.h.api().currentTrack.id, queue[0].id);
+  assert.equal(f.audio.plays, 1);
+  await f.h.api().nextTrack();
+  await f.h.flush();
+  assert.equal(f.h.api().currentTrack.id, inserted.id);
+  f.h.unmount();
+});
+
+test('Repeated queues prepare the beginning but Wave never wraps or follows shuffle', async () => {
+  const queue = ['first', 'second', 'last'].map(track);
+  const repeated = await bufferedFixture({ queue }, 2);
+  repeated.props.repeatModeRef.current = 'all';
+  await prefetchTick(repeated, 10);
+  assert.deepEqual(prefetched(repeated), [queue[0].id, queue[1].id]);
+  await repeated.h.api().nextTrack();
+  await repeated.h.flush();
+  assert.equal(repeated.h.api().currentTrack.id, queue[0].id);
+  repeated.h.unmount();
+  const wave = await bufferedFixture({ queue, shuffled: true });
+  wave.props.isWaveActiveRef.current = true;
+  wave.props.repeatModeRef.current = 'all';
+  wave.props.shuffleCycleRef.current.prioritize(queue[2].id);
+  await prefetchTick(wave, 10);
+  assert.deepEqual(prefetched(wave), [queue[1].id, queue[2].id]);
+  wave.props.queueIndexRef.current = 2;
+  wave.background.length = 0;
+  await prefetchTick(wave, 11);
+  assert.deepEqual(prefetched(wave), []);
+  wave.h.unmount();
+});
+
+test('Repeat-one and sleep-at-end avoid speculative next-song requests and resume when disabled', async () => {
+  for (const mode of ['repeat', 'sleep']) {
+    const f = await bufferedFixture();
+    if (mode === 'repeat') f.props.repeatModeRef.current = 'one';
+    else f.props.sleepTimerModeRef.current = 'end_of_track';
+    await prefetchTick(f, 10);
+    assert.deepEqual(prefetched(f), []);
+    f.props.repeatModeRef.current = 'off';
+    f.props.sleepTimerModeRef.current = 'off';
+    await prefetchTick(f, 11);
+    assert.deepEqual(prefetched(f), [f.props.queueRef.current[1].id]);
+    f.h.unmount();
+  }
+});
+
+test('Prefetch skips unavailable items and restarts its target after buffering cancels downloads', async () => {
+  const queue = ['current', 'disabled', 'playable-next', 'playable-second'].map(track);
+  const f = await bufferedFixture({ queue });
+  f.bindings['../services/youtubeAvailability'].isYouTubeItemDisabled = (t) =>
+    t?.id === queue[1].id;
+  f.bindings['../services/youtubeAvailability'].availableQueueIndex = (q, i) => {
+    while (i < q.length && q[i].id === queue[1].id) i++;
+    return i < q.length ? i : -1;
+  };
+  await prefetchTick(f, 10);
+  assert.deepEqual(prefetched(f), [queue[2].id, queue[3].id]);
+  f.audio.dispatchEvent(new Event('waiting'));
+  await f.h.flush();
+  f.audio.buffered = { length: 1, start: () => 0, end: () => 12 };
+  await prefetchTick(f, 11);
+  assert.equal(prefetched(f).length, 2);
+  f.audio.buffered = { length: 1, start: () => 0, end: () => 80 };
+  f.audio.dispatchEvent(new Event('playing'));
+  await f.h.flush();
+  await prefetchTick(f, 12);
+  assert.deepEqual(prefetched(f), [queue[2].id, queue[3].id, queue[2].id, queue[3].id]);
+  await f.h.api().nextTrack();
+  await f.h.flush();
+  assert.equal(f.h.api().currentTrack.id, queue[2].id);
+  f.h.unmount();
+});
+
+test('Availability changes invalidate cached next targets without restarting the current stream', async () => {
+  const queue = ['current', 'youtube-next', 'fallback', 'last'].map(track);
+  queue[0].source = 'soundcloud';
+  queue[2].source = 'soundcloud';
+  queue[3].source = 'soundcloud';
+  const f = await bufferedFixture({
+    queue,
+    resolve: async () => 'https://cf-media.sndcdn.com/test.mp3',
+  });
+  let disabled = false;
+  f.bindings['../services/youtubeAvailability'].isYouTubePlaybackDisabled = () => disabled;
+  f.bindings['../services/youtubeAvailability'].isYouTubeItemDisabled = (t) =>
+    disabled && t?.source === 'youtube';
+  await prefetchTick(f);
+  disabled = true;
+  await prefetchTick(f, 3);
+  disabled = false;
+  await prefetchTick(f, 4);
+  assert.deepEqual(prefetched(f), [queue[1].id, queue[2].id, queue[1].id]);
+  assert.equal(f.audio.plays, 1);
+  assert.equal(f.audio.paused, false);
+  assert.equal(f.bridgeCalls.length, 1);
+  f.h.unmount();
+});
+
+test('Whole playback selects duplicate queue occurrences for next, manual selection and shuffle history', async () => {
+  const queue = queueEntries.ensureQueueEntries([track('same'), track('same'), track('other')]);
+  const f = fixture({ queue });
+  await f.h.api().playTrack(queue[0]);
+  await f.h.flush();
+  await f.h.api().nextTrack();
+  await f.h.flush();
+  assert.equal(f.props.queueIndexRef.current, 1);
+  assert.equal(
+    queueEntries.queueEntryKey(f.h.api().currentTrack),
+    queueEntries.queueEntryKey(queue[1]),
+  );
+  await f.h.api().playTrack(queue[0]);
+  await f.h.flush();
+  f.props.isShuffleRef.current = true;
+  f.props.shuffleCycleRef.current.prioritize(queueEntries.queueEntryKey(queue[1]));
+  await f.h.api().nextTrack();
+  await f.h.flush();
+  assert.equal(f.props.queueIndexRef.current, 1);
+  assert.equal(
+    queueEntries.queueEntryKey(f.h.api().currentTrack),
+    queueEntries.queueEntryKey(queue[1]),
+  );
+  f.audio.currentTime = 0;
+  f.h.api().prevTrack();
+  await f.h.flush();
+  assert.equal(f.props.queueIndexRef.current, 0);
+  assert.equal(
+    queueEntries.queueEntryKey(f.h.api().currentTrack),
+    queueEntries.queueEntryKey(queue[0]),
+  );
+  f.h.unmount();
+});
+
+test('Whole playback keeps fresh caller metadata when selecting an existing queue occurrence', async () => {
+  const queue = queueEntries.ensureQueueEntries([track('one'), track('two')]);
+  const f = fixture({ queue });
+  const fresh = { ...queue[1], title: 'Updated title', duration: 222 };
+  await f.h.api().playTrack(fresh);
+  await f.h.flush();
+  assert.equal(f.props.queueIndexRef.current, 1);
+  assert.equal(f.h.api().currentTrack.title, 'Updated title');
+  assert.equal(f.props.queueRef.current[1].duration, 222);
+  assert.equal(
+    queueEntries.queueEntryKey(f.h.api().currentTrack),
+    queueEntries.queueEntryKey(queue[1]),
+  );
+  assert.equal(queue[1].title, 'two');
+  f.h.unmount();
+});
+
+async function decoderFixture(options = {}) {
+  let now = 0;
+  const f = fixture({ ...options, now: () => now });
+  await f.h.api().playTrack(f.props.queueRef.current[0]);
+  await f.h.flush();
+  f.audio.paused = false;
+  f.audio.readyState = 4;
+  f.audio.currentTime = 10;
+  f.audio.buffered = { length: 1, start: () => 0, end: () => 80 };
+  f.audio.dispatchEvent(new Event('playing'));
+  await f.h.flush();
+  f.tickProgress = () => {
+    now += 1000;
+    f.h.fireTimers(1000);
+  };
+  return f;
+}
+
+test('Decoder watchdog sees a filled-buffer stall without waiting/stalled events and bounds recovery', async () => {
+  const f = await decoderFixture();
+  const before = f.bridgeCalls.length;
+  for (let i = 0; i < 5; i++) f.tickProgress();
+  assert.equal(f.audio.currentTime, 10.001);
+  assert.equal(
+    f.bridgeCalls.length,
+    before,
+    'The first action keeps the healthy cached/buffered source',
+  );
+  for (let i = 0; i < 4; i++) f.tickProgress();
+  await f.h.flush();
+  assert.equal(
+    f.bridgeCalls.length,
+    before + 1,
+    'The second action renews the source exactly once',
+  );
+  assert.equal(f.audio.currentTime, 10.001);
+  f.audio.paused = false;
+  f.audio.dispatchEvent(new Event('playing'));
+  await f.h.flush();
+  for (let i = 0; i < 5; i++) f.tickProgress();
+  await f.h.flush();
+  assert.equal(f.audio.paused, true);
+  assert.equal(f.h.api().isPlaying, false);
+  assert.equal(f.bridgeCalls.length, before + 1);
+  assert.ok(f.toasts.some((message) => message.includes('Воспроизведение зависло')));
+  for (let i = 0; i < 20; i++) f.tickProgress();
+  assert.equal(f.bridgeCalls.length, before + 1);
+  f.h.unmount();
+  assert.equal(f.h.timers(), 0);
+});
+
+test('Decoder watchdog cannot recover during pause, seeking, zero rate, network starvation or the final buffered tail', async () => {
+  for (const state of [
+    'paused',
+    'seeking',
+    'zero-rate',
+    'unbuffered',
+    'low-ready-state',
+    'ended',
+    'tail',
+  ]) {
+    const f = await decoderFixture();
+    const before = f.bridgeCalls.length;
+    if (state === 'paused') {
+      f.audio.paused = true;
+      f.audio.dispatchEvent(new Event('pause'));
+    }
+    if (state === 'seeking') {
+      f.audio.seeking = true;
+      f.audio.dispatchEvent(new Event('seeking'));
+    }
+    if (state === 'zero-rate') {
+      f.audio.playbackRate = 0;
+      f.audio.dispatchEvent(new Event('ratechange'));
+    }
+    if (state === 'unbuffered') f.audio.buffered = { length: 0 };
+    if (state === 'low-ready-state') f.audio.readyState = 2;
+    if (state === 'ended') f.audio.ended = true;
+    if (state === 'tail') f.audio.currentTime = 119.75;
+    const position = f.audio.currentTime;
+    for (let i = 0; i < 12; i++) f.tickProgress();
+    await f.h.flush();
+    assert.equal(f.audio.currentTime, position, state);
+    assert.equal(f.bridgeCalls.length, before, state);
+    f.h.unmount();
+    assert.equal(f.h.timers(), 0);
+  }
+});
+
+test('Progress and source replacement defeat old watchdog timers, including deferred renewal replies', async () => {
+  const reply = deferred();
+  let calls = 0;
+  const f = await decoderFixture({
+    resolve: () =>
+      ++calls === 1
+        ? Promise.resolve('https://rr1.googlevideo.com/videoplayback?itag=140')
+        : reply.promise,
+  });
+  for (let i = 0; i < 10; i++) {
+    f.audio.currentTime += 1;
+    f.tickProgress();
+  }
+  assert.equal(f.audio.currentTime, 20);
+  assert.equal(calls, 1);
+  for (let i = 0; i < 8; i++) f.tickProgress();
+  assert.equal(calls, 2);
+  f.h.api().togglePlay();
+  reply.resolve('https://rr1.googlevideo.com/videoplayback?itag=251');
+  await f.h.flush();
+  assert.equal(f.h.api().isPlaying, false);
+  assert.equal(f.audio.paused, true);
+  f.h.unmount();
+  assert.equal(f.h.timers(), 0);
+});
+
+test('A watchdog-owned nudge that never finishes seeking still reaches source renewal', async () => {
+  for (const [dropsReadyState, quantum] of [
+    [false, 0],
+    [true, 0],
+    [true, 0.02],
+  ]) {
+    const f = await decoderFixture();
+    let position = f.audio.currentTime;
+    Object.defineProperty(f.audio, 'currentTime', {
+      configurable: true,
+      get: () => position,
+      set(value) {
+        position = quantum ? Math.ceil(value / quantum) * quantum : value;
+        f.audio.seeking = true;
+        if (dropsReadyState) {
+          f.audio.readyState = 2;
+          f.audio.buffered = { length: 0 };
+        }
+        f.audio.dispatchEvent(new Event('seeking'));
+      },
+    });
+    const before = f.bridgeCalls.length;
+    for (let i = 0; i < 9; i++) f.tickProgress();
+    await f.h.flush();
+    assert.equal(f.bridgeCalls.length, before + 1, 'Self-seek cannot cancel the renewal deadline');
+    f.h.unmount();
+    assert.equal(f.h.timers(), 0);
+  }
+});
+
+test('A user seek after the watchdog nudge abandons its self-seek deadline', async () => {
+  const f = await decoderFixture();
+  for (let i = 0; i < 5; i++) f.tickProgress();
+  const before = f.bridgeCalls.length;
+  f.audio.currentTime = 30;
+  f.audio.seeking = true;
+  f.audio.dispatchEvent(new Event('seeking'));
+  for (let i = 0; i < 12; i++) f.tickProgress();
+  assert.equal(f.bridgeCalls.length, before);
+  assert.equal(f.audio.currentTime, 30);
+  f.h.unmount();
+  assert.equal(f.h.timers(), 0);
+});
+
+test('Explicit user seek to the nudged position cancels watchdog ownership', async () => {
+  const f = await decoderFixture();
+  for (let i = 0; i < 5; i++) f.tickProgress();
+  const before = f.bridgeCalls.length;
+  f.h.api().seek(f.audio.currentTime);
+  f.audio.seeking = true;
+  f.audio.dispatchEvent(new Event('seeking'));
+  for (let i = 0; i < 12; i++) f.tickProgress();
+  assert.equal(f.bridgeCalls.length, before);
+  f.h.unmount();
+  assert.equal(f.h.timers(), 0);
+});
+
+test('Actual core controls invalidate an externally prepared queue before it can commit', async () => {
+  for (const control of ['playTrack', 'togglePlay', 'seek', 'nextTrack', 'prevTrack']) {
+    const f = fixture(),
+      delayed = deferred();
+    await f.h.api().playTrack(f.props.queueRef.current[0]);
+    await f.h.flush();
+    const ownsIntent = playbackIntent.beginPlaybackIntent();
+    const pendingQueue = delayed.promise.then((queue) => {
+      if (ownsIntent()) return f.h.api().playTrack(queue[0], queue);
+    });
+    assert.equal(ownsIntent(), true);
+    if (control === 'playTrack') await f.h.api().playTrack(f.props.queueRef.current[1]);
+    else if (control === 'seek') f.h.api().seek(12);
+    else await f.h.api()[control]();
+    await f.h.flush();
+    assert.equal(ownsIntent(), false, control + ' supersedes pending queue intent');
+    delayed.resolve([track('obsolete-prepared-queue')]);
+    await pendingQueue;
+    await f.h.flush();
+    assert.equal(f.bridgeCalls.includes('yt_obsolete-prepared-queue'), false);
+    assert.equal(
+      f.props.queueRef.current.some((item) => item.id === 'yt_obsolete-prepared-queue'),
+      false,
+    );
+    f.h.unmount();
+  }
+});
+
+test('Actual core forwards its resolution signal to the bridge and pause cancels that owner', async () => {
+  const delayed = deferred();
+  let signal;
+  const f = fixture({
+    resolve: (_track, _options, ownerSignal) => {
+      signal = ownerSignal;
+      return delayed.promise;
+    },
+  });
+  await f.h.api().playTrack(f.props.queueRef.current[0]);
+  await f.h.flush();
+  assert.ok(signal instanceof AbortSignal);
+  assert.equal(signal.aborted, false);
+  f.h.api().pauseMainAudio();
+  assert.equal(signal.aborted, true);
+  delayed.resolve('https://rr1.googlevideo.com/videoplayback?itag=140');
+  await f.h.flush();
+  assert.equal(f.audio.plays, 0);
   f.h.unmount();
 });

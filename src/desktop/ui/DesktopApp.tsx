@@ -22,7 +22,6 @@ import { CreatePlaylistModal } from './components/modals/CreatePlaylistModal';
 import { AddToPlaylistModal } from './components/modals/AddToPlaylistModal';
 import { SnippetModal } from './components/SnippetModal';
 import { OnboardingTour } from './components/OnboardingTour';
-import { DesktopWidget } from './components/DesktopWidget';
 import { DiscoverView } from './pages/DiscoverView';
 import { Track } from '../../shared/types';
 import { useAudioState } from '../../shared/context/AudioContext';
@@ -79,11 +78,6 @@ export const DesktopApp: React.FC = () => {
   const { themePreset } = useTheme();
   const { currentTrack } = useAudioState();
   const { update: availableUpdate, dismiss: dismissUpdate } = useAppUpdateNotice();
-
-  // If running as Desktop Mini-Widget window, render widget view
-  if (window.location.hash === '#/widget') {
-    return <DesktopWidget />;
-  }
 
   // Navigation History Stack
   const [navigation, dispatchNavigation] = useReducer(

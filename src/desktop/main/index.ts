@@ -33,8 +33,13 @@ import { DatabaseManager } from './db';
 import { WaveEngine } from './services/waveEngine';
 import { LibraryTasteService } from './services/libraryTaste';
 import { registerLibraryTasteHandlers } from './ipc/libraryTasteHandlers';
+import { registerTastePolicyHandlers } from './ipc/tastePolicyHandlers';
 import { selectDailyRecommendations } from '../../shared/utils/dailyRecommendations';
+import { createDailyDislikePolicy } from '../../shared/utils/dailyDislikes';
 import { MusicAggregatorService } from './services/musicAggregator';
+import { StreamRequestRegistry } from './services/streamRequestRegistry.ts';
+import { sharedStreamResolver } from './services/sharedStreamResolver.ts';
+const streamRequestRegistry = new StreamRequestRegistry();
 import { LocalListenServer } from './services/localListenServer';
 import { configureListenProtocol } from './services/listenProtocol';
 import { clearYouTubeSessionCache } from './services/youtubeSessionCache';
@@ -153,6 +158,7 @@ const libraryTaste = new LibraryTasteService(
   undefined,
   undefined,
   () => LastFmService.hasApiKey(),
+  () => dbManager.getChangeRevision(),
 );
 WaveEngine.setTasteProvider(libraryTaste);
 let databaseReady = false;
@@ -366,6 +372,11 @@ async function createWindow() {
   }
 }
 
+function publishWidgetVisibility(open: boolean) {
+  if (mainWindow && !mainWindow.isDestroyed())
+    mainWindow.webContents.send('widget:visibilityChanged', open);
+}
+
 function createWidgetWindow() {
   if (widgetWindow && !widgetWindow.isDestroyed()) {
     widgetWindow.show();
@@ -424,9 +435,14 @@ function createWidgetWindow() {
     });
   }
 
+  const createdWidget = widgetWindow;
   widgetWindow.on('closed', () => {
-    widgetWindow = null;
+    if (widgetWindow === createdWidget) {
+      widgetWindow = null;
+      publishWidgetVisibility(false);
+    }
   });
+  publishWidgetVisibility(true);
 }
 
 // ================= IPC HANDLERS =================
@@ -449,6 +465,15 @@ function registerIpcHandlers() {
     updateTrayLanguage();
   });
   registerWaveHandlers(ipcMain, dbManager);
+  registerTastePolicyHandlers(
+    ipcMain,
+    () => mainWindow,
+    dbManager,
+    () => {
+      libraryTaste.cancel();
+      libraryTaste.libraryChanged();
+    },
+  );
   registerLibraryTasteHandlers(ipcMain, () => mainWindow, libraryTaste, {
     status: () => ({ configured: LastFmService.hasApiKey() }),
     save: (value) => {
@@ -463,7 +488,6 @@ function registerIpcHandlers() {
   ipcMain.handle('widget:toggle', () => {
     if (widgetWindow && !widgetWindow.isDestroyed() && widgetWindow.isVisible()) {
       widgetWindow.close();
-      widgetWindow = null;
       return false;
     } else {
       createWidgetWindow();
@@ -629,13 +653,18 @@ function registerIpcHandlers() {
   );
 
   ipcMain.handle('music:getRecommendedTracks', async (_event, previousIds: unknown) => {
+    const dislikedTracks = dbManager.getDislikedWaveTracks();
+    const dailyPolicy = createDailyDislikePolicy(dislikedTracks);
     const dislikedIds = dbManager.getDislikedTrackIds();
     const disliked = new Set(dislikedIds.map(String));
     const normalize = (rows: any[]) =>
       rows
         .map(normalizeWaveSeed)
-        .filter((track): track is Track => Boolean(track && !disliked.has(String(track.id))));
-    const likes = normalize(dbManager.getLikedTracks());
+        .filter((track): track is Track =>
+          Boolean(track && !disliked.has(String(track.id)) && dailyPolicy.accepts(track)),
+        );
+    const allLikes = normalize(dbManager.getLikedTracks());
+    const likes = normalize(dbManager.getTasteLikedTracks());
     const seeds = [
       ...new Map(
         [...likes, ...normalize(dbManager.getWaveTasteTracks(30))].map((track) => [
@@ -647,7 +676,7 @@ function registerIpcHandlers() {
     const artists = [
       ...dbManager.getFollowedArtists(),
       ...dbManager.getScrobbledTopArtists(15).filter((artist) => artist.score > 0),
-    ];
+    ].filter((artist) => dailyPolicy.acceptsArtist(artist.name));
     if (!seeds.length && !artists.length) return [];
     const recent = normalize(
       dbManager.getListeningHistory(40, true).map((row) => ({ ...row, id: row.track_id })),
@@ -663,7 +692,7 @@ function registerIpcHandlers() {
       : [];
     const excluded = [
       ...dislikedIds,
-      ...likes.map((track) => track.id),
+      ...allLikes.map((track) => track.id),
       ...recent.map((track) => track.id),
       ...previous,
     ];
@@ -672,23 +701,40 @@ function registerIpcHandlers() {
       seeds,
       excluded,
       artists,
-      dbManager.getDislikedWaveTracks(),
-      { recentTracks: recent },
+      dislikedTracks,
+      { recentTracks: recent, artistFeedback: dailyPolicy.artistFeedback },
       false,
     );
-    return selectDailyRecommendations(candidates, [...likes, ...recent]);
+    return selectDailyRecommendations(candidates, [...allLikes, ...recent], dislikedTracks);
   });
 
-  ipcMain.handle('music:getFullStreamUrl', async (event: any, track: any, options?: any) => {
-    if (!track || typeof track !== 'object') return null;
-    const url = await MusicAggregatorService.getFullStreamUrl(track, options);
-    if (url && (track.source === 'youtube' || String(track.id).startsWith('yt_'))) {
-      const gainDb = YouTubeMusicService.getRecordingGain(String(track.id));
-      if (gainDb !== undefined && !event.sender.isDestroyed())
-        event.sender.send('music:trackLoudness', { trackId: track.id, gainDb });
-    }
-    return url;
+  ipcMain.handle('music:cancelStreamResolve', (event: any, requestId: unknown) => {
+    streamRequestRegistry.cancel(event.sender, requestId);
   });
+  ipcMain.handle(
+    'music:getFullStreamUrl',
+    async (event: any, track: any, options?: any, requestId?: unknown) => {
+      if (!track || typeof track !== 'object') return null;
+      const request = streamRequestRegistry.begin(event.sender, requestId);
+      try {
+        const url = await sharedStreamResolver.resolve(
+          track,
+          options || {},
+          request.signal,
+          (item, settings) => MusicAggregatorService.getFullStreamUrl(item, settings),
+        );
+        request.signal.throwIfAborted();
+        if (url && (track.source === 'youtube' || String(track.id).startsWith('yt_'))) {
+          const gainDb = YouTubeMusicService.getRecordingGain(String(track.id));
+          if (gainDb !== undefined && !event.sender.isDestroyed())
+            event.sender.send('music:trackLoudness', { trackId: track.id, gainDb });
+        }
+        return url;
+      } finally {
+        request.finish();
+      }
+    },
+  );
 
   ipcMain.handle('playlist:readExternal', (_event, url: string) => loadExternalPlaylist(url));
   ipcMain.handle('playlist:readVkInWindow', (_event, url: string) =>
@@ -1249,6 +1295,7 @@ app.whenReady().then(async () => {
     PlaybackLogger.warn('[Discord] Local listen port is occupied; listen button unavailable.');
   DiscordRPCService.init();
   await createWindow();
+  playerOverlay.start();
   createTray();
 
   app.on('activate', () => {

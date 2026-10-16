@@ -1,12 +1,22 @@
 import { recoverPlayerStream, resolvePlayerStream } from '../services/playerStreamResolution';
+import { prefetchQueueIndices } from '../utils/playbackQueueOrder';
+import { invalidatePlaybackIntent } from '../utils/playbackIntent.ts';
 import { selectPlayerQueue } from '../utils/playerQueueSelection';
+import type { PlaybackOrigin } from '../types/tastePolicy';
+import { normalizePlaybackOrigin, withPlaybackOrigin } from '../utils/tastePolicy';
+import { queueEntryKey } from '../utils/queueEntry';
+import { AudioProgressWatchdog } from '../utils/audioProgressWatchdog';
 import { readCachedPlayerSource } from '../services/playerCachedSource';
 import type { WavePlaybackReason } from '../utils/waveFeedback';
 import { BoundedMap, BoundedSet } from '../utils/boundedCache';
 import { getStreamResolveFailure, type StreamResolveFailure } from '../utils/streamResolveError';
 import { usePlaybackTaskScope } from './usePlaybackTaskScope';
 import { useYouTubeAvailability } from './useYouTubeAvailability';
-import { availableQueueIndex, isYouTubeItemDisabled } from '../services/youtubeAvailability';
+import {
+  availableQueueIndex,
+  isYouTubeItemDisabled,
+  isYouTubePlaybackDisabled,
+} from '../services/youtubeAvailability';
 import { isCachedAudioDecodeError } from '../utils/cachedAudioFailure';
 import { StreamResolveTimeoutError } from '../utils/streamResolveDeadline';
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -257,6 +267,8 @@ export function useAudioPlayerCore({
     handledAt: number;
   } | null>(null);
   const stalledRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressWatchdogRef = useRef(new AudioProgressWatchdog());
+  const resetProgressWatchRef = useRef<() => void>(() => {});
   const consecutivePlaybackErrorsRef = useRef<number>(0);
 
   // Cache for resolved stream URLs — avoids mutating Track objects in React state
@@ -286,6 +298,7 @@ export function useAudioPlayerCore({
   const playbackSessionRef = useRef<{
     id: string;
     track: Track;
+    origin?: PlaybackOrigin;
     playedSeconds: number;
     savedSeconds: number;
     lastPosition: number;
@@ -295,6 +308,17 @@ export function useAudioPlayerCore({
   const lastHistoryRequestIdRef = useRef<number>(-1);
   const prefetchTriggeredForTrackRef = useRef<string | number | null>(null);
   const lookaheadTriggeredForTrackRef = useRef<string | number | null>(null);
+
+  const prefetchLookaheadTargetRef = useRef<string | null>(null);
+  const prefetchPlanRef = useRef<{
+    queue: Track[];
+    index: number;
+    currentId: Track['id'] | undefined;
+    shuffle: boolean;
+    wrap: boolean;
+    youtubeDisabled: boolean;
+    indices: number[];
+  } | null>(null);
 
   const youtubeDisabled = useYouTubeAvailability();
 
@@ -321,6 +345,8 @@ export function useAudioPlayerCore({
     currentTrackRef.current = currentTrack;
     prefetchTriggeredForTrackRef.current = null;
     lookaheadTriggeredForTrackRef.current = null;
+    prefetchLookaheadTargetRef.current = null;
+    prefetchPlanRef.current = null;
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('soso:active-track', { detail: currentTrack }));
     }
@@ -330,6 +356,7 @@ export function useAudioPlayerCore({
     playbackSessionRef.current = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       track,
+      origin: normalizePlaybackOrigin(track.queueOrigin),
       playedSeconds: 0,
       savedSeconds: 0,
       lastPosition: position,
@@ -370,6 +397,7 @@ export function useAudioPlayerCore({
       platformBridge
         .recordPlaybackSession({
           sessionId: session.id,
+          origin: session.origin,
           track: session.track,
           playedSeconds: session.playedSeconds,
           completed,
@@ -764,6 +792,64 @@ export function useAudioPlayerCore({
     [audioRef],
   );
 
+  const prefetchUpcomingTrack = useCallback(
+    (lookahead = false) => {
+      if (repeatModeRef.current === 'one' || sleepTimerModeRef.current === 'end_of_track') return;
+      const q = queueRef.current;
+      const youtubeDisabled = isYouTubePlaybackDisabled();
+      const index = queueIndexRef.current;
+      const currentId = queueEntryKey(currentTrackRef.current ?? undefined);
+      const shuffle = isShuffleRef.current && !isWaveActiveRef.current;
+      const wrap = repeatModeRef.current === 'all' && !isWaveActiveRef.current;
+      let plan = prefetchPlanRef.current;
+      // Reuse the two targets across timeupdate events; queue edits publish a new array.
+      if (
+        !plan ||
+        plan.queue !== q ||
+        plan.index !== index ||
+        plan.currentId !== currentId ||
+        plan.shuffle !== shuffle ||
+        plan.wrap !== wrap ||
+        plan.youtubeDisabled !== youtubeDisabled
+      ) {
+        const order = shuffle ? shuffleCycleRef.current.upcoming(q, currentId, wrap) : undefined;
+        plan = {
+          queue: q,
+          index,
+          currentId,
+          shuffle,
+          wrap,
+          youtubeDisabled,
+          indices: prefetchQueueIndices(
+            q.length,
+            index,
+            order,
+            wrap,
+            (candidate) => !isYouTubeItemDisabled(q[candidate], youtubeDisabled),
+          ),
+        };
+        prefetchPlanRef.current = plan;
+      }
+      const target = q[plan.indices[lookahead ? 1 : 0]];
+      if (!target) return;
+      const key = JSON.stringify([streamRequestIdRef.current, target.id]);
+      const triggered = lookahead ? prefetchLookaheadTargetRef : prefetchTriggeredForTrackRef;
+      if (triggered.current === key) return;
+      triggered.current = key;
+      prefetchTrackStream(target);
+    },
+    [
+      queueRef,
+      queueIndexRef,
+      repeatModeRef,
+      sleepTimerModeRef,
+      isShuffleRef,
+      isWaveActiveRef,
+      shuffleCycleRef,
+      prefetchTrackStream,
+    ],
+  );
+
   // Initialize main audio element once
   useEffect(() => {
     const audio = createPlayerAudio();
@@ -794,6 +880,137 @@ export function useAudioPlayerCore({
         stalledRecoveryTimerRef.current = null;
       }
     };
+
+    let progressTimer: ReturnType<typeof setTimeout> | null = null;
+    let progressNudge: { requestId: number; source: string; target: number } | null = null;
+    let assigningProgressNudge = false;
+    const ownsProgressNudge = () => {
+      if (
+        progressNudge &&
+        progressNudge.requestId === streamRequestIdRef.current &&
+        progressNudge.source === (audio.currentSrc || audio.src) &&
+        (assigningProgressNudge || Math.abs(audio.currentTime - progressNudge.target) <= 0.01)
+      )
+        return true;
+      progressNudge = null;
+      return false;
+    };
+    const clearProgressWatch = () => {
+      if (progressTimer !== null) clearTimeout(progressTimer);
+      progressTimer = null;
+      progressNudge = null;
+      progressWatchdogRef.current.suspend();
+    };
+    resetProgressWatchRef.current = clearProgressWatch;
+    const scheduleProgressWatch = () => {
+      if (
+        progressTimer !== null ||
+        audioRef.current !== audio ||
+        audio.paused ||
+        audio.ended ||
+        (audio.seeking && !ownsProgressNudge()) ||
+        audio.playbackRate <= 0
+      )
+        return;
+      progressTimer = setTimeout(() => {
+        progressTimer = null;
+        if (audioRef.current !== audio) return;
+        const source = audio.currentSrc || audio.src;
+        const owned = bufferedSourceRef.current;
+        const ownsNudge = ownsProgressNudge();
+        const shouldProgress =
+          !pendingResolutionRef.current &&
+          !isTransitioningTrackRef.current &&
+          isPlayingRef.current &&
+          !audio.paused &&
+          !audio.ended &&
+          (!audio.seeking || ownsNudge) &&
+          audio.playbackRate > 0 &&
+          owned?.audio === audio &&
+          owned.url === source &&
+          (ownsNudge ||
+            (audio.readyState >= 3 &&
+              (!Number.isFinite(audio.duration) || audio.duration - audio.currentTime >= 0.5) &&
+              hasAudioBufferHeadroom(audio, 0.5)));
+        const action = progressWatchdogRef.current.observe({
+          requestId: streamRequestIdRef.current,
+          source,
+          position: audio.currentTime,
+          now: performance.now(),
+          shouldProgress,
+        });
+        if (action) {
+          PlaybackLogger.warn('[AudioPlayer:DecoderStall] Buffered playback stopped progressing', {
+            requestId: streamRequestIdRef.current,
+            trackId: currentTrackRef.current?.id,
+            action,
+            position: Math.round(audio.currentTime),
+          });
+          if (action === 'nudge') {
+            progressNudge = {
+              requestId: streamRequestIdRef.current,
+              source,
+              target: audio.currentTime + 0.001,
+            };
+            try {
+              assigningProgressNudge = true;
+              audio.currentTime = progressNudge.target;
+              // Media clocks can quantize the assigned seek position.
+              if (progressNudge) progressNudge.target = audio.currentTime;
+            } catch {
+              progressNudge = null;
+              handleErrorRef.current(true, audio.currentTime);
+            } finally {
+              assigningProgressNudge = false;
+            }
+          } else if (action === 'reload') {
+            progressNudge = null;
+            handleErrorRef.current(true, audio.currentTime);
+          } else {
+            samplePlayback(audio, true);
+            savePlaybackSession(true);
+            invalidatePlayback();
+            resumeNeedsResolveRef.current = true;
+            isPlayingRef.current = false;
+            setIsPlaying(false);
+            setIsLoadingTrack(false);
+            audio.pause();
+            emitToast(
+              'Воспроизведение зависло. Нажмите «Воспроизвести», чтобы попробовать снова.',
+              'warning',
+              5000,
+            );
+          }
+        }
+        scheduleProgressWatch();
+      }, 1000);
+    };
+    const handleProgressPause = () => {
+      if (audio.paused || audio.ended) clearProgressWatch();
+    };
+    const handleProgressSeek = () => {
+      if (ownsProgressNudge()) scheduleProgressWatch();
+      else clearProgressWatch();
+    };
+    const handleProgressReset = () => clearProgressWatch();
+    const handleProgressSeeked = () => {
+      progressNudge = null;
+      scheduleProgressWatch();
+    };
+    const handleProgressRate = () => {
+      clearProgressWatch();
+      scheduleProgressWatch();
+    };
+    const progressStarts = ['play', 'playing'];
+    progressStarts.forEach((event) => audio.addEventListener(event, scheduleProgressWatch));
+    audio.addEventListener('pause', handleProgressPause);
+    audio.addEventListener('ended', handleProgressPause);
+    audio.addEventListener('seeking', handleProgressSeek);
+    audio.addEventListener('seeked', handleProgressSeeked);
+    audio.addEventListener('loadstart', handleProgressReset);
+    audio.addEventListener('emptied', handleProgressReset);
+    audio.addEventListener('ratechange', handleProgressRate);
+    scheduleProgressWatch();
 
     const handleBufferUpdate = () => {
       if (audioRef.current !== audio) return;
@@ -838,12 +1055,7 @@ export function useAudioPlayerCore({
           hasAudioBufferHeadroom(audio)
         ) {
           const trackId = currentTrackRef.current?.id;
-          const curIdx = queueIndexRef.current;
-          const q = queueRef.current;
-          if (trackId && prefetchTriggeredForTrackRef.current !== trackId && q[curIdx + 1]) {
-            prefetchTriggeredForTrackRef.current = trackId;
-            prefetchTrackStream(q[curIdx + 1]);
-          }
+          prefetchUpcomingTrack();
           if (
             trackId &&
             audio.currentTime >= 10 &&
@@ -851,7 +1063,9 @@ export function useAudioPlayerCore({
           ) {
             lookaheadTriggeredForTrackRef.current = trackId;
             audioCacheService.getOrFetchBlobUrl(trackId, audio.src).catch(() => {});
-            if (q[curIdx + 2]) prefetchTrackStream(q[curIdx + 2]);
+          }
+          if (audio.currentTime >= 10) {
+            prefetchUpcomingTrack(true);
           }
         }
 
@@ -874,7 +1088,7 @@ export function useAudioPlayerCore({
             isShuffleRef.current && !isWaveActiveRef.current
               ? shuffleCycleRef.current.hasNext(
                   queueRef.current,
-                  currentTrackRef.current?.id,
+                  queueEntryKey(currentTrackRef.current ?? undefined),
                   repeatModeRef.current === 'all',
                 )
               : queueIndexRef.current + 1 < queueRef.current.length ||
@@ -1148,7 +1362,8 @@ export function useAudioPlayerCore({
           allowPreview,
         },
         {
-          resolve: (item, settings) => platformBridge.getFullStreamUrl(item, settings),
+          resolve: (item, settings, signal) =>
+            platformBridge.getFullStreamUrl(item, settings, signal),
           isCurrent: () =>
             isCurrentPlaybackRequest(
               requestId,
@@ -1395,6 +1610,8 @@ export function useAudioPlayerCore({
       audioCacheService.setPlaybackBuffering(true);
       prefetchTriggeredForTrackRef.current = null;
       lookaheadTriggeredForTrackRef.current = null;
+      prefetchLookaheadTargetRef.current = null;
+      prefetchPlanRef.current = null;
       const trk = currentTrackRef.current;
       if (!bufferingStartedAtRef.current) {
         bufferingStartedAtRef.current = Date.now();
@@ -1475,6 +1692,17 @@ export function useAudioPlayerCore({
     }
 
     return () => {
+      clearProgressWatch();
+      if (resetProgressWatchRef.current === clearProgressWatch)
+        resetProgressWatchRef.current = () => {};
+      progressStarts.forEach((event) => audio.removeEventListener(event, scheduleProgressWatch));
+      audio.removeEventListener('pause', handleProgressPause);
+      audio.removeEventListener('ended', handleProgressPause);
+      audio.removeEventListener('seeking', handleProgressSeek);
+      audio.removeEventListener('seeked', handleProgressSeeked);
+      audio.removeEventListener('loadstart', handleProgressReset);
+      audio.removeEventListener('emptied', handleProgressReset);
+      audio.removeEventListener('ratechange', handleProgressRate);
       bufferEvents.forEach((event) => audio.removeEventListener(event, handleBufferUpdate));
       audio.removeEventListener('loadstart', handleBufferReset);
       audio.removeEventListener('emptied', handleBufferReset);
@@ -1519,7 +1747,7 @@ export function useAudioPlayerCore({
     isScrobblingRef,
     isWaveActiveRef,
     loadStreamIntoAudio,
-    prefetchTrackStream,
+    prefetchUpcomingTrack,
     queueIndexRef,
     queueRef,
     refreshCachedTracks,
@@ -1543,7 +1771,21 @@ export function useAudioPlayerCore({
 
   // Play full track with automatic queue management
   const playTrack = useCallback(
-    async (track: Track, newQueue?: Track[], fromWave = false, resumePosition?: number) => {
+    async (
+      track: Track,
+      newQueue?: Track[],
+      fromWave = false,
+      resumePosition?: number,
+      origin?: PlaybackOrigin,
+    ) => {
+      if (newQueue) {
+        const context =
+          normalizePlaybackOrigin(origin) ||
+          (fromWave ? { kind: 'wave' as const } : { kind: 'manual' as const });
+        newQueue = newQueue.map((item) => withPlaybackOrigin(item, context));
+        track = withPlaybackOrigin(track, context);
+      } else if (origin) track = withPlaybackOrigin(track, origin);
+      invalidatePlaybackIntent();
       const startPosition =
         typeof resumePosition === 'number' && Number.isFinite(resumePosition)
           ? Math.max(0, Math.min(resumePosition, track.duration || Infinity))
@@ -1678,7 +1920,9 @@ export function useAudioPlayerCore({
 
       newIndex = compactWaveQueue(newIndex);
       updatedQueue = queueRef.current;
-      if (!isWaveActiveRef.current) shuffleCycleRef.current.visit(updatedQueue, track.id);
+      track = updatedQueue[newIndex] ?? track;
+      if (!isWaveActiveRef.current)
+        shuffleCycleRef.current.visit(updatedQueue, queueEntryKey(track));
 
       // Proactively replenish wave queue when near or at the end of the queue
       if (isWaveActiveRef.current && updatedQueue.length - newIndex <= 5) {
@@ -1744,10 +1988,6 @@ export function useAudioPlayerCore({
         );
         setIsLoadingTrack(false);
         loadStreamIntoAudio(audio, mainHlsRef, cached.url, startPosition, false, track.id);
-        const nextIdx = newIndex + 1;
-        if (updatedQueue[nextIdx]) {
-          prefetchTrackStream(updatedQueue[nextIdx]);
-        }
         return;
       }
 
@@ -1761,7 +2001,7 @@ export function useAudioPlayerCore({
         { ...track, source: effectiveSource },
         { forceRefresh, allowSessionRecovery: true },
         playbackAbortRef.current.signal,
-        (item, options) => platformBridge.getFullStreamUrl(item, options),
+        (item, options, signal) => platformBridge.getFullStreamUrl(item, options, signal),
       )
         .then((fullStreamUrl) => {
           if (currentRequestId !== streamRequestIdRef.current) return;
@@ -1796,13 +2036,6 @@ export function useAudioPlayerCore({
                 false,
                 track.id,
               );
-              const nextIdx = newIndex + 1;
-              if (updatedQueue[nextIdx]) {
-                prefetchTrackStream(updatedQueue[nextIdx]);
-              }
-              if (updatedQueue[nextIdx + 1]) {
-                prefetchTrackStream(updatedQueue[nextIdx + 1]);
-              }
             }
           } else {
             PlaybackLogger.warn(
@@ -1880,7 +2113,6 @@ export function useAudioPlayerCore({
       isWaveActiveRef,
       isWaveStartingRef,
       loadStreamIntoAudio,
-      prefetchTrackStream,
       resetBufferedRanges,
       queueIndexRef,
       queueRef,
@@ -2062,6 +2294,7 @@ export function useAudioPlayerCore({
   }, [playTrack, cancelTemporaryRetry, isSnippetPlayingRef, isWaveActiveRef]);
 
   const togglePlay = useCallback(() => {
+    invalidatePlaybackIntent();
     if (isWaveStartingRef.current) {
       stopWave();
       return;
@@ -2081,6 +2314,8 @@ export function useAudioPlayerCore({
   // Precise Seek
   const seek = useCallback(
     (seconds: number) => {
+      invalidatePlaybackIntent();
+      resetProgressWatchRef.current();
       crossfadeRef.current.stop();
       cancelFade();
       isCrossfadingRef.current = false;
@@ -2156,6 +2391,7 @@ export function useAudioPlayerCore({
 
   // Next track, including infinite wave queue handling
   const nextTrack = useCallback(async () => {
+    invalidatePlaybackIntent();
     const currentTrk = currentTrackRef.current;
     const audio = audioRef.current;
 
@@ -2189,7 +2425,7 @@ export function useAudioPlayerCore({
       for (let attempt = 0; attempt < q.length; attempt++) {
         const candidate = shuffleCycleRef.current.next(
           q,
-          currentTrk?.id,
+          queueEntryKey(currentTrk ?? undefined),
           repeatModeRef.current === 'all',
         );
         if (candidate < 0) break;
@@ -2281,6 +2517,7 @@ export function useAudioPlayerCore({
 
   // Previous Track
   const prevTrack = useCallback(() => {
+    invalidatePlaybackIntent();
     const audio = audioRef.current;
     if (audio && audio.currentTime > 3 && !isYouTubeItemDisabled(currentTrackRef.current)) {
       finishPlaybackSession(audio);
@@ -2298,7 +2535,10 @@ export function useAudioPlayerCore({
     if (isShuffleRef.current && !isWaveActiveRef.current) {
       prevIdx = -1;
       for (let attempt = 0; attempt < q.length; attempt++) {
-        const candidate = shuffleCycleRef.current.previous(q, currentTrackRef.current?.id);
+        const candidate = shuffleCycleRef.current.previous(
+          q,
+          queueEntryKey(currentTrackRef.current ?? undefined),
+        );
         if (candidate < 0) break;
         if (!isYouTubeItemDisabled(q[candidate])) {
           prevIdx = candidate;

@@ -12,6 +12,8 @@ export interface SearchPageState {
 export interface MyMusicPageState {
   tab: MyMusicTab;
   query: string;
+  sort?: import('../../shared/types/libraryPage').LibrarySort;
+  loadedCounts?: Partial<Record<import('../../shared/types/libraryPage').LibraryKind, number>>;
 }
 export interface PageState {
   search?: SearchPageState;

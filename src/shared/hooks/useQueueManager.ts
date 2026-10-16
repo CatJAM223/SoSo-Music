@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect, useCallback, type SetStateAction } from 'react';
 import { RepeatMode, Track } from '../types';
 import { ShuffleCycle } from '../utils/shuffleCycle';
+import { createQueueEntry, ensureQueueEntries, queueEntryKey } from '../utils/queueEntry';
 import type { PlaybackSession } from '../services/playbackSession';
 
 export function useQueueManager(initial: PlaybackSession | null = null) {
-  const [queue, setQueueState] = useState<Track[]>(initial?.queue ?? []);
+  const [queue, setQueueState] = useState<Track[]>(() => ensureQueueEntries(initial?.queue ?? []));
   const [queueIndex, setQueueIndexState] = useState(initial?.queueIndex ?? -1);
   const [repeatMode, setRepeatModeState] = useState<RepeatMode>(initial?.repeatMode ?? 'off');
   const [isShuffle, setIsShuffleState] = useState(initial?.isShuffle ?? false);
-  const queueRef = useRef<Track[]>(initial?.queue ?? []);
+  const queueRef = useRef<Track[]>(queue);
   const queueIndexRef = useRef(initial?.queueIndex ?? -1);
   const repeatModeRef = useRef<RepeatMode>(initial?.repeatMode ?? 'off');
   const isShuffleRef = useRef(initial?.isShuffle ?? false);
@@ -18,7 +19,8 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
   // Commands and media events can run in the same React batch. Publish their
   // result synchronously; keep mutations out of replayable React state updaters.
   const setQueue = useCallback((value: SetStateAction<Track[]>) => {
-    const next = typeof value === 'function' ? value(queueRef.current) : value;
+    const input = typeof value === 'function' ? value(queueRef.current) : value;
+    const next = ensureQueueEntries(input, queueRef.current);
     queueRef.current = next;
     setQueueState(next);
   }, []);
@@ -40,7 +42,11 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
 
   useEffect(() => {
     const next = isShuffle
-      ? shuffleCycleRef.current.upcoming(queue, queue[queueIndex]?.id, repeatMode === 'all')
+      ? shuffleCycleRef.current.upcoming(
+          queue,
+          queueEntryKey(queue[queueIndex]),
+          repeatMode === 'all',
+        )
       : [];
     setShuffledUpcomingIndices((previous) =>
       previous.length === next.length && previous.every((index, i) => index === next[i])
@@ -54,12 +60,13 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
   }, [setRepeatMode]);
   const toggleShuffle = useCallback(() => setIsShuffle((previous) => !previous), [setIsShuffle]);
   const addToQueue = useCallback(
-    (track: Track) => setQueue((previous) => [...previous, track]),
+    (track: Track) => setQueue((previous) => [...previous, createQueueEntry(track)]),
     [setQueue],
   );
 
   const insertIntoQueue = useCallback(
     (track: Track, atIndex?: number) => {
+      const entry = createQueueEntry(track);
       const copy = [...queueRef.current];
       const target =
         typeof atIndex === 'number' &&
@@ -70,14 +77,14 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
           : copy.length;
       if (isShuffleRef.current && copy[target]) {
         shuffleCycleRef.current.moveUpcoming(
-          [...copy, track],
-          copy[queueIndexRef.current]?.id,
+          [...copy, entry],
+          queueEntryKey(copy[queueIndexRef.current]),
           repeatModeRef.current === 'all',
-          track.id,
-          copy[target].id,
+          queueEntryKey(entry)!,
+          queueEntryKey(copy[target])!,
         );
       }
-      copy.splice(target, 0, track);
+      copy.splice(target, 0, entry);
       if (target <= queueIndexRef.current) setQueueIndex((previous) => previous + 1);
       setQueue(copy);
     },
@@ -86,10 +93,11 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
 
   const playNext = useCallback(
     (track: Track) => {
-      if (isShuffleRef.current) shuffleCycleRef.current.prioritize(track.id);
+      const entry = createQueueEntry(track);
+      if (isShuffleRef.current) shuffleCycleRef.current.prioritize(queueEntryKey(entry)!);
       const copy = [...queueRef.current];
       const insertAt = queueIndexRef.current >= 0 ? queueIndexRef.current + 1 : copy.length;
-      copy.splice(insertAt, 0, track);
+      copy.splice(insertAt, 0, entry);
       setQueue(copy);
     },
     [setQueue],
@@ -111,7 +119,10 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
   const clearQueue = useCallback(
     (fallbackTrack?: Track | null) => {
       shuffleCycleRef.current.reset();
-      setQueue(fallbackTrack ? [fallbackTrack] : []);
+      const retained = queueRef.current.find(
+        (item) => queueEntryKey(item) === queueEntryKey(fallbackTrack ?? undefined),
+      );
+      setQueue(fallbackTrack ? [retained ?? createQueueEntry(fallbackTrack)] : []);
       setQueueIndex(fallbackTrack ? 0 : -1);
     },
     [setQueue, setQueueIndex],
@@ -133,10 +144,10 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
       if (isShuffleRef.current)
         shuffleCycleRef.current.moveUpcoming(
           previous,
-          previous[queueIndexRef.current]?.id,
+          queueEntryKey(previous[queueIndexRef.current]),
           repeatModeRef.current === 'all',
-          previous[fromIndex].id,
-          previous[toIndex].id,
+          queueEntryKey(previous[fromIndex])!,
+          queueEntryKey(previous[toIndex])!,
         );
       const updated = [...previous];
       const [moved] = updated.splice(fromIndex, 1);

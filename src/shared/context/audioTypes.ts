@@ -75,7 +75,13 @@ export interface AudioControlsContextType {
   refreshDislikedTracks: () => Promise<void>;
 
   // Playback actions
-  playTrack: (track: Track, newQueue?: Track[], fromWave?: boolean) => void;
+  playTrack: (
+    track: Track,
+    newQueue?: Track[],
+    fromWave?: boolean,
+    resumePosition?: number,
+    origin?: import('../types/tastePolicy').PlaybackOrigin,
+  ) => void;
   togglePlay: () => void;
   getPlaybackTime: () => number;
   seek: (seconds: number) => void;

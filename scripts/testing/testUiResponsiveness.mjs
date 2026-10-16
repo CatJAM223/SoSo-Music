@@ -131,7 +131,7 @@ try {
                 'export const subscribeOfflineCacheChanges=()=>()=>{};export const offlineCacheService=new Proxy({getAllCachedTracks:async()=>[],getCachedTrackUrl:async()=>null,getCachedCoverUrl:async()=>null,ownsBlobUrl:()=>false},{get:(o,k)=>o[k]||(()=>{})});';
             else
               contents =
-                'export const isElectron=true;export const platformBridge=new Proxy({getFullStreamUrl:async()=>"https://fixture.invalid/audio.mp3",getLikedTrackIds:async()=>[],getDislikedTrackIds:async()=>[],getLikedTracks:async()=>[],getSavedAlbums:async()=>[],getFollowedArtists:async()=>[],getTopScrobbledArtists:async()=>[],getWaveBatch:async()=>[]},{get:(o,k)=>o[k]||(async()=>null)});';
+                'export const isElectron=true;export const platformBridge=new Proxy({getLibraryStats:async()=>({tracks:0,playlists:0,albums:0,artists:0,durationSeconds:0}),getLibraryPage:async request=>({kind:request.kind,offset:request.offset,items:[],total:0,nextOffset:null}),getArtistMembership:async()=>[],getTastePolicy:async()=>({revision:0,exclusions:[]}),onTastePolicyChanged:()=>()=>{},getFullStreamUrl:async()=>"https://fixture.invalid/audio.mp3",getLikedTrackIds:async()=>[],getDislikedTrackIds:async()=>[],getLikedTracks:async()=>[],getSavedAlbums:async()=>[],getFollowedArtists:async()=>[],getTopScrobbledArtists:async()=>[],getWaveBatch:async()=>[]},{get:(o,k)=>o[k]||(async()=>null)});';
             return { contents, loader: 'js' };
           });
         },

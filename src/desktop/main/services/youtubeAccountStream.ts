@@ -1,3 +1,4 @@
+import { assertStreamResolveActive, streamWait } from './streamResolveContext.ts';
 import type { StreamResolveOptions } from '../../../shared/types/index.ts';
 import { selectYouTubeAudioFormat } from '../../../shared/services/parsers/youtubeMusicParser.ts';
 import { classifyYouTubeAudioAccessError } from '../../../shared/utils/youtubeAudioAccessError.ts';
@@ -174,6 +175,7 @@ export async function extractYouTubeAccountStream(
   fetchManifest: (url: string) => Promise<string>,
   options: StreamResolveOptions = {},
 ): Promise<YouTubeAccountStream> {
+  assertStreamResolveActive();
   if (info.basic_info.id && info.basic_info.id !== videoId)
     throw new Error('YouTube returned another recording');
   const access = classifyYouTubeAudioAccessError(info.playability_status);
@@ -203,15 +205,15 @@ export async function extractYouTubeAccountStream(
   const manifestUrl = info.streaming_data?.hls_manifest_url;
   let combinedHls = '';
   if (manifestUrl && isYouTubeStreamUrl(manifestUrl)) {
-    const decoded = player ? await player.decipher(manifestUrl) : manifestUrl;
+    const decoded = player ? await streamWait(player.decipher(manifestUrl)) : manifestUrl;
     if (!isYouTubeStreamUrl(decoded)) throw new Error('Некорректный адрес аудио YouTube.');
-    const manifest = await fetchManifest(decoded);
+    const manifest = await streamWait(fetchManifest(decoded));
     const url = selectYouTubeHlsAudio(manifest, decoded);
     if (url) return { url, ...metadata, audioContainer: 'hls' };
     combinedHls = selectCombinedHlsAudio(manifest, decoded);
   }
   if (chosen) {
-    const url = await chosen.decipher(player);
+    const url = await streamWait(chosen.decipher(player));
     if (isYouTubeStreamUrl(url))
       return { url, ...metadata, audioContainer: 'progressive', audioItag: chosen.itag };
   }
@@ -227,7 +229,7 @@ export async function extractYouTubeAccountStream(
   const rejectedCombinedItag = options.excludeItag ?? combined[0]?.itag;
   for (const format of combined) {
     if (options.preferAlternateFormat && format.itag === rejectedCombinedItag) continue;
-    const url = await format.decipher(player);
+    const url = await streamWait(format.decipher(player));
     if (isYouTubeStreamUrl(url))
       return {
         url,
@@ -271,6 +273,7 @@ export async function extractYouTubeAccountVideo(
   player: { decipher: (url: string) => Promise<string> } | undefined,
   fetchManifest: (url: string) => Promise<string>,
 ): Promise<YouTubeAccountStream> {
+  assertStreamResolveActive();
   if (info.basic_info.id && info.basic_info.id !== videoId)
     throw new Error('YouTube returned another recording');
   const access = classifyYouTubeAudioAccessError(info.playability_status);
@@ -280,9 +283,9 @@ export async function extractYouTubeAccountVideo(
   const metadata = { duration: info.basic_info.duration };
   const manifestUrl = info.streaming_data?.hls_manifest_url;
   if (manifestUrl && isYouTubeStreamUrl(manifestUrl)) {
-    const decoded = player ? await player.decipher(manifestUrl) : manifestUrl;
+    const decoded = player ? await streamWait(player.decipher(manifestUrl)) : manifestUrl;
     if (!isYouTubeStreamUrl(decoded)) throw new Error('Некорректный адрес видео YouTube.');
-    const url = selectYouTubeHlsVideo(await fetchManifest(decoded), decoded);
+    const url = selectYouTubeHlsVideo(await streamWait(fetchManifest(decoded)), decoded);
     if (url) return { url, ...metadata };
   }
   const formats = [
@@ -301,7 +304,7 @@ export async function extractYouTubeAccountVideo(
       a.bitrate - b.bitrate,
   );
   for (const format of formats) {
-    const url = await format.decipher(player);
+    const url = await streamWait(format.decipher(player));
     if (isYouTubeStreamUrl(url)) return { url, ...metadata };
   }
   throw new Error('YouTube не выдал поддерживаемый видеопоток для подключённой сессии.');

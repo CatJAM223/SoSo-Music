@@ -1,14 +1,17 @@
+import { beginPlaybackIntent } from '../utils/playbackIntent.ts';
+import { usePagedLibrary } from './usePagedLibrary';
+import { mapLikedTracks } from '../utils/likedTrackMapping';
+import type {
+  LibraryKind,
+  LibraryPage,
+  LibraryPageRequest,
+  LibrarySort,
+  LibraryStats,
+} from '../types/libraryPage';
 import { subscribePlaylistUpdates } from '../utils/playlistEvents';
 import { filterLibraryTracks } from '../utils/librarySearch.ts';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import type {
-  FollowedArtist,
-  LikedTrack,
-  ListeningHistoryItem,
-  Playlist,
-  SavedAlbum,
-  Track,
-} from '../types';
+import type { ListeningHistoryItem, Playlist, Track } from '../types';
 import { useAudioState, useAudioControls } from '../context/AudioContext';
 import { platformBridge } from '../bridge/platformBridge';
 import { offlineCacheService } from '../services/offlineCacheService';
@@ -20,12 +23,20 @@ export interface MyMusicViewModelProps {
   initialTab?: MyMusicTab;
   initialQuery?: string;
   refreshPlaylistsTrigger?: number;
+  initialSort?: LibrarySort;
+  initialLoadedCounts?: Partial<Record<LibraryKind, number>>;
 }
+
+const readLibraryPage = <K extends LibraryKind>(
+  request: LibraryPageRequest<K>,
+): Promise<LibraryPage<K>> => platformBridge.getLibraryPage(request);
 
 export function useMyMusicViewModel({
   initialTab = 'tracks',
   initialQuery = '',
   refreshPlaylistsTrigger,
+  initialSort = 'recent',
+  initialLoadedCounts = {},
 }: MyMusicViewModelProps = {}) {
   const { likedTrackIds, savedAlbumIds, followedArtistIds, cachedTrackIds } = useAudioState();
   const { playTrack, toggleSaveAlbum, toggleFollowArtist } = useAudioControls();
@@ -54,132 +65,114 @@ export function useMyMusicViewModel({
     }
   }, [initialTab]);
 
-  // Playlists state
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [loadingPlaylists, setLoadingPlaylists] = useState(true);
-
-  // Tracks state
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [loadingTracks, setLoadingTracks] = useState(true);
-
-  // Saved albums state
-  const [savedAlbums, setSavedAlbums] = useState<SavedAlbum[]>([]);
-  const [loadingAlbums, setLoadingAlbums] = useState(true);
-
-  // Followed artists state
-  const [followedArtists, setFollowedArtists] = useState<FollowedArtist[]>([]);
-  const [loadingArtists, setLoadingArtists] = useState(true);
-
-  // History state
+  const [searchQuery, setSearchQuery] = useState(initialQuery);
+  const [sort, setSort] = useState<LibrarySort>(initialSort);
+  const queryLower = searchQuery.trim().toLowerCase();
+  const trackPage = usePagedLibrary({
+    kind: 'tracks',
+    query: searchQuery,
+    sort,
+    enabled: activeTab === 'tracks',
+    initialCount: initialLoadedCounts.tracks,
+    read: readLibraryPage,
+  });
+  const playlistPage = usePagedLibrary({
+    kind: 'playlists',
+    query: searchQuery,
+    sort,
+    enabled: activeTab === 'playlists',
+    initialCount: initialLoadedCounts.playlists,
+    read: readLibraryPage,
+  });
+  const albumPage = usePagedLibrary({
+    kind: 'albums',
+    query: searchQuery,
+    sort,
+    enabled: activeTab === 'albums',
+    initialCount: initialLoadedCounts.albums,
+    read: readLibraryPage,
+  });
+  const artistPage = usePagedLibrary({
+    kind: 'artists',
+    query: searchQuery,
+    sort,
+    enabled: activeTab === 'artists',
+    initialCount: initialLoadedCounts.artists,
+    read: readLibraryPage,
+  });
+  const tracks = useMemo(() => mapLikedTracks(trackPage.items), [trackPage.items]);
+  const playlists = playlistPage.items,
+    savedAlbums = albumPage.items,
+    followedArtists = artistPage.items;
+  const loadingTracks = trackPage.loading,
+    loadingPlaylists = playlistPage.loading,
+    loadingAlbums = albumPage.loading,
+    loadingArtists = artistPage.loading;
+  const loadLikedTracks = trackPage.refresh,
+    loadPlaylists = playlistPage.refresh,
+    loadSavedAlbums = albumPage.refresh,
+    loadFollowedArtists = artistPage.refresh;
+  const activePage =
+    activeTab === 'tracks'
+      ? trackPage
+      : activeTab === 'playlists'
+        ? playlistPage
+        : activeTab === 'albums'
+          ? albumPage
+          : activeTab === 'artists'
+            ? artistPage
+            : undefined;
+  const loadedCounts = useMemo(
+    () => ({
+      tracks: tracks.length,
+      playlists: playlists.length,
+      albums: savedAlbums.length,
+      artists: followedArtists.length,
+    }),
+    [tracks.length, playlists.length, savedAlbums.length, followedArtists.length],
+  );
+  const [stats, setStats] = useState<LibraryStats>({
+    tracks: 0,
+    playlists: 0,
+    albums: 0,
+    artists: 0,
+    durationSeconds: 0,
+  });
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const statsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statsGeneration = useRef(0);
+  const refreshStats = useCallback(() => {
+    const generation = ++statsGeneration.current;
+    if (statsTimer.current !== null) clearTimeout(statsTimer.current);
+    statsTimer.current = setTimeout(() => {
+      statsTimer.current = null;
+      void platformBridge.getLibraryStats().then(
+        (value) => {
+          if (mounted.current && generation === statsGeneration.current) {
+            setStats(value);
+            setStatsError(null);
+          }
+        },
+        (error) => {
+          if (mounted.current && generation === statsGeneration.current)
+            setStatsError(String(error));
+        },
+      );
+    }, 40);
+  }, []);
+  useEffect(
+    () => () => {
+      statsGeneration.current++;
+      if (statsTimer.current !== null) clearTimeout(statsTimer.current);
+    },
+    [],
+  );
   const [historyItems, setHistoryItems] = useState<ListeningHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
-
-  // Offline tracks state
   const [offlineTracks, setOfflineTracks] = useState<Track[]>([]);
   const [loadingOffline, setLoadingOffline] = useState(false);
-
-  // Search & Filter state
-  const [searchQuery, setSearchQuery] = useState(initialQuery);
-  const queryLower = searchQuery.trim().toLowerCase();
-
-  const loadPlaylists = useCallback(async () => {
-    const isCurrent = beginRead('playlists');
-    if (!isCurrent()) return;
-    setLoadingPlaylists(true);
-    try {
-      const list = await platformBridge.getPlaylists();
-      if (!isCurrent()) return;
-      setPlaylists(list || []);
-    } catch (e) {
-      console.error('Error loading playlists:', e);
-    } finally {
-      if (isCurrent()) setLoadingPlaylists(false);
-    }
-  }, [beginRead]);
-
-  const loadLikedTracks = useCallback(async () => {
-    const isCurrent = beginRead('tracks');
-    if (!isCurrent()) return;
-    setLoadingTracks(true);
-    try {
-      const likedList: LikedTrack[] = await platformBridge.getLikedTracks();
-      if (!isCurrent()) return;
-      const formatted: Track[] = (likedList || []).map((item) => {
-        let cover = item.cover_url || '';
-        if (cover.includes('sndcdn.com') && cover.includes('-large.')) {
-          cover = cover.replace('-large.', '-t500x500.');
-        }
-        if (cover.includes('unsplash.com')) {
-          cover = '';
-        }
-        const detectedSource = detectTrackSource(item);
-        const rawId = String(item.deezer_id || '');
-        let artistId: string | undefined;
-        if (rawId.startsWith('sc_') || detectedSource === 'soundcloud') {
-          artistId = `sc_art_${item.artist.toLowerCase().replace(/\s+/g, '_')}`;
-        } else if (rawId.startsWith('yt_') || detectedSource === 'youtube') {
-          artistId = `yt_art_${item.artist.toLowerCase().replace(/\s+/g, '_')}`;
-        }
-        return {
-          id: item.deezer_id,
-          title: item.title,
-          artist: {
-            id: artistId,
-            name: item.artist,
-            picture: cover,
-            source: detectedSource,
-          },
-          album: {
-            id: item.album_id || undefined,
-            title: item.album || '',
-            cover_medium: cover,
-            cover: cover,
-            cover_big: cover,
-            cover_xl: cover,
-            cover_small: cover,
-          },
-          duration: item.duration || 180,
-          preview: item.preview_url,
-          source: detectedSource,
-        };
-      });
-      setTracks(formatted);
-    } catch (e) {
-      console.error('Error loading liked tracks:', e);
-    } finally {
-      if (isCurrent()) setLoadingTracks(false);
-    }
-  }, [beginRead]);
-
-  const loadSavedAlbums = useCallback(async () => {
-    const isCurrent = beginRead('albums');
-    if (!isCurrent()) return;
-    setLoadingAlbums(true);
-    try {
-      const list: SavedAlbum[] = await platformBridge.getSavedAlbums();
-      if (!isCurrent()) return;
-      setSavedAlbums(list || []);
-    } catch (e) {
-      console.error('Error loading saved albums:', e);
-    } finally {
-      if (isCurrent()) setLoadingAlbums(false);
-    }
-  }, [beginRead]);
-
-  const loadFollowedArtists = useCallback(async () => {
-    const isCurrent = beginRead('artists');
-    if (!isCurrent()) return;
-    setLoadingArtists(true);
-    try {
-      const list: FollowedArtist[] = await platformBridge.getFollowedArtists();
-      if (!isCurrent()) return;
-      setFollowedArtists(list || []);
-    } catch (e) {
-      console.error('Error loading followed artists:', e);
-    } finally {
-      if (isCurrent()) setLoadingArtists(false);
-    }
-  }, [beginRead]);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const playGeneration = useRef(0);
 
   const loadListeningHistory = useCallback(async () => {
     const isCurrent = beginRead('history');
@@ -277,7 +270,6 @@ export function useMyMusicViewModel({
         window.dispatchEvent(new CustomEvent('soso:playlists-updated'));
       } catch {}
       if (!mounted.current) return;
-      loadPlaylists();
       setPlaylistToDelete(null);
     } catch (e) {
       console.error('Error deleting playlist:', e);
@@ -289,10 +281,26 @@ export function useMyMusicViewModel({
     setPlaylistToDelete(null);
   };
 
-  const handlePlayAllTracks = () => {
-    if (tracks.length > 0) {
-      playTrack(tracks[0], tracks);
+  const handlePlayLibraryTrack = async (selected?: Track) => {
+    const generation = ++playGeneration.current;
+    const ownsIntent = beginPlaybackIntent();
+    setPlaybackError(null);
+    try {
+      const context = mapLikedTracks(
+        await platformBridge.getLibraryPlaybackTracks({ query: searchQuery, sort }),
+      );
+      if (!mounted.current || generation !== playGeneration.current || !ownsIntent()) return;
+      const first = selected
+        ? context.find((track) => String(track.id) === String(selected.id))
+        : context[0];
+      if (first) playTrack(first, context, false, undefined, { kind: 'library' });
+      else if (selected) setPlaybackError('Трек больше не входит в эту подборку.');
+    } catch (error) {
+      if (mounted.current && generation === playGeneration.current) setPlaybackError(String(error));
     }
+  };
+  const handlePlayAllTracks = () => {
+    void handlePlayLibraryTrack();
   };
 
   const handlePlayAllOffline = () => {
@@ -303,8 +311,10 @@ export function useMyMusicViewModel({
 
   const handlePlayPlaylist = async (e: React.MouseEvent, playlist: Playlist) => {
     e.stopPropagation();
+    const ownsIntent = beginPlaybackIntent();
     try {
       const pTracks = await platformBridge.getPlaylistTracks(playlist.id);
+      if (!mounted.current || !ownsIntent()) return;
       if (pTracks && pTracks.length > 0) {
         const formattedTracks: Track[] = pTracks.map((pt: any) => ({
           id: pt.track_deezer_id,
@@ -322,73 +332,72 @@ export function useMyMusicViewModel({
           preview: pt.preview_url || '',
           source: detectTrackSource(pt),
         }));
-        playTrack(formattedTracks[0], formattedTracks);
+        playTrack(formattedTracks[0], formattedTracks, false, undefined, {
+          kind: 'playlist',
+          id: String(playlist.id),
+        });
       }
     } catch (err) {
       console.error('Error playing playlist:', err);
     }
   };
 
-  const totalDurationSeconds = useMemo(
-    () => tracks.reduce((acc, t) => acc + (t.duration || 0), 0),
-    [tracks],
-  );
-
+  const previousMembership = useRef({ likedTrackIds, savedAlbumIds, followedArtistIds });
+  const previousRefreshTrigger = useRef(refreshPlaylistsTrigger);
+  const totalDurationSeconds = stats.durationSeconds;
   useEffect(() => {
-    loadPlaylists();
-    return subscribePlaylistUpdates(loadPlaylists);
-  }, [loadPlaylists, refreshPlaylistsTrigger]);
-
+    const refreshAll = () => {
+      loadPlaylists();
+      loadLikedTracks();
+      loadSavedAlbums();
+      loadFollowedArtists();
+      refreshStats();
+    };
+    if (previousRefreshTrigger.current !== refreshPlaylistsTrigger) refreshAll();
+    else refreshStats();
+    previousRefreshTrigger.current = refreshPlaylistsTrigger;
+    return subscribePlaylistUpdates(refreshAll);
+  }, [
+    loadPlaylists,
+    loadLikedTracks,
+    loadSavedAlbums,
+    loadFollowedArtists,
+    refreshStats,
+    refreshPlaylistsTrigger,
+  ]);
   useEffect(() => {
-    loadLikedTracks();
-  }, [loadLikedTracks, likedTrackIds]);
-
-  useEffect(() => {
-    loadSavedAlbums();
-  }, [loadSavedAlbums, savedAlbumIds]);
-
-  useEffect(() => {
-    loadFollowedArtists();
-  }, [loadFollowedArtists, followedArtistIds]);
-
-  useEffect(() => {
-    if (activeTab === 'history') {
-      loadListeningHistory();
+    if (previousMembership.current.likedTrackIds !== likedTrackIds) {
+      previousMembership.current.likedTrackIds = likedTrackIds;
+      loadLikedTracks();
     }
-  }, [activeTab, loadListeningHistory]);
-
+    refreshStats();
+  }, [loadLikedTracks, likedTrackIds, refreshStats]);
   useEffect(() => {
-    loadOfflineTracks();
-  }, [loadOfflineTracks, cachedTrackIds, activeTab]);
+    if (previousMembership.current.savedAlbumIds !== savedAlbumIds) {
+      previousMembership.current.savedAlbumIds = savedAlbumIds;
+      loadSavedAlbums();
+    }
+    refreshStats();
+  }, [loadSavedAlbums, savedAlbumIds, refreshStats]);
+  useEffect(() => {
+    if (previousMembership.current.followedArtistIds !== followedArtistIds) {
+      previousMembership.current.followedArtistIds = followedArtistIds;
+      loadFollowedArtists();
+    }
+    refreshStats();
+  }, [loadFollowedArtists, followedArtistIds, refreshStats]);
+  useEffect(() => {
+    if (activeTab === 'history') loadListeningHistory();
+  }, [activeTab, loadListeningHistory]);
+  useEffect(() => {
+    if (activeTab === 'offline') loadOfflineTracks();
+  }, [activeTab, loadOfflineTracks, cachedTrackIds]);
 
-  // Filtered queries
-  const filteredTracks = useMemo(
-    () => filterLibraryTracks(tracks, queryLower),
-    [tracks, queryLower],
-  );
-
-  const filteredPlaylists = useMemo(() => {
-    if (!queryLower) return playlists;
-    return playlists.filter((pl) => {
-      const nameMatch = pl.name?.toLowerCase().includes(queryLower);
-      const descMatch = pl.description?.toLowerCase().includes(queryLower);
-      return nameMatch || descMatch;
-    });
-  }, [playlists, queryLower]);
-
-  const filteredSavedAlbums = useMemo(() => {
-    if (!queryLower) return savedAlbums;
-    return savedAlbums.filter((alb) => {
-      const titleMatch = alb.title?.toLowerCase().includes(queryLower);
-      const artistMatch = alb.artist_name?.toLowerCase().includes(queryLower);
-      return titleMatch || artistMatch;
-    });
-  }, [savedAlbums, queryLower]);
-
-  const filteredFollowedArtists = useMemo(() => {
-    if (!queryLower) return followedArtists;
-    return followedArtists.filter((art) => art.name?.toLowerCase().includes(queryLower));
-  }, [followedArtists, queryLower]);
+  // Query is applied in DB before LIMIT, never a filter of the loaded prefix.
+  const filteredTracks = tracks,
+    filteredPlaylists = playlists,
+    filteredSavedAlbums = savedAlbums,
+    filteredFollowedArtists = followedArtists;
 
   const filteredOfflineTracks = useMemo(
     () => filterLibraryTracks(offlineTracks, queryLower),
@@ -408,6 +417,15 @@ export function useMyMusicViewModel({
   return {
     activeTab,
     setActiveTab,
+    sort,
+    setSort,
+    loadedCounts,
+    stats,
+    statsError,
+    refreshStats,
+    activePage,
+    playbackError,
+    handlePlayLibraryTrack,
     playlists,
     loadingPlaylists,
     loadPlaylists,

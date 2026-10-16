@@ -1,3 +1,15 @@
+import {
+  assertStreamResolveActive,
+  currentStreamResolveSignal,
+  streamWait,
+  streamShared,
+} from './streamResolveContext.ts';
+import { desktopProviderFetch } from './desktopFetch.ts';
+import {
+  createStreamResolveError,
+  getStreamResolveFailure,
+  streamHttpFailure,
+} from '../../../shared/utils/streamResolveError.ts';
 import { BrowserWindow, dialog, session, type Session } from 'electron';
 import fs from 'node:fs/promises';
 import { electronFetch } from './electronFetch.ts';
@@ -84,13 +96,15 @@ export class YouTubeAccountService {
   private onChange: (invalidate?: boolean) => void;
   private cookieTimer: ReturnType<typeof setTimeout> | undefined;
   private getParent: () => BrowserWindow | null;
+  private onConnected: () => void;
 
   constructor(
     getParent: () => BrowserWindow | null,
     onChange: (invalidate?: boolean) => void,
-    private onConnected: () => void = () => {},
+    onConnected: () => void = () => {},
   ) {
     this.getParent = getParent;
+    this.onConnected = onConnected;
     this.onChange = onChange;
     this.accountSession = session.fromPartition(ACCOUNT_PARTITION);
     this.accountSession.setPermissionRequestHandler((_contents, _permission, callback) =>
@@ -538,6 +552,7 @@ export class YouTubeAccountService {
   }
 
   private async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    assertStreamResolveActive();
     const target =
       typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(target);
@@ -564,7 +579,7 @@ export class YouTubeAccountService {
     }
     let body = init?.body;
     if (!body && request && !['GET', 'HEAD'].includes(request.method))
-      body = await request.clone().text();
+      body = await streamWait(request.clone().text());
     if (url.pathname === '/youtubei/v1/player' && typeof body === 'string') {
       const payload = JSON.parse(body);
       if (payload.context?.client?.clientName === 'WEB') {
@@ -583,32 +598,43 @@ export class YouTubeAccountService {
     }
     const signal = AbortSignal.any([
       AbortSignal.timeout(12000),
-      ...(init?.signal ? [init.signal] : []),
+      ...((init?.signal ?? request?.signal) ? [init?.signal ?? request!.signal] : []),
+      ...(currentStreamResolveSignal() ? [currentStreamResolveSignal()!] : []),
     ]);
     let current = target;
     for (let redirects = 0; redirects <= 2; redirects++) {
-      const response = await electronFetch(
-        current,
-        {
-          ...init,
-          method: init?.method ?? request?.method,
-          headers,
-          body,
-          redirect: 'manual',
-          credentials: youtube ? 'include' : 'omit',
-          signal,
-          ...(url.pathname === '/youtubei/v1/player' ? { cache: 'no-store' } : {}),
-        },
-        this.accountSession,
+      const response = await streamWait(
+        desktopProviderFetch(
+          current,
+          {
+            ...init,
+            method: init?.method ?? request?.method,
+            headers,
+            body,
+            redirect: 'manual',
+            credentials: youtube ? 'include' : 'omit',
+            signal,
+            ...(url.pathname === '/youtubei/v1/player' ? { cache: 'no-store' } : {}),
+          },
+          (target, options) => electronFetch(target, options, this.accountSession),
+        ),
       );
-      if (response.status < 300 || response.status >= 400) return response;
+      if (response.status < 300 || response.status >= 400) {
+        const failure = !response.ok && streamHttpFailure(response.status);
+        if (failure) {
+          await streamWait(discardYouTubeResponse(response));
+          throw createStreamResolveError(failure);
+        }
+        return response;
+      }
       const location = response.headers.get('location');
-      await discardYouTubeResponse(response);
+      await streamWait(discardYouTubeResponse(response));
       if (youtube) throw new Error('YouTube session redirected; reconnect the account');
       let next = '';
       try {
         if (location) next = new URL(location, current).href;
       } catch {
+        assertStreamResolveActive();
         /* Reject malformed redirects. */
       }
       if (redirects < 2 && isYouTubeStreamUrl(next) && next !== current) {
@@ -667,19 +693,23 @@ export class YouTubeAccountService {
 
   /** A watch response uses the signed-in browser context when the bare player API cannot deliver media. */
   private async getWatchInfo(videoId: string, client: Innertube) {
-    const response = await this.fetch(
-      'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId),
-      { cache: 'no-store' },
+    assertStreamResolveActive();
+    const response = await streamWait(
+      this.fetch('https://www.youtube.com/watch?v=' + encodeURIComponent(videoId), {
+        cache: 'no-store',
+      }),
     );
-    const page = parseYouTubeWatchPage(await readYouTubeWatchPage(response), videoId);
-    const { YT, Player } = await import('youtubei.js');
+    const page = parseYouTubeWatchPage(await streamWait(readYouTubeWatchPage(response)), videoId);
+    const { YT, Player } = await streamWait(import('youtubei.js'));
     const player =
       page.playerId && page.playerId !== client.session.player?.player_id
-        ? await Player.create(
-            undefined,
-            (input, init) => this.fetch(input, init),
-            undefined,
-            page.playerId,
+        ? await streamWait(
+            Player.create(
+              undefined,
+              (input, init) => this.fetch(input, init),
+              undefined,
+              page.playerId,
+            ),
           )
         : client.session.player;
     const info = new YT.VideoInfo(
@@ -747,7 +777,8 @@ export class YouTubeAccountService {
     videoId: string,
     options: StreamResolveOptions,
   ): Promise<YouTubeAccountStream | null> {
-    if (this.mutation) await this.mutation;
+    assertStreamResolveActive();
+    if (this.mutation) await streamShared(() => this.mutation);
     return this.resolveMedia(videoId, 'audio', options);
   }
 
@@ -761,7 +792,8 @@ export class YouTubeAccountService {
     kind: 'audio' | 'video',
     options: StreamResolveOptions = {},
   ): Promise<YouTubeAccountStream | null> {
-    await this.refreshCookies();
+    assertStreamResolveActive();
+    await streamShared(() => this.refreshCookies());
     if (!this.cookieHeader) return null;
     const epoch = this.epoch;
     const start = Date.now();
@@ -770,13 +802,15 @@ export class YouTubeAccountService {
       // Reuse a verified route briefly across songs, rather than paying the same 403 on every click.
       let useWatchPage = kind === 'audio' && Date.now() < this.preferredWatchUntil;
       for (let attempt = 0; attempt < 2; attempt++) {
-        const client = await this.getClient();
+        const client = await streamShared(() => this.getClient());
         stage = 'player';
         let watch: Awaited<ReturnType<YouTubeAccountService['getWatchInfo']>> | undefined;
         if (useWatchPage) {
           try {
-            watch = await this.getWatchInfo(videoId, client);
+            watch = await streamWait(this.getWatchInfo(videoId, client));
           } catch (error) {
+            assertStreamResolveActive();
+            if (getStreamResolveFailure(error)) throw error;
             if (kind === 'audio') this.preferredWatchUntil = 0;
             // A per-recording access restriction must never be replaced with a different source.
             if (getYouTubeAudioAccessError(error)) throw error;
@@ -802,7 +836,8 @@ export class YouTubeAccountService {
           Object.assign(failure, { cause: new Error('cdn-http-403') });
           throw failure;
         }
-        const info = watch?.info ?? (await client.getBasicInfo(videoId, { client: 'WEB' }));
+        const info =
+          watch?.info ?? (await streamWait(client.getBasicInfo(videoId, { client: 'WEB' })));
         stage = kind;
         const data = info.streaming_data;
         const described = [...(data?.formats || []), ...(data?.adaptive_formats || [])];
@@ -837,30 +872,32 @@ export class YouTubeAccountService {
           );
         }
         const extract = kind === 'audio' ? extractYouTubeAccountStream : extractYouTubeAccountVideo;
-        const stream = await extract(
-          videoId,
-          info,
-          watch?.player ?? client.session.player,
-          async (url) => {
-            const response = await this.fetch(url);
-            if (!response.ok) {
-              await discardYouTubeResponse(response);
-              throw new Error('YouTube manifest unavailable');
-            }
-            return response.text();
-          },
-          options,
+        const stream = await streamWait(
+          extract(
+            videoId,
+            info,
+            watch?.player ?? client.session.player,
+            async (url) => {
+              const response = await streamWait(this.fetch(url));
+              if (!response.ok) {
+                await streamWait(discardYouTubeResponse(response));
+                throw new Error('YouTube manifest unavailable');
+              }
+              return response.text();
+            },
+            options,
+          ),
         );
         if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
         stage = 'delivery';
-        const delivery = await probeYouTubeMedia(stream.url, kind);
+        const delivery = await streamWait(probeYouTubeMedia(stream.url, kind));
         if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
         if (!delivery.ok) {
           if (attempt === 0 && delivery.reason === 'cdn-http' && delivery.status === 403) {
             // Prefetch can try the same recording's watch response without touching session/cache state.
             const reset =
               kind === 'video' || options.allowSessionRecovery
-                ? await this.recoverDelivery()
+                ? await streamShared(() => this.recoverDelivery())
                 : false;
             useWatchPage = !watch;
             if (watch && kind === 'audio') this.preferredWatchUntil = 0;
@@ -932,6 +969,8 @@ export class YouTubeAccountService {
       }
       throw new Error('YouTube media delivery failed');
     } catch (error) {
+      assertStreamResolveActive();
+      if (getStreamResolveFailure(error)) throw error;
       if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
       this.lastFailedMedia = { videoId, kind, options: { ...options } };
       const access = getYouTubeAudioAccessError(error);

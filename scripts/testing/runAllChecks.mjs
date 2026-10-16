@@ -26,6 +26,7 @@ const checks = [
   ['Settings lifecycle', 'scripts/testing/testSettingsLifecycle.mjs'],
   ['UI rendering bounds', 'scripts/testing/testUiResponsiveness.mjs'],
   ['Background resource lifecycle', 'scripts/testing/testBackgroundMemory.mjs'],
+  ['Widget resource isolation', 'scripts/testing/testWidgetResources.mjs'],
   ['Rust in Chromium', 'scripts/testing/testRustComputeBrowser.mjs'],
 ];
 for (const [label, entry, ...args] of checks) {

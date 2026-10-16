@@ -9,6 +9,7 @@ export function getWavePlaybackFeedback(
   playedSeconds: number,
   durationSeconds: number,
   reason: WavePlaybackReason = 'skip',
+  mood: WaveMood = 'default',
 ): number {
   if (
     !Number.isFinite(playedSeconds) ||
@@ -25,7 +26,8 @@ export function getWavePlaybackFeedback(
   const threshold = knownDuration ? Math.min(25, durationSeconds * 0.15) : 15;
   if (playedSeconds >= threshold) return 0;
   const immediate = knownDuration ? Math.min(10, durationSeconds * 0.05) : 5;
-  return playedSeconds < immediate ? -0.6 : -0.35;
+  const rejection = playedSeconds < immediate ? -0.6 : -0.35;
+  return mood === 'discover' ? rejection * 0.5 : rejection;
 }
 
 /** The ratio is a ranking target, bounded to preserve the selected station's intent. */

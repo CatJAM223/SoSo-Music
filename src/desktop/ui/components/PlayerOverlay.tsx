@@ -221,7 +221,7 @@ export function PlayerOverlay() {
         if (event.key === 'Escape' && editing) void finish(false);
       }}
     >
-      {(track || editing) && (
+      {layoutReady && (track || editing) && (
         <section
           data-overlay-panel="track"
           className="overlay-panel overlay-track"
@@ -238,7 +238,7 @@ export function PlayerOverlay() {
               alt=""
               onError={(event) => advanceTrackArtwork(event.currentTarget, track)}
             />
-            <div>
+            <div className="overlay-track-info">
               <strong>{track?.title || 'SoSo Music'}</strong>
               <span>{track?.artist?.name || t('Ожидание трека...')}</span>
             </div>

@@ -1,6 +1,7 @@
 import { useLocale } from '../../i18n/useLocale';
 import { t, getIntlLocale } from '../../i18n/locale';
 import { useLibraryTaste } from '../../hooks/useLibraryTaste';
+import { TasteExclusionsSettings } from '../TasteExclusionsSettings';
 import { LibraryGenreChart } from './LibraryGenreChart';
 import './SettingsLibraryTaste.css';
 
@@ -19,6 +20,7 @@ export function SettingsLibraryTaste({ active }: Props) {
       className="settings-page settings-section library-taste"
       aria-label={t('Музыкальный вкус Last.fm')}
     >
+      <TasteExclusionsSettings />
       <div className="settings-heading-line">
         <h4>Last.fm</h4>
       </div>
@@ -46,7 +48,7 @@ export function SettingsLibraryTaste({ active }: Props) {
       </div>
       {report?.apiKeyConfigured === false && (
         <p className="settings-feedback" role="note">
-          {t('Добавьте ключ Last.fm в Настройки → Интеграции.')}
+          {t('Добавьте ключ Last.fm в Настройки → API.')}
         </p>
       )}
       {error && (

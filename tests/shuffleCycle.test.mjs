@@ -76,11 +76,11 @@ test('Reordering, metadata updates, removal and additions preserve the current p
   assert.equal(trimmed[cycle.next(trimmed, 'c', false, () => 0)].id, 'd');
   assert.equal(trimmed[cycle.next(trimmed, 'd', false, () => 0)].id, 'b');
   assert.equal(cycle.next(trimmed, 'd', false), -1);
-  assert.equal(sameShuffleCollection(queue(1, '2'), queue('2', '1', '1')), true);
+  assert.equal(sameShuffleCollection(queue(1, '2'), queue('2', '1', '1')), false);
   assert.equal(sameShuffleCollection(queue('a', 'b'), queue('a', 'c')), false);
 });
 
-test('Duplicate IDs count once; empty and single-track queues have finite behavior', () => {
+test('Legacy bare track IDs retain compatibility; empty and single-track queues have finite behavior', () => {
   const cycle = new ShuffleCycle();
   assert.equal(cycle.next([], undefined, true), -1);
   const q = queue('a', 'a', 'b');

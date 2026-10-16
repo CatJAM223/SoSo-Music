@@ -12,7 +12,7 @@ import {
 } from '../../../shared/utils/libraryTaste.ts';
 import { mapConcurrentSettled } from '../../../shared/utils/concurrentTasks.ts';
 import { requestSignal } from '../../../shared/utils/requestSignal.ts';
-import { LibraryTasteStore } from './libraryTasteStore.ts';
+import { LibraryTasteStore, type LibraryTasteSnapshot } from './libraryTasteStore.ts';
 import { LastFmService } from './lastfm.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -35,6 +35,16 @@ export class LibraryTasteService {
   private pendingRefresh = false;
   private retryAfter = 0;
   private pausedKeys = new Set<string>();
+  private autoChecked = new WeakSet<LibraryTasteSnapshot>();
+  private summaries = new WeakMap<
+    LibraryTasteSnapshot,
+    {
+      known: number;
+      matched: number;
+      updatedAt: number | null;
+      genres: LibraryTasteReport['genres'];
+    }
+  >();
 
   constructor(
     database: () => Database | null,
@@ -43,35 +53,46 @@ export class LibraryTasteService {
       LastFmService.getTopTags(artist, title, signal),
     delayMs = 350,
     available: () => boolean = () => true,
+    revision?: () => number,
   ) {
-    this.store = new LibraryTasteStore(database, save);
+    this.store = new LibraryTasteStore(database, save, revision);
     this.tags = tags;
     this.delayMs = delayMs;
     this.available = available;
   }
 
   report(): LibraryTasteReport {
-    const tracks = this.store.tracks();
-    const entries = this.store.entries();
-    const known = tracks.flatMap((track) => {
-      const entry = entries.get(libraryTasteKey(track));
-      return entry ? [entry] : [];
-    });
+    const snapshot = this.store.snapshot();
+    const { tracks, entries } = snapshot;
+    let summary = this.summaries.get(snapshot);
+    if (!summary) {
+      const known = tracks.flatMap((track) => {
+        const entry = entries.get(libraryTasteKey(track));
+        return entry ? [entry] : [];
+      });
+      summary = {
+        known: known.length,
+        matched: known.filter((entry) => entry.genres.length > 0).length,
+        updatedAt: known.length
+          ? known.reduce((latest, entry) => Math.max(latest, entry.updatedAt), 0)
+          : null,
+        genres: summarizeLibraryGenres(
+          tracks,
+          (track) => entries.get(libraryTasteKey(track))?.genres || [],
+        ),
+      };
+      this.summaries.set(snapshot, summary);
+    }
     return {
-      autoAnalyze: this.store.autoAnalyze,
+      autoAnalyze: snapshot.autoAnalyze,
       running: Boolean(this.controller),
       totalTracks: tracks.length,
-      processedTracks: this.controller ? this.progress : known.length,
-      matchedTracks: known.filter((entry) => entry.genres.length > 0).length,
-      missingTracks: known.filter((entry) => !entry.genres.length).length,
+      processedTracks: this.controller ? this.progress : summary.known,
+      matchedTracks: summary.matched,
+      missingTracks: summary.known - summary.matched,
       failedTracks: this.failed,
-      updatedAt: known.length
-        ? known.reduce((latest, entry) => Math.max(latest, entry.updatedAt), 0)
-        : null,
-      genres: summarizeLibraryGenres(
-        tracks,
-        (track) => entries.get(libraryTasteKey(track))?.genres || [],
-      ),
+      updatedAt: summary.updatedAt,
+      genres: summary.genres.map((genre) => ({ ...genre })),
       ...(this.error ? { error: this.error } : {}),
     };
   }
@@ -82,9 +103,13 @@ export class LibraryTasteService {
       this.pendingRefresh ||= onlyNew;
       return this.report();
     }
-    if (!onlyNew) this.pausedKeys.clear();
-    const tracks = this.store.tracks();
-    const entries = this.store.entries();
+    if (!onlyNew) {
+      this.pausedKeys.clear();
+      this.autoChecked = new WeakSet();
+    }
+    const snapshot = this.store.snapshot();
+    if (onlyNew && this.autoChecked.has(snapshot)) return this.report();
+    const { tracks, entries } = snapshot;
     const pending = tracks.filter((track) => {
       const key = libraryTasteKey(track);
       if (onlyNew && this.pausedKeys.has(key)) return false;
@@ -100,7 +125,10 @@ export class LibraryTasteService {
     this.progress = tracks.filter(
       (track) => entries.has(libraryTasteKey(track)) && !pendingKeys.has(libraryTasteKey(track)),
     ).length;
-    if (!pending.length) return this.report();
+    if (!pending.length) {
+      if (onlyNew) this.autoChecked.add(snapshot);
+      return this.report();
+    }
     const controller = new AbortController();
     this.controller = controller;
     void this.run(pending, controller)
@@ -123,7 +151,7 @@ export class LibraryTasteService {
 
   private async run(tracks: LibraryTasteTrack[], controller: AbortController): Promise<void> {
     const signal = controller.signal;
-    const entries = this.store.entries();
+    const entries = new Map(this.store.snapshot().entries);
     let consecutiveFailures = 0;
     for (const track of tracks) {
       if (signal.aborted) break;
@@ -188,7 +216,8 @@ export class LibraryTasteService {
 
   cancel(): LibraryTasteReport {
     this.pendingRefresh = false;
-    this.pausedKeys = new Set(this.store.tracks().map(libraryTasteKey));
+    this.pausedKeys = new Set(this.store.snapshot().tracks.map(libraryTasteKey));
+    this.autoChecked = new WeakSet();
     this.controller?.abort();
     this.controller = undefined;
     return this.report();
@@ -198,10 +227,11 @@ export class LibraryTasteService {
     clearInterval(this.timer);
     this.timer = undefined;
     this.cancel();
+    this.store.clearCache();
   }
 
   enrichCached(tracks: readonly Track[]): Track[] {
-    const entries = this.store.entries();
+    const entries = this.store.snapshot().entries;
     return tracks.map((track) => {
       const identity = { title: track.title || '', artist: track.artist?.name || '' };
       const trackGenres = entries.get(libraryTasteKey(identity))?.genres;

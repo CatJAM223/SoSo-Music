@@ -1,4 +1,5 @@
 import type { Database } from 'sql.js';
+import { tasteTrackAllowedSql, tastePlaylistAllowedSql } from './tastePolicyStore.ts';
 import { libraryTasteKey, type LibraryTasteTrack } from '../../../shared/utils/libraryTaste.ts';
 
 export interface LibraryTagEntry {
@@ -15,19 +16,60 @@ export function createLibraryTasteSchema(db: Database): void {
   );
 }
 
+export interface LibraryTasteSnapshot {
+  tracks: readonly LibraryTasteTrack[];
+  entries: ReadonlyMap<string, LibraryTagEntry>;
+  autoAnalyze: boolean;
+}
+
 export class LibraryTasteStore {
   private database: () => Database | null;
   private save: () => void;
-  constructor(database: () => Database | null, save: () => void) {
+  private revision?: () => number;
+  private cached?: { database: Database; revision: number; snapshot: LibraryTasteSnapshot };
+  constructor(database: () => Database | null, save: () => void, revision?: () => number) {
     this.database = database;
     this.save = save;
+    this.revision = revision;
+  }
+
+  clearCache(): void {
+    this.cached = undefined;
+  }
+
+  snapshot(): LibraryTasteSnapshot {
+    const database = this.database();
+    if (!database) {
+      this.clearCache();
+      return { tracks: [], entries: new Map(), autoAnalyze: false };
+    }
+    const revision = this.revision?.();
+    if (
+      revision !== undefined &&
+      this.cached?.database === database &&
+      this.cached.revision === revision
+    )
+      return this.cached.snapshot;
+    const snapshot = {
+      tracks: this.tracks(),
+      entries: this.entries(),
+      autoAnalyze: this.autoAnalyze,
+    };
+    // Callers without a mutation generation keep live reads rather than a potentially stale TTL cache.
+    if (revision !== undefined) this.cached = { database, revision, snapshot };
+    return snapshot;
   }
 
   tracks(): LibraryTasteTrack[] {
     const db = this.database();
     if (!db) return [];
     const statement = db.prepare(
-      'SELECT deezer_id AS id, title, artist, 1 AS liked FROM liked_tracks UNION ALL SELECT track_deezer_id AS id, title, artist, 0 AS liked FROM playlist_tracks',
+      'SELECT deezer_id AS id, title, artist, 1 AS liked FROM liked_tracks WHERE ' +
+        tasteTrackAllowedSql('deezer_id') +
+        ' UNION ALL SELECT track_deezer_id AS id, title, artist, 0 AS liked FROM playlist_tracks WHERE ' +
+        tasteTrackAllowedSql('track_deezer_id') +
+        ' AND ' +
+        tastePlaylistAllowedSql('playlist_id'),
     );
     const disliked = new Set(
       (db.exec('SELECT track_id FROM disliked_tracks')[0]?.values || []).map((row) =>
@@ -79,25 +121,41 @@ export class LibraryTasteStore {
   }
 
   put(key: string, genres: string[]): void {
-    this.database()?.run(
-      'INSERT OR REPLACE INTO library_genre_tags (cache_key, genres, updated_at) VALUES (?, ?, ?)',
-      [key, JSON.stringify(genres), Date.now()],
-    );
-    this.save();
+    try {
+      this.database()?.run(
+        'INSERT OR REPLACE INTO library_genre_tags (cache_key, genres, updated_at) VALUES (?, ?, ?)',
+        [key, JSON.stringify(genres), Date.now()],
+      );
+      this.save();
+    } finally {
+      this.clearCache();
+    }
   }
 
   get autoAnalyze(): boolean {
+    const database = this.database();
+    const revision = this.revision?.();
+    if (
+      revision !== undefined &&
+      this.cached?.database === database &&
+      this.cached.revision === revision
+    )
+      return this.cached.snapshot.autoAnalyze;
     return (
-      this.database()?.exec('SELECT auto_analyze FROM library_taste_preferences WHERE id = 1')[0]
+      database?.exec('SELECT auto_analyze FROM library_taste_preferences WHERE id = 1')[0]
         ?.values[0]?.[0] === 1
     );
   }
 
   setAutoAnalyze(enabled: boolean): void {
-    this.database()?.run(
-      'INSERT OR REPLACE INTO library_taste_preferences (id, auto_analyze) VALUES (1, ?)',
-      [Number(enabled)],
-    );
-    this.save();
+    try {
+      this.database()?.run(
+        'INSERT OR REPLACE INTO library_taste_preferences (id, auto_analyze) VALUES (1, ?)',
+        [Number(enabled)],
+      );
+      this.save();
+    } finally {
+      this.clearCache();
+    }
   }
 }

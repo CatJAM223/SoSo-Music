@@ -123,8 +123,18 @@ function subscriptionHarness(audio) {
       source,
       (text) => text.startsWith('bufferEvents.forEach(') && text.includes('removeEventListener'),
     ),
-    extractStatement(source, (text) => text.startsWith("audio.removeEventListener('loadstart'")),
-    extractStatement(source, (text) => text.startsWith("audio.removeEventListener('emptied'")),
+    extractStatement(
+      source,
+      (text) =>
+        text.startsWith("audio.removeEventListener('loadstart'") &&
+        text.includes('handleBufferReset'),
+    ),
+    extractStatement(
+      source,
+      (text) =>
+        text.startsWith("audio.removeEventListener('emptied'") &&
+        text.includes('handleBufferReset'),
+    ),
   ].join('\n');
   let state = [],
     updates = 0;

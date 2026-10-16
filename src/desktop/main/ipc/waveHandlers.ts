@@ -1,3 +1,4 @@
+import { filterTasteContext, isTasteEligible } from '../../../shared/utils/tastePolicy.ts';
 import type { IpcMain } from 'electron';
 import type { DatabaseManager } from '../db/index.ts';
 import type { WaveBatchContext, WaveMood } from '../../../shared/types/index.ts';
@@ -23,7 +24,7 @@ function tasteSeeds(db: DatabaseManager, provided: unknown[]) {
       duration: track.duration,
     }));
   const likes = db
-    .getLikedTracks()
+    .getTasteLikedTracks()
     .filter((track) => !dislikedIds.has(String(track.deezer_id)))
     .map((track) => ({
       id: track.deezer_id,
@@ -40,7 +41,7 @@ function tasteSeeds(db: DatabaseManager, provided: unknown[]) {
     // Sample the full library before the bounded taste profile is built.
     seeds: buildWaveTasteSeeds(
       shuffled(likes),
-      provided,
+      provided.filter((track) => isTasteEligible(track as any, db.getTastePolicy())),
       history,
       db.getPlaylistWaveTracks(),
       disliked,
@@ -85,7 +86,7 @@ export function registerWaveHandlers(ipc: IpcMain, db: DatabaseManager): void {
           [...(Array.isArray(excluded) ? excluded : []), ...disliked],
           familiarArtists(db),
           db.getDislikedWaveTracks(),
-          normalizeWaveBatchContext(context),
+          normalizeWaveBatchContext(filterTasteContext(context || {}, db.getTastePolicy())),
           request.signal,
         );
       } catch (error) {

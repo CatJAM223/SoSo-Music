@@ -1,5 +1,6 @@
+import { normalizePlaybackOrigin, tasteEvidenceKey } from '../utils/tastePolicy.ts';
 import { waveMusicProfile } from '../utils/waveMusicProfile.ts';
-import type { Track } from '../types/index.ts';
+import type { Track, WaveMood } from '../types/index.ts';
 import { waveMemoryTrack } from './waveMemory.ts';
 import { getWaveArtistKeys } from '../utils/waveIdentity.ts';
 
@@ -30,8 +31,8 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
     }
   }
   let anchors: Anchor[] = [],
-    observations: Observation[] = [],
     activityAt = now();
+  const observationsByMood = new Map<WaveMood, Observation[]>();
   let metrics: Metrics = {
     observations: 0,
     earlySkips: 0,
@@ -52,7 +53,10 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
     const saved = raw && raw.length < 256000 ? JSON.parse(raw) : null;
     if (saved?.version === 1 && Array.isArray(saved.anchors)) {
       for (const item of saved.anchors.slice(0, 96)) {
-        const track = waveMemoryTrack(item?.track);
+        const raw = waveMemoryTrack(item?.track);
+        const track = raw
+          ? { ...raw, queueOrigin: normalizePlaybackOrigin(item?.track?.queueOrigin) }
+          : null;
         if (
           !track ||
           !Number.isFinite(item.score) ||
@@ -64,7 +68,8 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
         const positives = Number.isFinite(item.positives)
           ? Math.max(0, Math.min(100, Math.floor(item.positives)))
           : 0;
-        if (anchors.some((anchor) => String(anchor.track.id) === String(track.id))) continue;
+        if (anchors.some((anchor) => tasteEvidenceKey(anchor.track) === tasteEvidenceKey(track)))
+          continue;
         anchors.push({
           track,
           score: Math.min(4, item.score),
@@ -86,7 +91,7 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
   const touchSession = () => {
     const stamp = now(),
       stale = stamp - activityAt >= WAVE_SESSION_IDLE_MS;
-    if (stale) observations = [];
+    if (stale) observationsByMood.clear();
     activityAt = stamp;
     return stale;
   };
@@ -100,11 +105,23 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
   };
   return {
     touchSession,
-    learnedTracks(): Track[] {
+    clearObservations() {
+      observationsByMood.clear();
+    },
+    learnedTracks(eligible: (track: Track) => boolean = () => true): Track[] {
       prune();
       const artists = new Map<string, number>(),
         result: Track[] = [];
-      const evidence = anchors.filter((anchor) => strength(anchor) >= 0.15);
+      const seen = new Set<string>();
+      // Filter before corroboration; one recording cannot corroborate itself across contexts.
+      const evidence = anchors
+        .filter((anchor) => eligible(anchor.track) && strength(anchor) >= 0.15)
+        .filter((anchor) => {
+          const id = String(anchor.track.id);
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
       const styleCounts = new Map<string, number>(),
         artistCounts = new Map<string, number>();
       const profiles = new Map(evidence.map((anchor) => [anchor, waveMusicProfile(anchor.track)]));
@@ -134,24 +151,34 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
       reaction: number,
       novel: boolean,
       kind: 'listen' | 'like' | 'dislike' = 'listen',
+      mood: WaveMood = 'default',
     ) {
       if (!Number.isFinite(reaction) || !reaction) return;
-      const track = waveMemoryTrack(value);
+      const raw = waveMemoryTrack(value);
+      const track = raw
+        ? { ...raw, queueOrigin: normalizePlaybackOrigin(value.queueOrigin) }
+        : null;
       if (!track) return;
       touchSession();
       const bounded = Math.max(-1, Math.min(1, reaction)),
         id = String(track.id);
       // Repeated signals on one song update its evidence instead of faking multiple discoveries.
-      const alreadyAccepted = observations.some((item) => item.id === id && item.reaction > 0);
-      observations = [
-        ...observations.filter((item) => item.id !== id),
-        { id, reaction: bounded, novel },
-      ].slice(-16);
-      const previous = anchors.find((anchor) => String(anchor.track.id) === id);
+      const observations = observationsByMood.get(mood) || [];
+      const alreadyAccepted = [...observationsByMood.values()].some((items) =>
+        items.some((item) => item.id === id && item.reaction > 0),
+      );
+      observationsByMood.set(
+        mood,
+        [...observations.filter((item) => item.id !== id), { id, reaction: bounded, novel }].slice(
+          -16,
+        ),
+      );
+      const evidenceKey = tasteEvidenceKey(track);
+      const previous = anchors.find((anchor) => tasteEvidenceKey(anchor.track) === evidenceKey);
       if (bounded > 0) {
         const score = Math.min(4, (previous ? strength(previous) : 0) + bounded);
         anchors = [
-          ...anchors.filter((anchor) => String(anchor.track.id) !== id),
+          ...anchors.filter((anchor) => tasteEvidenceKey(anchor.track) !== evidenceKey),
           {
             track,
             score,
@@ -176,7 +203,8 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
       if (bounded > 0 && novel && !alreadyAccepted) metrics.discoveries++;
       save();
     },
-    discoveryAdjustment(): number {
+    discoveryAdjustment(mood: WaveMood = 'default'): number {
+      const observations = observationsByMood.get(mood) || [];
       const novel = observations.filter((item) => item.novel);
       // One or two unfamiliar songs are not enough evidence to change the station.
       if (novel.length < 3) return 0;
@@ -193,7 +221,12 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
         total += Math.sign(observation.reaction) * confidence * recency;
         weight += confidence * recency;
       }
-      return Math.max(-0.2, Math.min(0.2, (total / (weight + 3)) * 0.3));
+      const adjustment = (total / (weight + 3)) * 0.3;
+      // Choosing discoveries is permission to explore; a few misses should not erase it.
+      return Math.max(
+        -0.2,
+        Math.min(0.2, mood === 'discover' && adjustment < 0 ? adjustment * 0.5 : adjustment),
+      );
     },
     metrics(): Readonly<Metrics> {
       return { ...metrics };

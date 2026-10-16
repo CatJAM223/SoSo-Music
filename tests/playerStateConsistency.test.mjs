@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { hookRuntime } from './helpers/hookRuntime.mjs';
 import { ShuffleCycle } from '../src/shared/utils/shuffleCycle.ts';
+import * as queueEntries from '../src/shared/utils/queueEntry.ts';
 import { DatabaseManager } from '../src/desktop/main/db/index.ts';
 
 const deferred = () => {
@@ -21,6 +22,7 @@ const track = (id) => ({
 function queueHarness() {
   const h = hookRuntime(new URL('../src/shared/hooks/useQueueManager.ts', import.meta.url), {
     '../utils/shuffleCycle': { ShuffleCycle },
+    '../utils/queueEntry': queueEntries,
   });
   const api = h.render();
   api.setQueue(['a', 'b', 'c', 'd'].map(track));
@@ -97,8 +99,8 @@ function libraryBindings(bridge, offline = { getAllCachedTracks: async () => [] 
 const readers = () => ({
   getLikedTrackIds: async () => [],
   getDislikedTrackIds: async () => [],
-  getSavedAlbums: async () => [],
-  getFollowedArtists: async () => [],
+  getSavedAlbumIds: async () => [],
+  getArtistMembership: async () => [],
 });
 for (const [field, setter, method, fresh, stale, retained] of [
   [
@@ -112,15 +114,15 @@ for (const [field, setter, method, fresh, stale, retained] of [
   [
     'savedAlbumIds',
     'setSavedAlbumIds',
-    'getSavedAlbums',
-    [{ id: 'yt_new' }, { id: 'album-old' }],
-    [{ id: 'sc_stale' }],
+    'getSavedAlbumIds',
+    ['yt_new', 'album-old'],
+    ['sc_stale'],
     'album-old',
   ],
   [
     'followedArtistIds',
     'setFollowedArtistIds',
-    'getFollowedArtists',
+    'getArtistMembership',
     [
       { id: 'yt_new', name: 'New' },
       { id: 'artist-old', name: 'Old' },

@@ -3,6 +3,7 @@ import type {
   ShortcutAction,
   OverlayLayout,
 } from '../utils/desktopControls';
+import type { PlaybackOrigin, TasteExclusionChange, TastePolicySnapshot } from './tastePolicy.ts';
 import type { LibraryTasteReport } from './libraryTaste.ts';
 import type { PlaylistReadResult } from './playlistImport.ts';
 
@@ -10,6 +11,8 @@ export type MusicSource = 'all' | 'soundcloud' | 'youtube';
 
 export interface Track {
   id: number | string;
+  /** Queue occurrence provenance, separate from provider recording identity. */
+  queueOrigin?: PlaybackOrigin;
   title: string;
   title_short?: string;
   artist: {
@@ -60,6 +63,7 @@ export interface StreamResolveOptions {
 
 /** Small, serializable listening context for recommendation retrieval. */
 export interface WaveBatchContext {
+  tasteRevision?: number;
   /** Providers allowed for this wave, independent of its mood. */
   source?: MusicSource;
   /** Songs with measured listening time, never merely generated candidates. */
@@ -328,6 +332,7 @@ export interface ListeningStats {
 
 export interface PlaybackSessionUpdate {
   sessionId: string;
+  origin?: PlaybackOrigin;
   track: Track;
   playedSeconds: number;
   completed?: boolean;
@@ -448,6 +453,14 @@ export interface ElectronAPI {
   getLastFmApiKeyStatus?: () => Promise<{ configured: boolean }>;
   saveLastFmApiKey?: (key: string) => Promise<{ configured: boolean }>;
   setInterfaceLanguage?: (language: 'ru' | 'en') => Promise<void>;
+  getTastePolicy?: () => Promise<TastePolicySnapshot>;
+  setTasteExcluded?: (value: TasteExclusionChange) => Promise<TastePolicySnapshot>;
+  getTasteProfile?: () => Promise<{
+    revision: number;
+    likes: LikedTrack[];
+    artists: { name: string; id?: string | number; score?: number }[];
+  }>;
+  onTastePolicyChanged?: (callback: (policy: TastePolicySnapshot) => void) => () => void;
   getLibraryTaste?: () => Promise<LibraryTasteReport>;
   analyzeLibraryTaste?: () => Promise<LibraryTasteReport>;
   cancelLibraryTaste?: () => Promise<LibraryTasteReport>;
@@ -527,7 +540,9 @@ export interface ElectronAPI {
       source?: 'soundcloud' | 'deezer' | 'youtube';
     },
     options?: StreamResolveOptions,
+    requestId?: string,
   ) => Promise<string>;
+  cancelStreamResolve?: (requestId: string) => Promise<void>;
   downloadAudioBuffer?: (
     url: string,
     requestId?: string,
@@ -557,10 +572,21 @@ export interface ElectronAPI {
   // Desktop Mini-Widget
   toggleWidget: () => Promise<boolean>;
   isWidgetOpen: () => Promise<boolean>;
+  onWidgetVisibilityChanged?: (callback: (open: boolean) => void) => () => void;
   sendWidgetState: (state: WidgetState) => void;
   sendWidgetCommand: (command: string, data?: any) => void;
   onWidgetCommand: (callback: (command: string, data?: any) => void) => () => void;
   onWidgetStateUpdate: (callback: (state: WidgetState) => void) => () => void;
+
+  getLibraryPage: <K extends import('./libraryPage').LibraryKind>(
+    request: import('./libraryPage').LibraryPageRequest<K>,
+  ) => Promise<import('./libraryPage').LibraryPage<K>>;
+  getLibraryStats: () => Promise<import('./libraryPage').LibraryStats>;
+  getLibraryPlaybackTracks: (
+    request: import('./libraryPage').LibraryPlaybackRequest,
+  ) => Promise<LikedTrack[]>;
+  getSavedAlbumIds: () => Promise<string[]>;
+  getArtistMembership: () => Promise<import('./libraryPage').ArtistMembership[]>;
 
   // SQLite DB - Liked Tracks
   getLikedTrackIds?: () => Promise<string[]>;

@@ -38,6 +38,7 @@ export function useSnippetController({
   streamRequestIdRef,
 }: UseSnippetControllerProps) {
   const snippetAudioRef = useRef<HTMLAudioElement | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
   const snippetHlsRef = useRef<Hls | null>(null);
   const snippetTrackRef = useRef<Track | null>(null);
   const snippetStartRef = useRef<number>(10);
@@ -56,6 +57,8 @@ export function useSnippetController({
   // Stop snippet helper (closes modal and resets resources)
   const stopSnippet = useCallback(() => {
     streamRequestIdRef.current++;
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
     if (snippetHlsRef.current) {
       snippetHlsRef.current.destroy();
       snippetHlsRef.current = null;
@@ -203,6 +206,9 @@ export function useSnippetController({
       if (!snippetAudio) return;
 
       const currentRequestId = ++streamRequestIdRef.current;
+      streamAbortRef.current?.abort();
+      const streamController = new AbortController();
+      streamAbortRef.current = streamController;
 
       // Immediately pause main playback if playing
       onPauseMainAudio();
@@ -245,18 +251,22 @@ export function useSnippetController({
       // Resolve full stream if not yet cached
       if (!hasFullStream) {
         platformBridge
-          .getFullStreamUrl({
-            ...track,
-            title: track.title,
-            artist:
-              typeof track.artist === 'object' && track.artist
-                ? track.artist
-                : { name: String(track.artist || '') },
-            id: track.id,
-            preview: track.preview,
-            duration: track.duration,
-            source: detectTrackSource(track),
-          })
+          .getFullStreamUrl(
+            {
+              ...track,
+              title: track.title,
+              artist:
+                typeof track.artist === 'object' && track.artist
+                  ? track.artist
+                  : { name: String(track.artist || '') },
+              id: track.id,
+              preview: track.preview,
+              duration: track.duration,
+              source: detectTrackSource(track),
+            },
+            undefined,
+            streamController.signal,
+          )
           .then((fullStreamUrl) => {
             if (currentRequestId !== streamRequestIdRef.current) return;
             if (fullStreamUrl) {
@@ -283,7 +293,9 @@ export function useSnippetController({
               }
             }
           })
-          .catch(console.warn);
+          .catch((error) => {
+            if (!streamController.signal.aborted) console.warn(error);
+          });
       }
     },
     [onPauseMainAudio, resolvedStreamCache, streamRequestIdRef, loadStreamIntoAudio],

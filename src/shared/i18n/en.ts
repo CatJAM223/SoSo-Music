@@ -1,5 +1,17 @@
 // Russian source phrases are stable translation keys. Never translate catalog or user data.
 export const english: Record<string, string> = {
+  'Настройки вкуса': 'Taste settings',
+  'Исключено из профиля вкуса': 'Excluded from your taste profile',
+  'Музыка останется доступной. Лайки и дизлайки сохраняются.':
+    'Music remains playable. Likes and dislikes are preserved.',
+  'Снова учитывать во вкусе': 'Include in taste again',
+  'Не учитывать во вкусе': 'Exclude from taste',
+  'Не удалось изменить настройку вкуса.': 'Could not change the taste setting.',
+  'Не удалось загрузить настройки вкуса.': 'Could not load taste settings.',
+  'Исключения из профиля вкуса': 'Taste profile exclusions',
+  'Исключённая музыка остаётся в медиатеке и доступна для воспроизведения.':
+    'Excluded music stays in your library and remains playable.',
+  'Исключений пока нет': 'No exclusions yet',
   'Не удалось загрузить положение оверлея.': 'Could not load the overlay position.',
   'Включить оверлей': 'Enable overlay',
   'При отключении окно оверлея закрывается, его горячая клавиша освобождается. Управление музыкой продолжает работать.':
@@ -979,10 +991,9 @@ Object.assign(english, {
   'Ключ Last.fm удалён.': 'Your Last.fm key has been removed.',
   'Не удалось сохранить ключ Last.fm. Проверьте ключ и доступ к диску.':
     "Couldn't save your Last.fm key. Check the key and disk access.",
-  'Добавьте ключ Last.fm в Настройки → Интеграции.':
-    'Add a Last.fm key in Settings → Integrations.',
-  'Last.fm помогает находить жанры любимой музыки. Получите API key и добавьте его в Настройки → Интеграции. Этот шаг можно пропустить.':
-    'Last.fm helps identify genres in your favorite music. Get an API key and add it in Settings → Integrations. You can skip this step.',
+  'Добавьте ключ Last.fm в Настройки → API.': 'Add a Last.fm key in Settings → API.',
+  'Last.fm помогает находить жанры любимой музыки. Получите API key и добавьте его в Настройки → API. Этот шаг можно пропустить.':
+    'Last.fm helps identify genres in your favorite music. Get an API key and add it in Settings → API. You can skip this step.',
   'Войдите в Last.fm, создайте API-приложение и скопируйте API key. Shared secret плееру не нужен.':
     'Sign in to Last.fm, create an API application and copy its API key. The player does not need the Shared secret.',
   'Ключ можно добавить позже в настройках. Музыку можно слушать и без Last.fm.':

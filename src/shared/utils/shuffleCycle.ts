@@ -1,14 +1,23 @@
-type QueueTrack = { id: string | number };
-const keyOf = (track: QueueTrack) => String(track.id);
+import { queueEntryKey } from './queueEntry.ts';
+
+type QueueTrack = { id: string | number; queueEntryId?: string };
+const keyOf = (track: QueueTrack) => queueEntryKey(track)!;
 
 /** Metadata changes and reordering do not start a new listening collection. */
 export function sameShuffleCollection(a: readonly QueueTrack[], b: readonly QueueTrack[]): boolean {
-  const first = new Set(a.map(keyOf));
-  const second = new Set(b.map(keyOf));
-  return first.size === second.size && [...first].every((key) => second.has(key));
+  if (a.length !== b.length) return false;
+  const counts = new Map<string, number>();
+  for (const track of a) counts.set(String(track.id), (counts.get(String(track.id)) ?? 0) + 1);
+  for (const track of b) {
+    const key = String(track.id),
+      count = counts.get(key) ?? 0;
+    if (!count) return false;
+    counts.set(key, count - 1);
+  }
+  return true;
 }
 
-/** One random pass per collection, with navigation history keyed by track ID. */
+/** One random pass per collection, with navigation history keyed by queue occurrence. */
 export class ShuffleCycle {
   private visited = new Set<string>();
   private back: string[] = [];
@@ -129,9 +138,7 @@ export class ShuffleCycle {
     fromId: string | number,
     toId: string | number,
   ): void {
-    const order = this.upcoming(queue, currentId, repeatAll).map((index) =>
-      String(queue[index].id),
-    );
+    const order = this.upcoming(queue, currentId, repeatAll).map((index) => keyOf(queue[index]));
     const from = order.indexOf(String(fromId));
     const to = order.indexOf(String(toId));
     if (from < 0 || to < 0 || from === to) return;

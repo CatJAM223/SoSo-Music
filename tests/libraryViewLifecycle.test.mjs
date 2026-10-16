@@ -28,6 +28,32 @@ function harness(
     getLikedTracks: async () => [],
     getSavedAlbums: async () => [],
     getFollowedArtists: async () => [],
+    getLibraryPage: async (request) => {
+      const methods = {
+        tracks: 'getLikedTracks',
+        playlists: 'getPlaylists',
+        albums: 'getSavedAlbums',
+        artists: 'getFollowedArtists',
+      };
+      const list = await platform[methods[request.kind]]();
+      const offset = request.offset || 0,
+        items = list.slice(offset, offset + (request.limit || 100));
+      return {
+        kind: request.kind,
+        items,
+        total: list.length,
+        offset,
+        nextOffset: offset + items.length < list.length ? offset + items.length : null,
+      };
+    },
+    getLibraryStats: async () => ({
+      tracks: 0,
+      playlists: 0,
+      albums: 0,
+      artists: 0,
+      durationSeconds: 0,
+    }),
+    getLibraryPlaybackTracks: async () => platform.getLikedTracks(),
     getListeningHistory: async () => [],
     clearListeningHistory: async () => true,
     ...bridge,
@@ -42,7 +68,18 @@ function harness(
         source: new URL('../src/shared/utils/playlistEvents.ts', import.meta.url),
       },
       '../utils/librarySearch.ts': { filterLibraryTracks },
+      './usePagedLibrary': {
+        source: new URL('../src/shared/hooks/usePagedLibrary.ts', import.meta.url),
+      },
+      '../utils/libraryPageController': {
+        source: new URL('../src/shared/utils/libraryPageController.ts', import.meta.url),
+      },
+      '../utils/likedTrackMapping': {
+        source: new URL('../src/shared/utils/likedTrackMapping.ts', import.meta.url),
+      },
       '../utils/formatters': { detectTrackSource: () => 'youtube' },
+      './formatters': { detectTrackSource: () => 'youtube' },
+      '../utils/playbackIntent.ts': { beginPlaybackIntent: () => () => true },
     },
     { window: new EventTarget() },
   );
@@ -75,9 +112,16 @@ for (const [method, reload, field, row] of [
       const h = harness(
         { [method]: () => (++reads === 1 ? old : fresh).promise },
         undefined,
-        field === 'historyItems' ? 'history' : 'tracks',
+        {
+          historyItems: 'history',
+          playlists: 'playlists',
+          savedAlbums: 'albums',
+          followedArtists: 'artists',
+          offlineTracks: 'offline',
+        }[field] || 'tracks',
       );
       const next = h.api()[reload]();
+      h.fireTimers(40);
       fresh.resolve([row('new')]);
       await next;
       await h.flush();

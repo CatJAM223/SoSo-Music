@@ -1,7 +1,7 @@
 {
   "name": "soso-music",
   "productName": "SoSo Music",
-  "version": "3.1.0",
+  "version": "3.1.5",
   "description": "Desktop Music Player with SoundCloud, YouTube Music and SQLite",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -32,6 +32,7 @@
     "test:rust": "npm run build:compute && node --experimental-strip-types --test tests/rustCompute.test.mjs && node scripts/testing/testRustComputeBrowser.mjs",
     "bench:wave": "npm run build:compute && node --experimental-strip-types scripts/testing/benchmarkWaveCompute.mjs",
     "test:sensitivity": "node scripts/testing/testTestSensitivity.mjs",
+    "test:widget-resources": "node scripts/testing/testWidgetResources.mjs",
     "test:settings-lifecycle": "node scripts/testing/testSettingsLifecycle.mjs",
     "format": "prettier --write src scripts tests *.json *.js *.ts",
     "format:check": "prettier --check src scripts tests *.json *.js *.ts"
