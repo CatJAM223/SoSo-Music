@@ -2,6 +2,9 @@
 
 ### [3.1.5]
 
+- Recover removed saved SoundCloud recordings through bounded matching in the same service, preserving library IDs.
+- Preserve the signed-in YouTube watch parser in production builds, retry internal client bootstrap once and distinguish preparation errors from network failures.
+
 - Daily recommendations remember artist rejection from two distinct disliked songs, reduce priority after one, and refresh cached picks when dislikes change.
 - Bounded stream retries with Retry-After and cancellable shared stream requests.
 - Paged library search, virtual card grids and complete playback queues.

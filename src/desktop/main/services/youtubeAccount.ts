@@ -52,11 +52,19 @@ function accountAudioFailureReason(error: unknown): string {
     cause &&
     typeof cause === 'object' &&
     'message' in cause &&
-    /^(no-supported-audio|no-supported-video|network|cdn-(?:http-\d{3}|redirect|response))$/.test(
+    /^(no-supported-audio|no-supported-video|player-bootstrap|session-bootstrap|client-bootstrap|network|cdn-(?:http-\d{3}|redirect|response))$/.test(
       String(cause.message),
     )
   )
     return String(cause.message);
+  const name = error && typeof error === 'object' && 'name' in error ? String(error.name) : '';
+  if (
+    name === 'PlayerError' ||
+    /Failed to get player|player data|signature timestamp/i.test(message)
+  )
+    return 'player-bootstrap';
+  if (name === 'SessionError' || /JSPB|retrieve session data/i.test(message))
+    return 'session-bootstrap';
   if (/Unsupported YouTube endpoint/.test(message)) return 'unsupported-endpoint';
   if (/session redirected/.test(message)) return 'session-redirect';
   if (/поддерживаемый аудиопоток/.test(message)) return 'no-supported-audio';
@@ -66,6 +74,7 @@ function accountAudioFailureReason(error: unknown): string {
   if (/manifest unavailable/.test(message)) return 'manifest-unavailable';
   if (/fetch failed|failed to fetch|ERR_|ECONN|network|timeout|timed out/i.test(message))
     return 'network';
+  if (name === 'TypeError' || name === 'SyntaxError') return 'client-bootstrap';
   return 'unknown';
 }
 
@@ -461,7 +470,9 @@ export class YouTubeAccountService {
               '. Обновление кэша не устранило отказ сервера.'
             : reason === 'no-supported-audio' || reason === 'no-supported-video'
               ? 'Вход сохранён, но YouTube не выдал поддерживаемый поток. Повторное подключение аккаунта может не помочь.'
-              : 'Не удалось обновить воспроизведение YouTube. Вход сохранён; проверьте соединение и попробуйте снова.';
+              : reason === 'network' || getStreamResolveFailure(error)
+                ? 'Не удалось обновить воспроизведение YouTube. Вход сохранён; проверьте соединение и попробуйте снова.'
+                : 'Вход сохранён, но плеер не смог подготовить воспроизведение YouTube. Откройте трек в окне YouTube и повторите попытку.';
         this.onChange();
         PlaybackLogger.warn(
           '[YouTubeMusic:Account] Playback session refresh failed (' +
@@ -654,11 +665,8 @@ export class YouTubeAccountService {
     if (!this.clientRequest) {
       const epoch = this.epoch;
       const request = (async () => {
-        const { Innertube, Platform, Log } = await import('youtubei.js');
-        Log.setLevel(Log.Level.NONE);
-        // Remote signature code runs only in an isolated sandbox with no network or app APIs.
-        Platform.shim.eval = (data) => this.evaluateCipher(data.output);
-        const client = await Innertube.create({
+        const { createYouTubeAccountClient } = await import('./youtubeAccountClient.ts');
+        const options: Parameters<typeof createYouTubeAccountClient>[0] = {
           cookie: this.cookieHeader,
           lang: 'ru',
           retrieve_player: true,
@@ -679,7 +687,37 @@ export class YouTubeAccountService {
               this.playerCache.delete(key);
             },
           },
-        });
+        };
+        let client: Innertube;
+        try {
+          client = await createYouTubeAccountClient(options, (code) => this.evaluateCipher(code));
+        } catch (error) {
+          if (
+            epoch !== this.epoch ||
+            getStreamResolveFailure(error) ||
+            getYouTubeAudioAccessError(error) ||
+            /network|timeout|unsupported-endpoint|session-redirect/.test(
+              accountAudioFailureReason(error),
+            )
+          )
+            throw error;
+          // A broken iframe/session bootstrap must not prevent loading the same signed watch page.
+          PlaybackLogger.warn(
+            '[YouTubeMusic:AccountBootstrap] Falling back to watch-page player (' +
+              accountAudioFailureReason(error) +
+              ')',
+          );
+          client = await createYouTubeAccountClient(
+            {
+              ...options,
+              generate_session_locally: true,
+              retrieve_innertube_config: false,
+              retrieve_player: false,
+            },
+            (code) => this.evaluateCipher(code),
+          );
+          if (epoch === this.epoch) this.preferredWatchUntil = Date.now() + 5 * 60 * 1000;
+        }
         if (epoch !== this.epoch) throw new Error('YouTube account changed');
         return client;
       })();
@@ -700,11 +738,13 @@ export class YouTubeAccountService {
       }),
     );
     const page = parseYouTubeWatchPage(await streamWait(readYouTubeWatchPage(response)), videoId);
-    const { YT, Player } = await streamWait(import('youtubei.js'));
+    const { createYouTubeAccountPlayer, parseYouTubeAccountWatchInfo } = await streamWait(
+      import('./youtubeAccountClient.ts'),
+    );
     const player =
       page.playerId && page.playerId !== client.session.player?.player_id
         ? await streamWait(
-            Player.create(
+            createYouTubeAccountPlayer(
               undefined,
               (input, init) => this.fetch(input, init),
               undefined,
@@ -712,11 +752,7 @@ export class YouTubeAccountService {
             ),
           )
         : client.session.player;
-    const info = new YT.VideoInfo(
-      [{ data: page.response, success: true, status_code: 200 }],
-      client.actions,
-      '',
-    );
+    const info = parseYouTubeAccountWatchInfo(page.response, client.actions);
     PlaybackLogger.info(
       '[YouTubeMusic:AccountWatch] Loaded the same recording from the signed-in watch page',
     );
@@ -803,6 +839,8 @@ export class YouTubeAccountService {
       let useWatchPage = kind === 'audio' && Date.now() < this.preferredWatchUntil;
       for (let attempt = 0; attempt < 2; attempt++) {
         const client = await streamShared(() => this.getClient());
+        if (Date.now() < this.preferredWatchUntil && (kind === 'audio' || !client.session.player))
+          useWatchPage = true;
         stage = 'player';
         let watch: Awaited<ReturnType<YouTubeAccountService['getWatchInfo']>> | undefined;
         if (useWatchPage) {

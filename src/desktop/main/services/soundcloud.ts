@@ -10,6 +10,7 @@ import {
   isSoundCloudPreviewUrl,
 } from '../../../shared/utils/soundcloudPlayback.ts';
 import { getStreamResolveFailure } from '../../../shared/utils/streamResolveError.ts';
+import { matchesImportedRecording } from '../../../shared/utils/recordingIdentity.ts';
 import type {
   Album,
   Artist,
@@ -82,6 +83,7 @@ export class SoundCloudService {
     isRetry: boolean = false,
     retryTransient: boolean = false,
     signal?: AbortSignal,
+    onStatus?: (status: number) => void,
   ): Promise<any> {
     const currentEndpoint = this.scClientId
       ? withSoundCloudClientId(endpoint, this.scClientId)
@@ -94,6 +96,7 @@ export class SoundCloudService {
       retryTransient,
       retryTransient,
       signal,
+      onStatus,
     );
   }
 
@@ -927,6 +930,7 @@ export class SoundCloudService {
   private static async resolveFullStreamUrl(
     track: Track,
     options: StreamResolveOptions,
+    recoverMissing = true,
   ): Promise<string> {
     assertStreamResolveActive();
     if (!track) return '';
@@ -988,7 +992,54 @@ export class SoundCloudService {
       }
       if (/^\d+$/.test(numericId)) {
         const trackEndpoint = `https://api-v2.soundcloud.com/tracks/${numericId}?client_id=${clientId}`;
-        const trackJson = await streamWait(this.fetchWithRelay(trackEndpoint, false, true));
+        let metadataStatus = 0;
+        const trackJson = await streamWait(
+          this.fetchWithRelay(trackEndpoint, false, true, undefined, (status) => {
+            metadataStatus = status;
+          }),
+        );
+        if (metadataStatus === 404 || metadataStatus === 410) {
+          if (
+            recoverMissing &&
+            !(track as any).forDownload &&
+            Number.isFinite(track.duration) &&
+            track.duration > 0
+          ) {
+            const artist = typeof track.artist === 'string' ? track.artist : track.artist?.name;
+            if (artist && track.title) {
+              const found = await streamWait(this.search(artist + ' ' + track.title, 8));
+              const matches = found.data
+                .filter(
+                  (candidate) =>
+                    String(candidate.id).replace(/^sc_/, '') !== numericId &&
+                    candidate.source === 'soundcloud' &&
+                    candidate.duration > 0 &&
+                    matchesImportedRecording(track, candidate),
+                )
+                .slice(0, 2);
+              for (const candidate of matches) {
+                const replacement = await streamWait(
+                  this.resolveFullStreamUrl(candidate, options, false),
+                );
+                if (!replacement) continue;
+                if (this.streamCache.size >= this.MAX_CACHE_SIZE)
+                  this.streamCache.delete(this.streamCache.keys().next().value!);
+                this.streamCache.set(cacheKey, {
+                  url: replacement,
+                  expiresAt: Date.now() + this.STREAM_CACHE_TTL,
+                });
+                PlaybackLogger.info(
+                  '[SoundCloud:Recovery] Removed recording ' +
+                    numericId +
+                    ' matched available recording ' +
+                    candidate.id,
+                );
+                return replacement;
+              }
+            }
+          }
+          return '';
+        }
         if (trackJson?.id !== undefined && String(trackJson.id) !== numericId) {
           PlaybackLogger.warn(
             '[SoundCloud:Identity] Metadata belongs to another recording; refusing playback',

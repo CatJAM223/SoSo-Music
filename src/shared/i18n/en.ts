@@ -1,5 +1,7 @@
 // Russian source phrases are stable translation keys. Never translate catalog or user data.
 export const english: Record<string, string> = {
+  'Вход сохранён, но плеер не смог подготовить воспроизведение YouTube. Откройте трек в окне YouTube и повторите попытку.':
+    'You are still signed in, but the player could not prepare YouTube playback. Open the track in the YouTube window and try again.',
   'Настройки вкуса': 'Taste settings',
   'Исключено из профиля вкуса': 'Excluded from your taste profile',
   'Музыка останется доступной. Лайки и дизлайки сохраняются.':

@@ -32,6 +32,7 @@ export class SoundCloudTransport {
     retryTransient = false,
     strictPlayback = retryTransient,
     signal?: AbortSignal,
+    onStatus?: (status: number) => void,
   ): Promise<any> {
     assertStreamResolveActive();
     signal ??= currentStreamResolveSignal();
@@ -45,6 +46,7 @@ export class SoundCloudTransport {
           signal: requestSignal(signal, 8000),
         }),
       );
+      onStatus?.(response.status);
       if (response.ok) return await streamWait(response.json());
       await streamWait(response.body?.cancel().catch(() => {}));
       const requestPath = new URL(endpoint).pathname;
@@ -71,6 +73,7 @@ export class SoundCloudTransport {
             retryTransient,
             strictPlayback,
             signal,
+            onStatus,
           );
       }
     } catch (error) {
@@ -92,7 +95,16 @@ export class SoundCloudTransport {
         assertStreamResolveActive();
         /* Retry the request even if proxy reload failed. */
       }
-      return this.fetchJson(endpoint, proxyUrl, refreshKey, isRetry, false, strictPlayback, signal);
+      return this.fetchJson(
+        endpoint,
+        proxyUrl,
+        refreshKey,
+        isRetry,
+        false,
+        strictPlayback,
+        signal,
+        onStatus,
+      );
     }
     if (!proxyUrl) {
       if (strictPlayback && failure) throw createStreamResolveError(failure);
@@ -111,6 +123,7 @@ export class SoundCloudTransport {
           signal: requestSignal(signal, 8000),
         }),
       );
+      onStatus?.(response.status);
       if (response.ok) return await streamWait(response.json());
       await streamWait(response.body?.cancel().catch(() => {}));
       PlaybackLogger.warn('[SoundCloud:HTTP] kind=relay status=' + response.status);
