@@ -1,4 +1,6 @@
+import { normalizePlaybackOrigin } from '../utils/tastePolicy.ts';
 import type { RepeatMode, Track } from '../types/index.ts';
+import { ensureQueueEntries, readQueueEntryId } from '../utils/queueEntry.ts';
 
 export const PLAYBACK_SESSION_KEY = 'soso_playback_session_v1';
 export const PLAYBACK_SAVE_INTERVAL_MS = 10000;
@@ -72,6 +74,8 @@ function cleanTrack(value: unknown, artworkCache: ArtworkCache): Track | null {
     : undefined;
   return {
     id: key,
+    queueOrigin: normalizePlaybackOrigin(item.queueOrigin),
+    ...(readQueueEntryId(item) ? { queueEntryId: readQueueEntryId(item) } : {}),
     title,
     source,
     duration:
@@ -112,12 +116,30 @@ function normalize(value: unknown): PlaybackSession | null {
   const track = cleanTrack(input.track, artworkCache);
   if (!track) return null;
   const sourceQueue = Array.isArray(input.queue) ? input.queue : [];
+  const selectedUid = readQueueEntryId(track);
+  let occurrenceIndex = -1;
+  if (selectedUid) {
+    for (let index = 0; index < sourceQueue.length; index++) {
+      if (
+        readQueueEntryId(sourceQueue[index]) === selectedUid &&
+        String(sourceQueue[index]?.id) === String(track.id)
+      ) {
+        if (occurrenceIndex >= 0) {
+          occurrenceIndex = -1;
+          break;
+        }
+        occurrenceIndex = index;
+      }
+    }
+  }
   const selectedIndex =
-    Number.isInteger(input.queueIndex) &&
-    input.queueIndex >= 0 &&
-    String(sourceQueue[input.queueIndex]?.id) === String(track.id)
-      ? input.queueIndex
-      : sourceQueue.findIndex((t) => String(t?.id) === String(track.id));
+    occurrenceIndex >= 0
+      ? occurrenceIndex
+      : Number.isInteger(input.queueIndex) &&
+          input.queueIndex >= 0 &&
+          String(sourceQueue[input.queueIndex]?.id) === String(track.id)
+        ? input.queueIndex
+        : sourceQueue.findIndex((t) => String(t?.id) === String(track.id));
   // Keep the current item and its successors even in a very large queue.
   const start = Math.max(0, selectedIndex - Math.floor(MAX_QUEUE / 2));
   const queue: Track[] = [];
@@ -134,13 +156,21 @@ function normalize(value: unknown): PlaybackSession | null {
     if (queue.length > MAX_QUEUE) queue.pop();
     queueIndex = 0;
   }
-  queue[queueIndex] = track;
+  // Legacy snapshots get deterministic migration IDs once, then retain them on every save.
+  const migrated = queue.map((item, index) => ({
+    ...item,
+    queueEntryId: readQueueEntryId(item) ?? 'qe:legacy:' + index + ':' + String(item.id),
+  }));
+  const entries = ensureQueueEntries(migrated);
+  const selectedTrack = { ...track, queueEntryId: readQueueEntryId(entries[queueIndex])! };
+  entries[queueIndex] = selectedTrack;
+  queue.splice(0, queue.length, ...entries);
   return {
     version: 1,
     ...(typeof input.savedAt === 'number' && Number.isFinite(input.savedAt) && input.savedAt >= 0
       ? { savedAt: input.savedAt }
       : {}),
-    track,
+    track: selectedTrack,
     queue,
     queueIndex,
     position: clampPlaybackPosition(input.position, track.duration),

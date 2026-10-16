@@ -382,7 +382,10 @@ test('Wave engine consumes Last.fm metadata and carries bounded genre affinity w
 
 test('Settings hook stops polling and ignores late responses after closing', async () => {
   let reply;
+  const events = new EventTarget();
   const window = {
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
     electronAPI: {
       getLibraryTaste: () =>
         new Promise((resolve) => {
@@ -429,7 +432,10 @@ test('Cancelling automatic analysis leaves cancelled records paused but new addi
 test('An older status response cannot revert an automatic-analysis toggle', async () => {
   let reply;
   const report = { autoAnalyze: false, genres: [] };
+  const events = new EventTarget();
   const window = {
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
     electronAPI: {
       getLibraryTaste: () =>
         new Promise((resolve) => {

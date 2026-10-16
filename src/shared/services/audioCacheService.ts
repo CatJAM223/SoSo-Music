@@ -64,6 +64,7 @@ export class AudioCacheService {
   private pinnedUrl: string | null = null;
   private fetchControllers = new Map<string, AbortController>();
   private cacheGeneration = 0;
+  private prefetchControllers = new Map<string, AbortController>();
   private playbackBuffering = false;
   private idleReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private lastTimestamp: number = 0;
@@ -121,6 +122,9 @@ export class AudioCacheService {
 
   private abortFetches(): void {
     this.cacheGeneration++;
+    for (const controller of this.prefetchControllers.values()) controller.abort();
+    this.prefetchControllers.clear();
+    this.pendingPrefetches.clear();
     for (const controller of this.fetchControllers.values()) controller.abort();
     this.fetchControllers.clear();
     this.activeFetches.clear();
@@ -230,6 +234,8 @@ export class AudioCacheService {
     const idStr = String(track.id);
 
     if (this.isCached(idStr)) return;
+    const controller = new AbortController();
+    this.prefetchControllers.set(idStr, controller);
 
     try {
       let streamUrl = preResolvedUrl;
@@ -239,16 +245,22 @@ export class AudioCacheService {
         const artistName =
           track.artist?.name || (typeof track.artist === 'string' ? track.artist : '') || '';
 
-        streamUrl = await platformBridge.getFullStreamUrl({
-          ...track,
-          title: track.title,
-          artist:
-            typeof track.artist === 'object' && track.artist ? track.artist : { name: artistName },
-          id: track.id,
-          preview: track.preview,
-          duration: track.duration,
-          source: effectiveSource,
-        });
+        streamUrl = await platformBridge.getFullStreamUrl(
+          {
+            ...track,
+            title: track.title,
+            artist:
+              typeof track.artist === 'object' && track.artist
+                ? track.artist
+                : { name: artistName },
+            id: track.id,
+            preview: track.preview,
+            duration: track.duration,
+            source: effectiveSource,
+          },
+          undefined,
+          controller.signal,
+        );
       }
 
       if (generation !== this.cacheGeneration || this.playbackBuffering) return;
@@ -256,7 +268,11 @@ export class AudioCacheService {
         await this.getOrFetchBlobUrl(idStr, streamUrl);
       }
     } catch (e) {
-      console.warn('[AudioCacheService] Prefetch notice for:', track.title, e);
+      if (!controller.signal.aborted)
+        console.warn('[AudioCacheService] Prefetch notice for:', track.title, e);
+    } finally {
+      if (this.prefetchControllers.get(idStr) === controller)
+        this.prefetchControllers.delete(idStr);
     }
   }
 

@@ -8,6 +8,7 @@ export function createPlayerOverlayWindow(
 ) {
   let window: BrowserWindow | null = null;
   let visible = false;
+  let started = false;
   let editing = false;
   let enabled = true;
   let lastState: unknown = null;
@@ -48,7 +49,7 @@ export function createPlayerOverlayWindow(
     } else window.showInactive();
   }
   function toggle() {
-    if (!enabled) return false;
+    if (!enabled || !started) return false;
     visible = !visible;
     editing = false;
     if (window && !window.isDestroyed()) {
@@ -123,11 +124,17 @@ export function createPlayerOverlayWindow(
     );
   }
   return {
+    start: () => {
+      if (started) return;
+      started = true;
+      if (enabled && !visible) toggle();
+    },
     toggle,
     owns,
     isEditing: () => editing,
     edit: () => {
       if (!enabled) throw Error('OVERLAY_DISABLED');
+      if (!started) throw Error('OVERLAY_NOT_READY');
       if (!visible || !window || window.isDestroyed()) toggle();
       editing = true;
       applyMode();
@@ -159,9 +166,10 @@ export function createPlayerOverlayWindow(
         editing = false;
         lastTrackKey = null;
         lastState = null;
-      }
+      } else if (started && !visible) toggle();
     },
     dispose: () => {
+      started = false;
       window?.destroy();
       window = null;
       visible = false;

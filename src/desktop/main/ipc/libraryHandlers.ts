@@ -6,6 +6,13 @@ export function registerLibraryHandlers(
   dbManager: DatabaseManager,
   onLibraryChanged?: () => void,
 ): void {
+  ipcMain.handle('db:getLibraryPage', (_event, request) => dbManager.getLibraryPage(request));
+  ipcMain.handle('db:getLibraryStats', () => dbManager.getLibraryStats());
+  ipcMain.handle('db:getLibraryPlaybackTracks', (_event, request) =>
+    dbManager.getLibraryPlaybackTracks(request),
+  );
+  ipcMain.handle('db:getSavedAlbumIds', () => dbManager.getSavedAlbumIds());
+  ipcMain.handle('db:getArtistMembership', () => dbManager.getArtistMembership());
   // Database Local Scrobbling & Dislikes
   ipcMain.handle('db:recordScrobble', (_event: any, data: any) => {
     return dbManager.recordScrobble(data);

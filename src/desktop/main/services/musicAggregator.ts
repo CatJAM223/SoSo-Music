@@ -1,3 +1,4 @@
+import { assertStreamResolveActive, streamWait } from './streamResolveContext.ts';
 import { getStreamResolveFailure } from '../../../shared/utils/streamResolveError.ts';
 import { matchesImportedRecording } from '../../../shared/utils/recordingIdentity.ts';
 import { SoundCloudService } from './soundcloud.ts';
@@ -460,6 +461,7 @@ export class MusicAggregatorService {
     track: any,
     options: StreamResolveOptions = {},
   ): Promise<string> {
+    assertStreamResolveActive();
     if (!track) return '';
 
     const startTime = Date.now();
@@ -492,7 +494,7 @@ export class MusicAggregatorService {
         typeof track.id === 'number');
 
     if (isSoundCloud) {
-      const scStream = await SoundCloudService.getFullStreamUrl(track, options);
+      const scStream = await streamWait(SoundCloudService.getFullStreamUrl(track, options));
       if (scStream && scStream.startsWith('http') && !scStream.includes('api-v2.soundcloud.com')) {
         PlaybackLogger.info(
           `[Aggregator] SoundCloud primary stream resolved for "${track.title}" in ${Date.now() - startTime}ms`,
@@ -504,7 +506,7 @@ export class MusicAggregatorService {
 
     // 2. Direct YouTube Music track
     if (isYouTube) {
-      const ytStream = await YouTubeMusicService.getFullStreamUrl(track, options);
+      const ytStream = await streamWait(YouTubeMusicService.getFullStreamUrl(track, options));
       if (ytStream && ytStream.startsWith('http')) {
         PlaybackLogger.info(
           `[Aggregator] YouTube Music stream resolved for "${track.title}" in ${Date.now() - startTime}ms`,
@@ -522,10 +524,10 @@ export class MusicAggregatorService {
       const query = `${artistName} ${track.title}`.trim();
       if (query) {
         try {
-          const scSearch = await SoundCloudService.search(query, 5);
+          const scSearch = await streamWait(SoundCloudService.search(query, 5));
           const candidate = scSearch.data.find((item) => matchesImportedRecording(track, item));
           if (candidate) {
-            const stream = await SoundCloudService.getFullStreamUrl(candidate, options);
+            const stream = await streamWait(SoundCloudService.getFullStreamUrl(candidate, options));
             if (stream) {
               PlaybackLogger.info(
                 `[Aggregator] Deezer track resolved via SoundCloud for "${track.title}" in ${Date.now() - startTime}ms`,
@@ -534,14 +536,17 @@ export class MusicAggregatorService {
             }
           }
         } catch (error) {
+          assertStreamResolveActive();
           if (getStreamResolveFailure(error) === 'rate-limit') throw error;
           if (getStreamResolveFailure(error)) temporaryFailure = error;
         }
         try {
-          const ytSearch = await YouTubeMusicService.search(query, 3);
+          const ytSearch = await streamWait(YouTubeMusicService.search(query, 3));
           const candidate = ytSearch.data.find((item) => matchesImportedRecording(track, item));
           if (candidate) {
-            const stream = await YouTubeMusicService.getFullStreamUrl(candidate, options);
+            const stream = await streamWait(
+              YouTubeMusicService.getFullStreamUrl(candidate, options),
+            );
             if (stream) {
               PlaybackLogger.info(
                 `[Aggregator] Deezer track resolved via YouTube Music for "${track.title}" in ${Date.now() - startTime}ms`,
@@ -550,6 +555,7 @@ export class MusicAggregatorService {
             }
           }
         } catch (error) {
+          assertStreamResolveActive();
           if (getStreamResolveFailure(error) === 'rate-limit') throw error;
           if (getStreamResolveFailure(error)) temporaryFailure = error;
         }

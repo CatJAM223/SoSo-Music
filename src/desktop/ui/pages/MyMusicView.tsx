@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { Track } from '../../../shared/types';
 import { TrackTable } from '../components/TrackTable';
+import { VirtualCardGrid } from '../components/VirtualCardGrid';
+import { LibraryPageControls } from '../components/LibraryPageControls';
 
 import { formatTotalDuration, detectTrackSource } from '../../../shared/utils/formatters';
 import { CatLoader } from '../components/CatLoader';
@@ -59,7 +61,14 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   const {
     activeTab,
     setActiveTab,
-    playlists,
+    sort,
+    loadedCounts,
+    stats,
+    statsError,
+    refreshStats,
+    activePage,
+    playbackError,
+    handlePlayLibraryTrack,
     loadingPlaylists,
     tracks,
     loadingTracks,
@@ -96,12 +105,14 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   } = useMyMusicViewModel({
     initialTab: initialStateRef.current?.tab || initialTab,
     initialQuery: initialStateRef.current?.query,
+    initialSort: 'recent',
+    initialLoadedCounts: initialStateRef.current?.loadedCounts,
     refreshPlaylistsTrigger,
   });
 
   useEffect(() => {
-    onStateChange?.({ tab: activeTab, query: searchQuery });
-  }, [activeTab, searchQuery, onStateChange]);
+    onStateChange?.({ tab: activeTab, query: searchQuery, sort, loadedCounts });
+  }, [activeTab, searchQuery, sort, loadedCounts, onStateChange]);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -136,8 +147,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
               {t('Моя музыка')}
             </h1>
             <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-              {playlists.length} {t(' плейлистов • ')}
-              {tracks.length} {t(' треков')}
+              {stats.playlists} {t(' плейлистов • ')}
+              {stats.tracks} {t(' треков')}
             </p>
           </div>
           <div className="flex-1 min-w-0 space-y-1.5 hidden sm:block">
@@ -150,21 +161,21 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-semibold text-slate-500 dark:text-zinc-400 pt-1">
               <span>
-                {playlists.length} {t(' плейлистов')}
+                {stats.playlists} {t(' плейлистов')}
               </span>
               <span>•</span>
               <span>
-                {tracks.length} {t(' треков')}
+                {stats.tracks} {t(' треков')}
               </span>
               <span>•</span>
               <span>
-                {savedAlbums.length} {t(' альбомов')}
+                {stats.albums} {t(' альбомов')}
               </span>
               <span>•</span>
               <span>
-                {followedArtists.length} {t(' исполнителей')}
+                {stats.artists} {t(' исполнителей')}
               </span>
-              {tracks.length > 0 && (
+              {stats.tracks > 0 && (
                 <>
                   <span>•</span>
                   <span className="flex items-center gap-1">
@@ -301,6 +312,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           ref={searchInputRef}
           type="text"
           value={searchQuery}
+          maxLength={512}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('Фильтр по названию, артисту или альбому... (Ctrl+F)')}
           className="w-full pl-9 pr-9 py-2.5 soso-search-input soso-search-input-rounded text-xs sm:text-sm placeholder-slate-400 dark:placeholder-zinc-400"
@@ -314,6 +326,14 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           </button>
         )}
       </div>
+
+      {statsError && (
+        <div role="alert">
+          {t('Не удалось обновить сведения о медиатеке.')}{' '}
+          <button onClick={refreshStats}>{t('Повторить')}</button>
+        </div>
+      )}
+      {playbackError && <div role="alert">{playbackError}</div>}
 
       {/* Tab 0: Playlists */}
       {activeTab === 'playlists' && (
@@ -333,27 +353,30 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-4">
-              {/* Create Playlist Quick Card */}
-              {!searchQuery && (
-                <div
-                  onClick={onOpenCreatePlaylist}
-                  className="group relative p-4 rounded-2xl bg-white/60 dark:bg-zinc-900/40 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border-2 border-dashed border-slate-300 dark:border-zinc-700 hover:border-soso-brand dark:hover:border-soso-brand transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md flex flex-col items-center justify-center text-center min-h-[170px]"
-                >
-                  <div className="w-12 h-12 rounded-full bg-soso-brand/15 text-soso-brand flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                    <Plus className="w-6 h-6" />
+            <VirtualCardGrid
+              kind="playlists"
+              items={filteredPlaylists}
+              itemKey={(pl) => String(pl.id)}
+              label={t('Медиатека')}
+              leading={
+                !searchQuery ? (
+                  <div
+                    onClick={onOpenCreatePlaylist}
+                    className="group relative p-4 rounded-2xl bg-white/60 dark:bg-zinc-900/40 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border-2 border-dashed border-slate-300 dark:border-zinc-700 hover:border-soso-brand dark:hover:border-soso-brand transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md flex flex-col items-center justify-center text-center min-h-[170px]"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-soso-brand/15 text-soso-brand flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                      <Plus className="w-6 h-6" />
+                    </div>
+                    <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                      {t('Новый плейлист')}
+                    </h3>
+                    <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                      {t('Создать свою подборку')}
+                    </p>
                   </div>
-                  <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                    {t('Новый плейлист')}
-                  </h3>
-                  <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">
-                    {t('Создать свою подборку')}
-                  </p>
-                </div>
-              )}
-
-              {/* User Playlists */}
-              {filteredPlaylists.map((pl) => (
+                ) : undefined
+              }
+              renderItem={(pl) => (
                 <div
                   key={pl.id}
                   onClick={() => onNavigate?.(`playlist_${pl.id}`, undefined, undefined, pl)}
@@ -393,8 +416,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                     </p>
                   </div>
                 </div>
-              ))}
-            </div>
+              )}
+            />
           )}
         </div>
       )}
@@ -407,11 +430,12 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           ) : filteredTracks.length > 0 ? (
             <TrackTable
               tracks={filteredTracks}
+              onPlayTrack={handlePlayLibraryTrack}
               onOpenAddToPlaylist={onOpenAddToPlaylist}
               onNavigateToArtist={onNavigateToArtist}
               onNavigateToAlbum={onNavigateToAlbum}
             />
-          ) : tracks.length > 0 && searchQuery ? (
+          ) : stats.tracks > 0 && searchQuery ? (
             <div className="py-16 text-center space-y-2">
               <Search className="w-8 h-8 text-slate-400 dark:text-zinc-600 mx-auto" />
               <h3 className="text-sm font-bold text-slate-700 dark:text-zinc-300">
@@ -478,8 +502,12 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {filteredSavedAlbums.map((album) => (
+            <VirtualCardGrid
+              kind="albums"
+              items={filteredSavedAlbums}
+              itemKey={(album) => String(album.id)}
+              label={t('Медиатека')}
+              renderItem={(album) => (
                 <div
                   {...youtubeDisabledProps(album, youtubeDisabled)}
                   key={album.id}
@@ -554,8 +582,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                     </p>
                   </div>
                 </div>
-              ))}
-            </div>
+              )}
+            />
           )}
         </div>
       )}
@@ -593,8 +621,12 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {filteredFollowedArtists.map((artist) => (
+            <VirtualCardGrid
+              kind="artists"
+              items={filteredFollowedArtists}
+              itemKey={(artist) => String(artist.id)}
+              label={t('Медиатека')}
+              renderItem={(artist) => (
                 <div
                   {...youtubeDisabledProps(artist, youtubeDisabled)}
                   key={artist.id}
@@ -645,8 +677,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                     {t('Исполнитель')}
                   </span>
                 </div>
-              ))}
-            </div>
+              )}
+            />
           )}
         </div>
       )}
@@ -760,6 +792,19 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             />
           )}
         </div>
+      )}
+
+      {activePage && (
+        <LibraryPageControls
+          loaded={activePage.items.length}
+          total={activePage.total}
+          loading={activePage.loading || activePage.loadingMore}
+          refreshing={activePage.refreshing}
+          error={activePage.error}
+          hasMore={activePage.nextOffset !== null}
+          onLoadMore={activePage.loadMore}
+          onRetry={activePage.retry}
+        />
       )}
 
       {/* Confirm Delete Playlist Modal */}

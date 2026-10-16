@@ -1,4 +1,24 @@
+import {
+  TastePolicyStore,
+  tasteTrackAllowedSql,
+  tastePlaylistAllowedSql,
+  tasteHistoryScoreSql,
+} from '../services/tastePolicyStore.ts';
+import { isTasteEligible } from '../../../shared/utils/tastePolicy.ts';
 import { getElectronApp } from '../services/electronRuntime.ts';
+import {
+  readLibraryPage,
+  readLibraryStats,
+  readLibraryPlaybackTracks,
+  readSavedAlbumIds,
+  readArtistMembership,
+} from './libraryPages.ts';
+import type {
+  LibraryKind,
+  LibraryPage,
+  LibraryPageRequest,
+  LibraryPlaybackRequest,
+} from '../../../shared/types/libraryPage';
 import { statisticsArtworkSql } from './statisticsArtwork.ts';
 import { initializeLibrarySchema } from './schema.ts';
 import { loadSqliteRuntime } from './sqliteRuntime.ts';
@@ -41,6 +61,54 @@ export interface DatabasePersistenceStatus {
 
 export class DatabaseManager {
   public db: Database | null = null;
+  private changeRevision = 0;
+  private tastePolicy = new TastePolicyStore(
+    () => this.db,
+    () => this.save(true),
+  );
+  public getTastePolicy() {
+    return this.tastePolicy.snapshot();
+  }
+  private tastePolicyListeners = new Set<
+    (policy: import('../../../shared/types/tastePolicy.ts').TastePolicySnapshot) => void
+  >();
+  public onTastePolicyChanged(
+    listener: (policy: import('../../../shared/types/tastePolicy.ts').TastePolicySnapshot) => void,
+  ): () => void {
+    this.tastePolicyListeners.add(listener);
+    return () => {
+      this.tastePolicyListeners.delete(listener);
+    };
+  }
+  private publishTastePolicy(previousRevision: number): void {
+    const policy = this.getTastePolicy();
+    if (policy.revision === previousRevision) return;
+    for (const listener of this.tastePolicyListeners) {
+      try {
+        listener({
+          revision: policy.revision,
+          exclusions: policy.exclusions.map((row) => ({ ...row })),
+        });
+      } catch (error) {
+        console.warn('[TastePolicy] Observer failed after committed change:', error);
+      }
+    }
+  }
+  public setTasteExcluded(value: unknown) {
+    const previousRevision = this.getTastePolicy().revision;
+    const policy = this.tastePolicy.set(value);
+    this.publishTastePolicy(previousRevision);
+    return policy;
+  }
+  public getTasteLikedTracks() {
+    const policy = this.getTastePolicy();
+    return this.getLikedTracks().filter((track) => isTasteEligible(track, policy));
+  }
+
+  /** In-memory mutation generation; independent of SQLite exports/reopened handles. */
+  public getChangeRevision(): number {
+    return this.changeRevision;
+  }
   private dbFilePath: string;
   public statementsFreedCount: number = 0;
   private saveDebounceTimer: NodeJS.Timeout | null = null;
@@ -281,6 +349,7 @@ export class DatabaseManager {
   private persistenceGeneration = 0;
 
   public save(immediate = false): void {
+    this.changeRevision++;
     if (!this.db || this.dbFilePath === ':memory:') return;
 
     if (!immediate) {
@@ -305,6 +374,7 @@ export class DatabaseManager {
   }
 
   public async saveAsync(): Promise<void> {
+    this.changeRevision++;
     if (!this.db || this.dbFilePath === ':memory:') return;
     if (this.isSavingAsync) {
       this.pendingSaveAfterCurrent = true;
@@ -350,6 +420,7 @@ export class DatabaseManager {
   }
 
   public saveSync(): void {
+    this.changeRevision++;
     if (!this.db || this.dbFilePath === ':memory:') return;
     if (this.saveDebounceTimer) clearTimeout(this.saveDebounceTimer);
     this.saveDebounceTimer = null;
@@ -385,6 +456,24 @@ export class DatabaseManager {
 
   private initSchema(): void {
     if (this.db) initializeLibrarySchema(this.db);
+  }
+
+  public getLibraryPage<K extends LibraryKind>(request: LibraryPageRequest<K>): LibraryPage<K> {
+    return readLibraryPage(this.db, request, (value) => fixMojibake(decodeHtmlEntities(value)));
+  }
+  public getLibraryStats() {
+    return readLibraryStats(this.db);
+  }
+  public getLibraryPlaybackTracks(request: LibraryPlaybackRequest) {
+    return readLibraryPlaybackTracks(this.db, request, (value) =>
+      fixMojibake(decodeHtmlEntities(value)),
+    );
+  }
+  public getSavedAlbumIds() {
+    return readSavedAlbumIds(this.db);
+  }
+  public getArtistMembership() {
+    return readArtistMembership(this.db);
   }
 
   // ================= LIKED TRACKS =================
@@ -904,6 +993,7 @@ export class DatabaseManager {
         playlists: playlists,
         playlist_tracks: allPlaylistTracks,
         search_history: searchHistory,
+        taste_exclusions: this.getTastePolicy().exclusions,
       },
     };
 
@@ -1027,6 +1117,7 @@ export class DatabaseManager {
       };
     }
 
+    const previousTasteRevision = this.getTastePolicy().revision;
     let importedTracks = 0;
     let importedAlbums = 0;
     let importedArtists = 0;
@@ -1036,6 +1127,28 @@ export class DatabaseManager {
     try {
       this.db.run('BEGIN TRANSACTION;');
 
+      // Old backups leave policy untouched; only explicit policy fields replace it.
+      if (Array.isArray(root.taste_exclusions)) {
+        if (root.taste_exclusions.length > 10000) throw new Error('Too many taste exclusions');
+        this.db.run('DELETE FROM taste_exclusions');
+        for (const rule of root.taste_exclusions) {
+          if (
+            !rule ||
+            !['track', 'playlist'].includes(rule.scope) ||
+            typeof rule.id !== 'string' ||
+            !rule.id.trim() ||
+            rule.id.length > 256 ||
+            /[\u0000-\u001f]/.test(rule.id)
+          )
+            throw new Error('Invalid taste exclusion backup');
+          this.db.run('INSERT OR REPLACE INTO taste_exclusions(scope,id,label) VALUES(?,?,?)', [
+            rule.scope,
+            rule.scope === 'track' ? rule.id.trim().replace(/^dz_/, '') : rule.id.trim(),
+            String(rule.label || '').slice(0, 500),
+          ]);
+        }
+        this.db.run('UPDATE taste_policy_revision SET revision=revision+1 WHERE id=1');
+      }
       // 1. Liked Tracks
       for (const t of likedTracks) {
         const deezerId = String(t.deezer_id || t.id || '');
@@ -1175,6 +1288,7 @@ export class DatabaseManager {
 
       this.db.run('COMMIT;');
       this.save();
+      this.publishTastePolicy(previousTasteRevision);
 
       return {
         success: true,
@@ -1286,6 +1400,7 @@ export class DatabaseManager {
          repeated = MAX(playback_sessions.repeated, excluded.repeated)`,
       [data.sessionId, trackId, playedSeconds, completed, skipped, repeated],
     );
+    if (!previous) this.tastePolicy.recordOrigin(data.sessionId, data.origin);
     const addedSeconds = Math.max(0, playedSeconds - (Number(previous?.played_seconds) || 0));
     if (addedSeconds > 0) {
       this.db.run(
@@ -1414,10 +1529,10 @@ export class DatabaseManager {
   public getScrobbledTopArtists(limit = 20): { name: string; score: number }[] {
     if (!this.db) return [];
     const stmt = this.db.prepare(`
-      SELECT artist, 
-             SUM(complete_count * 3 + repeat_count * 5 + play_count - skip_count * 2) as score
-      FROM track_scrobbles
-      GROUP BY LOWER(artist)
+      SELECT s.artist, SUM(${tasteHistoryScoreSql('s')}) AS score
+      FROM track_scrobbles s
+      WHERE ${tasteTrackAllowedSql('s.track_id')}
+      GROUP BY LOWER(s.artist)
       HAVING score > 0
       ORDER BY score DESC
       LIMIT ?
@@ -1443,10 +1558,10 @@ export class DatabaseManager {
     if (!this.db) return [];
     const stmt = this.db.prepare(`
       SELECT s.track_id AS id, s.title, s.artist, COALESCE(l.duration, 180) AS duration,
-             (s.complete_count * 3 + s.repeat_count * 5 + s.play_count - s.skip_count * 2) AS score
+             ${tasteHistoryScoreSql('s')} AS score
       FROM track_scrobbles s
       LEFT JOIN liked_tracks l ON l.deezer_id = s.track_id
-      WHERE (s.complete_count * 3 + s.repeat_count * 5 + s.play_count - s.skip_count * 2) > 0
+      WHERE ${tasteHistoryScoreSql('s')} > 0 AND ${tasteTrackAllowedSql('s.track_id')}
       ORDER BY score DESC
       LIMIT ?
     `);
@@ -1482,7 +1597,11 @@ export class DatabaseManager {
     const stmt = this.db.prepare(
       'WITH artist_rows AS (SELECT playlist_id, track_deezer_id, title, artist, duration, added_at, ' +
         'ROW_NUMBER() OVER (PARTITION BY playlist_id, LOWER(TRIM(artist)) ORDER BY added_at DESC, position DESC) AS artist_rank ' +
-        'FROM playlist_tracks WHERE NOT EXISTS (SELECT 1 FROM disliked_tracks d WHERE d.track_id = track_deezer_id)), ' +
+        'FROM playlist_tracks WHERE NOT EXISTS (SELECT 1 FROM disliked_tracks d WHERE d.track_id = track_deezer_id) AND ' +
+        tasteTrackAllowedSql('track_deezer_id') +
+        ' AND ' +
+        tastePlaylistAllowedSql('playlist_id') +
+        '), ' +
         'playlist_rows AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY playlist_id ORDER BY added_at DESC, track_deezer_id) AS playlist_rank ' +
         'FROM artist_rows WHERE artist_rank = 1) ' +
         'SELECT playlist_id, track_deezer_id, title, artist, duration FROM playlist_rows WHERE playlist_rank <= 8 ' +

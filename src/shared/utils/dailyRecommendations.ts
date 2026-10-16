@@ -1,8 +1,11 @@
 import type { Track } from '../types/index.ts';
+import { createDailyDislikePolicy, type DailyDislikedTrack } from './dailyDislikes.ts';
 import { areSameWaveSong, buildWaveSongIdentity, getWaveArtistKeys } from './waveIdentity.ts';
 
 export const DAILY_RECOMMENDATIONS_KEY = 'soso:daily-recommendations:v1';
 export interface DailyRecommendations {
+  tasteRevision?: number;
+  dislikeKey?: string;
   day: string;
   tracks: Track[];
 }
@@ -12,7 +15,15 @@ export function localRecommendationDay(now = new Date()): string {
 }
 
 /** Keep provider ranking, while avoiding five songs by the same musician. */
-export function selectDailyRecommendations(candidates: Track[], seeds: Track[]): Track[] {
+export function selectDailyRecommendations(
+  candidates: Track[],
+  seeds: Track[],
+  disliked: readonly DailyDislikedTrack[] = [],
+): Track[] {
+  const policy = createDailyDislikePolicy(disliked);
+  const ranked = candidates
+    .filter((track) => track?.id && policy.accepts(track))
+    .sort((a, b) => policy.rejectionCount(a) - policy.rejectionCount(b));
   const knownArtists = seeds.flatMap((track) =>
     typeof track.artist === 'string' ? [track.artist] : [track.artist?.name || ''],
   );
@@ -20,7 +31,7 @@ export function selectDailyRecommendations(candidates: Track[], seeds: Track[]):
   const selected: Track[] = [];
   const counts = new Map<string, number>();
   for (const artistLimit of [1, 2]) {
-    for (const track of candidates) {
+    for (const track of ranked) {
       if (selected.length >= 5) break;
       if (
         !track?.id ||
@@ -64,7 +75,16 @@ export function readDailyRecommendations(raw: string | null): DailyRecommendatio
           track.artist &&
           typeof track.artist.name === 'string',
       );
-    return tracks.length ? { day: value.day, tracks } : null;
+    return tracks.length
+      ? {
+          day: value.day,
+          dislikeKey: typeof value.dislikeKey === 'string' ? value.dislikeKey : '',
+          tasteRevision: Number.isSafeInteger(value.tasteRevision)
+            ? value.tasteRevision
+            : undefined,
+          tracks,
+        }
+      : null;
   } catch {
     return null;
   }
@@ -75,23 +95,33 @@ export function createDailyRecommendationLoader(
   storage: Pick<Storage, 'getItem' | 'setItem'>,
   fetchTracks: (previousIds: (string | number)[]) => Promise<Track[]>,
   now: () => Date = () => new Date(),
+  tasteRevision: () => number = () => 0,
 ) {
   const pending = new Map<string, Promise<DailyRecommendations>>();
   let memory: DailyRecommendations | null = null;
-  return () => {
-    const day = localRecommendationDay(now());
-    if (memory?.day === day) return Promise.resolve(memory);
+  let latestKey = '';
+  return (dislikeKey = '') => {
+    const day = localRecommendationDay(now()),
+      revision = tasteRevision(),
+      key = JSON.stringify([day, revision, dislikeKey]);
+    latestKey = key;
+    if (
+      memory?.day === day &&
+      memory.tasteRevision === revision &&
+      memory.dislikeKey === dislikeKey
+    )
+      return Promise.resolve(memory);
     let saved = memory;
     try {
       saved = readDailyRecommendations(storage.getItem(DAILY_RECOMMENDATIONS_KEY)) || saved;
     } catch {
       /* Memory works when storage is unavailable. */
     }
-    if (saved?.day === day) {
+    if (saved?.day === day && saved.tasteRevision === revision && saved.dislikeKey === dislikeKey) {
       memory = saved;
       return Promise.resolve(saved);
     }
-    const existing = pending.get(day);
+    const existing = pending.get(key);
     if (existing) return existing;
     const request = Promise.resolve()
       .then(() => fetchTracks(saved?.tracks.map((track) => track.id) || []))
@@ -100,8 +130,13 @@ export function createDailyRecommendationLoader(
           const { resolvedStreamUrl, resolvedStreamTimestamp, ...metadata } = track;
           return metadata;
         });
-        const result = { day, tracks: clean };
-        if (localRecommendationDay(now()) === day && clean.length) {
+        const result = { day, tasteRevision: revision, dislikeKey, tracks: clean };
+        if (
+          latestKey === key &&
+          localRecommendationDay(now()) === day &&
+          tasteRevision() === revision &&
+          clean.length
+        ) {
           memory = result;
           try {
             storage.setItem(DAILY_RECOMMENDATIONS_KEY, JSON.stringify(result));
@@ -111,8 +146,8 @@ export function createDailyRecommendationLoader(
         }
         return result;
       })
-      .finally(() => pending.delete(day));
-    pending.set(day, request);
+      .finally(() => pending.delete(key));
+    pending.set(key, request);
     return request;
   };
 }

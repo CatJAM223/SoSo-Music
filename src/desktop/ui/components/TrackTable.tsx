@@ -2,12 +2,15 @@ import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
 import React, { useState, useEffect, useRef } from 'react';
 import { Track } from '../../../shared/types';
+import type { PlaybackOrigin } from '../../../shared/types/tastePolicy';
 import { TrackRow } from './TrackRow';
 
 interface TrackTableProps {
   tracks: Track[];
   onOpenAddToPlaylist: (track: Track) => void;
   playlistContext?: Track[];
+  playbackOrigin?: PlaybackOrigin;
+  onPlayTrack?: (track: Track) => void;
   onNavigateToArtist?: (artist: { id?: string | number; name: string }) => void;
   onNavigateToAlbum?: (album: any) => void;
   hideAlbumColumn?: boolean;
@@ -20,6 +23,8 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   tracks,
   onOpenAddToPlaylist,
   playlistContext,
+  playbackOrigin,
+  onPlayTrack,
   onNavigateToArtist,
   onNavigateToAlbum,
   hideAlbumColumn = false,
@@ -119,6 +124,8 @@ export const TrackTable: React.FC<TrackTableProps> = ({
               index={idx}
               onOpenAddToPlaylist={onOpenAddToPlaylist}
               playlistContext={playlistContext || tracks}
+              playbackOrigin={playbackOrigin}
+              onPlayTrack={onPlayTrack}
               onNavigateToArtist={onNavigateToArtist}
               onNavigateToAlbum={onNavigateToAlbum}
               hideAlbumColumn={hideAlbumColumn}

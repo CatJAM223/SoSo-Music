@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
+import ts from 'typescript';
 import {
   createDailyRecommendationLoader,
   DAILY_RECOMMENDATIONS_KEY,
@@ -11,6 +12,7 @@ import {
   selectDailyRecommendations,
 } from '../src/shared/utils/dailyRecommendations.ts';
 import { normalizeWaveSeed } from '../src/shared/utils/waveRecommendations.ts';
+import { createDailyDislikePolicy } from '../src/shared/utils/dailyDislikes.ts';
 const track = (id, artist = 'Singer ' + id, title = 'Melody ' + id) => ({
   id,
   title,
@@ -148,21 +150,36 @@ test('Five daily songs exclude known recordings and unavailable songs, with arti
 });
 test('Daily IPC uses taste and dislikes, excludes recent/previous songs, and leaves wave session untouched', async () => {
   const source = readFileSync(new URL('../src/desktop/main/index.ts', import.meta.url), 'utf8');
-  const begin = source.indexOf("  ipcMain.handle('music:getRecommendedTracks'");
-  const end = source.indexOf("  ipcMain.handle('music:getFullStreamUrl'", begin);
+  const tree = ts.createSourceFile('index.ts', source, ts.ScriptTarget.Latest, true);
+  let handlerSource;
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(tree) === 'ipcMain.handle' &&
+      ts.isStringLiteral(node.arguments[0]) &&
+      node.arguments[0].text === 'music:getRecommendedTracks'
+    )
+      handlerSource = node.getText(tree);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  assert.ok(handlerSource, 'Actual daily IPC registration must exist');
   let handler, args;
   const likes = [{ deezer_id: 'yt_liked', title: 'Liked song', artist: 'Favorite' }];
   const ctx = {
     ipcMain: {
-      handle(_name, fn) {
+      handle(name, fn) {
+        assert.equal(name, 'music:getRecommendedTracks');
         handler = fn;
       },
     },
     normalizeWaveSeed,
     selectDailyRecommendations,
+    createDailyDislikePolicy,
     dbManager: {
       getDislikedTrackIds: () => ['yt_blocked'],
       getLikedTracks: () => likes,
+      getTasteLikedTracks: () => likes,
       getWaveTasteTracks: () => [track('taste')],
       getFollowedArtists: () => [],
       getScrobbledTopArtists: () => [],
@@ -178,13 +195,14 @@ test('Daily IPC uses taste and dislikes, excludes recent/previous songs, and lea
       },
     },
   };
-  vm.runInNewContext(stripTypeScriptTypes(source.slice(begin, end)), ctx);
+  vm.runInNewContext(stripTypeScriptTypes(handlerSource), ctx);
   assert.equal((await handler(null, ['yesterday'])).length, 1);
   assert.equal(args[6], false);
   assert.ok(args[1].some((t) => t.id === 'yt_liked'));
   for (const id of ['yt_liked', 'yt_recent', 'yt_blocked', 'yesterday'])
     assert.ok(args[2].includes(id));
   ctx.dbManager.getLikedTracks = () => [];
+  ctx.dbManager.getTasteLikedTracks = () => [];
   ctx.dbManager.getWaveTasteTracks = () => [];
   args = null;
   assert.equal((await handler(null, [])).length, 0);

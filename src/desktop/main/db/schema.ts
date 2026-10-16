@@ -1,5 +1,6 @@
 import type { Database } from 'sql.js';
 import { createLibraryTasteSchema } from '../services/libraryTasteStore.ts';
+import { createTastePolicySchema } from '../services/tastePolicyStore.ts';
 
 const LIBRARY_TABLES = [
   `CREATE TABLE IF NOT EXISTS liked_tracks (
@@ -147,6 +148,7 @@ export function initializeLibrarySchema(db: Database): void {
     /* Compatibility with older SQLite runtimes. */
   }
   for (const sql of LIBRARY_TABLES) db.run(sql);
+  createTastePolicySchema(db);
   ensureTextColumn(db, 'liked_tracks', 'album_id');
   db.run(`INSERT INTO listening_daily_time (day, played_seconds)
 SELECT date(started_at, 'localtime'), SUM(played_seconds)

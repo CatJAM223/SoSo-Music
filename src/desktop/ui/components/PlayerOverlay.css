@@ -22,6 +22,7 @@
   align-items: center;
   gap: 13px;
   height: 100%;
+  box-sizing: border-box;
   padding: 12px;
   pointer-events: none;
 }
@@ -31,17 +32,21 @@
   flex-shrink: 0;
   border-radius: 10px;
   object-fit: cover;
-  box-shadow: 0 2px 12px #0005;
+  box-shadow: none;
 }
-.overlay-track-content div {
+.overlay-track-info {
   display: flex;
   flex: 1;
   min-width: 0;
+  box-sizing: border-box;
+  padding-left: 3px;
+  padding-right: 2px;
   flex-direction: column;
   gap: 5px;
-  text-shadow:
-    0 1px 4px #000,
-    0 2px 12px #000b;
+  text-align: left;
+  text-shadow: none;
+  -webkit-text-stroke: 1px #101010;
+  paint-order: stroke fill;
 }
 .overlay-track-content strong,
 .overlay-track-content span {
@@ -50,10 +55,16 @@
   text-overflow: ellipsis;
 }
 .overlay-track-content strong {
+  display: block;
+  margin: 0;
+  line-height: 22px;
   font-size: 16px;
   font-weight: 650;
 }
 .overlay-track-content span {
+  display: block;
+  margin: 0;
+  line-height: 18px;
   font-size: 13px;
   color: #e1e1e5;
 }

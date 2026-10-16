@@ -2,7 +2,11 @@ import type { StreamResolveOptions, Track } from '../types/index.ts';
 import { withStreamResolveDeadline } from '../utils/streamResolveDeadline.ts';
 
 const STREAM_RESOLUTION_TIMEOUT_MS = 30000;
-type ResolveStream = (track: Track, options: StreamResolveOptions) => Promise<string>;
+type ResolveStream = (
+  track: Track,
+  options: StreamResolveOptions,
+  signal?: AbortSignal,
+) => Promise<string>;
 
 export function resolvePlayerStream(
   track: Track,
@@ -14,20 +18,23 @@ export function resolvePlayerStream(
     typeof track.artist === 'object' && track.artist
       ? track.artist
       : { name: String(track.artist || '') };
+  const operation = new AbortController();
+  const operationSignal = AbortSignal.any([signal, operation.signal]);
   let finished = false;
   const lookup = async () => {
     signal.throwIfAborted();
     const item = { ...track, artist };
-    const url = await resolve(item, options);
+    const url = await resolve(item, options, operationSignal);
     if (finished) return '';
     signal.throwIfAborted();
     // An empty cached/provider answer gets one fresh lookup before abandoning the recording.
     // Access errors and temporary failures still use their existing, separate recovery budgets.
     if (url || options.forceRefresh) return url;
-    return resolve(item, { ...options, forceRefresh: true });
+    return resolve(item, { ...options, forceRefresh: true }, operationSignal);
   };
   return withStreamResolveDeadline(lookup(), STREAM_RESOLUTION_TIMEOUT_MS, signal).finally(() => {
     finished = true;
+    operation.abort();
   });
 }
 

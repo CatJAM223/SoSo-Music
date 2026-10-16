@@ -1,3 +1,4 @@
+import { invokeStreamRequest } from '../utils/streamRequest.ts';
 import { waveAbortError } from '../services/waveRequestScheduler.ts';
 
 import type { PlaylistReadResult } from '../types/playlistImport.ts';
@@ -38,6 +39,27 @@ export const isElectron = Boolean(nativeElectron);
 let waveBatchRequestSequence = 0;
 
 export const platformBridge = {
+  getTastePolicy: async (): Promise<import('../types/tastePolicy.ts').TastePolicySnapshot> => {
+    if (!nativeElectron?.getTastePolicy) throw new Error('Desktop preload API is unavailable');
+    return nativeElectron.getTastePolicy();
+  },
+  setTasteExcluded: async (
+    value: import('../types/tastePolicy.ts').TasteExclusionChange,
+  ): Promise<import('../types/tastePolicy.ts').TastePolicySnapshot> => {
+    if (!nativeElectron?.setTasteExcluded) throw new Error('Desktop preload API is unavailable');
+    return nativeElectron.setTasteExcluded(value);
+  },
+  getTasteProfile: async (): Promise<{
+    revision: number;
+    likes: LikedTrack[];
+    artists: { name: string; id?: string | number; score?: number }[];
+  }> => {
+    if (!nativeElectron?.getTasteProfile) throw new Error('Desktop preload API is unavailable');
+    return nativeElectron.getTasteProfile();
+  },
+  onTastePolicyChanged: (
+    callback: (value: import('../types/tastePolicy.ts').TastePolicySnapshot) => void,
+  ): (() => void) => nativeElectron?.onTastePolicyChanged?.(callback) || (() => {}),
   _isPlatformBridge: true,
 
   readExternalPlaylist: async (url: string): Promise<PlaylistReadResult> => {
@@ -184,9 +206,19 @@ export const platformBridge = {
     }
   },
 
-  getFullStreamUrl: async (track: Track, options?: StreamResolveOptions): Promise<string> => {
+  getFullStreamUrl: async (
+    track: Track,
+    options?: StreamResolveOptions,
+    signal?: AbortSignal,
+  ): Promise<string> => {
     if (nativeElectron?.getFullStreamUrl) {
-      return nativeElectron.getFullStreamUrl(track, options);
+      return invokeStreamRequest(
+        (requestId) => nativeElectron.getFullStreamUrl(track, options, requestId),
+        nativeElectron.cancelStreamResolve
+          ? (requestId) => nativeElectron.cancelStreamResolve(requestId)
+          : undefined,
+        signal,
+      );
     }
     throw new Error('Desktop preload API is unavailable');
   },
@@ -242,6 +274,32 @@ export const platformBridge = {
       return nativeElectron.getVideoStream(videoId, options);
     }
     return '';
+  },
+
+  getLibraryPage: async <K extends import('../types/libraryPage').LibraryKind>(
+    request: import('../types/libraryPage').LibraryPageRequest<K>,
+  ): Promise<import('../types/libraryPage').LibraryPage<K>> => {
+    if (nativeElectron?.getLibraryPage) return nativeElectron.getLibraryPage(request);
+    throw new Error('Desktop preload API is unavailable');
+  },
+  getLibraryStats: async (): Promise<import('../types/libraryPage').LibraryStats> => {
+    if (nativeElectron?.getLibraryStats) return nativeElectron.getLibraryStats();
+    throw new Error('Desktop preload API is unavailable');
+  },
+  getLibraryPlaybackTracks: async (
+    request: import('../types/libraryPage').LibraryPlaybackRequest,
+  ): Promise<LikedTrack[]> => {
+    if (nativeElectron?.getLibraryPlaybackTracks)
+      return nativeElectron.getLibraryPlaybackTracks(request);
+    throw new Error('Desktop preload API is unavailable');
+  },
+  getSavedAlbumIds: async (): Promise<string[]> => {
+    if (nativeElectron?.getSavedAlbumIds) return nativeElectron.getSavedAlbumIds();
+    throw new Error('Desktop preload API is unavailable');
+  },
+  getArtistMembership: async (): Promise<import('../types/libraryPage').ArtistMembership[]> => {
+    if (nativeElectron?.getArtistMembership) return nativeElectron.getArtistMembership();
+    throw new Error('Desktop preload API is unavailable');
   },
 
   // SQLite - Liked Tracks

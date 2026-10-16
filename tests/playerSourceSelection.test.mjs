@@ -22,7 +22,7 @@ test('queue selection retains a repeated saved occurrence, detects collection ch
   assert.equal(append.index, 3);
   assert.equal(append.queue.length, 4);
   assert.equal(queue.length, 3);
-  assert.equal(selectPlayerQueue(queue, 2, first, [middle, first]).resetShuffle, false);
+  assert.equal(selectPlayerQueue(queue, 2, first, [middle, first]).resetShuffle, true);
   assert.equal(selectPlayerQueue(queue, 2, track('new'), [track('new')]).resetShuffle, true);
 });
 

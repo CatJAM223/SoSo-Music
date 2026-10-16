@@ -339,7 +339,7 @@ test('Main wave IPC forwards the registry signal and acknowledges cancellation w
     [
       'getDislikedTrackIds',
       'getWaveTasteTracks',
-      'getLikedTracks',
+      'getTasteLikedTracks',
       'getPlaylistWaveTracks',
       'getFollowedArtists',
       'getScrobbledTopArtists',
@@ -352,6 +352,7 @@ test('Main wave IPC forwards the registry signal and acknowledges cancellation w
       signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
     );
   });
+  db.getTastePolicy = () => ({ revision: 0, exclusions: [] });
   registerWaveHandlers({ handle: (name, handler) => handlers.set(name, handler) }, db);
   const sender = new EventEmitter(),
     event = { sender };

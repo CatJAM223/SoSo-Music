@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MoreHorizontal, Move, RotateCcw, X } from 'lucide-react';
+import { MoreHorizontal, RotateCcw, X } from 'lucide-react';
 import './SettingsShortcuts.css';
 import {
   DEFAULT_SHORTCUTS,
@@ -132,14 +132,6 @@ export function SettingsShortcuts() {
       window.removeEventListener('keydown', escape);
     };
   }, [menu]);
-  async function editOverlay() {
-    setError('');
-    try {
-      await window.electronAPI?.editPlayerOverlay?.();
-    } catch {
-      if (alive.current) setError(t('Не удалось открыть настройку оверлея.'));
-    }
-  }
   function row(action: ShortcutAction) {
     const names: Record<string, string> = {
       Control: 'Ctrl',
@@ -211,7 +203,6 @@ export function SettingsShortcuts() {
     <div className="settings-page settings-shortcuts">
       <section className="shortcuts-section">
         <h4>{t('Воспроизведение')}</h4>
-        <p className="shortcuts-description">{t('Работают, даже когда плеер свёрнут.')}</p>
         <div className="shortcuts-group">
           {(['togglePlay', 'next', 'prev'] as ShortcutAction[]).map(row)}
         </div>
@@ -223,32 +214,12 @@ export function SettingsShortcuts() {
       </section>
       <section className="shortcuts-section">
         <h4>{t('Оверлей плеера')}</h4>
-        <p className="shortcuts-description">
-          {t('Обложка и название трека поверх других окон. Клики проходят насквозь.')}
-        </p>
         <div className="shortcuts-group">{row('overlay')}</div>
         {status && !status.overlayEnabled && (
           <p className="shortcuts-hint">
             {t('Оверлей отключён. Включить его можно в Настройки → Интеграции.')}
           </p>
         )}
-        <div className="shortcuts-position">
-          <div>
-            <strong>{t('Положение на экране')}</strong>
-            <p>{t('Переместите карточку в удобное место. Положение сохранится.')}</p>
-          </div>
-          <button
-            className="shortcut-position-button"
-            disabled={!status?.overlayEnabled}
-            onClick={() => void editOverlay()}
-          >
-            <Move size={15} />
-            {t('Настроить положение')}
-          </button>
-        </div>
-        <p className="shortcuts-hint">
-          {t('В играх используйте оконный режим или окно без рамок.')}
-        </p>
       </section>
       {error && (
         <p className="shortcuts-error" role="alert">

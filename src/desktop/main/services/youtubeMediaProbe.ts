@@ -1,3 +1,13 @@
+import {
+  assertStreamResolveActive,
+  currentStreamResolveSignal,
+  streamWait,
+} from './streamResolveContext.ts';
+import {
+  createStreamResolveError,
+  getStreamResolveFailure,
+  streamHttpFailure,
+} from '../../../shared/utils/streamResolveError.ts';
 import { youtubeAccountMediaUserAgent } from './youtubeWatchPage.ts';
 import { isYouTubeStreamUrl } from './youtubeAccountStream.ts';
 import { YouTubeMusicTransport } from './youtubeMusicTransport.ts';
@@ -25,27 +35,33 @@ export async function probeYouTubeMedia(
   url: string,
   kind: 'audio' | 'video',
 ): Promise<YouTubeMediaProbeResult> {
+  assertStreamResolveActive();
   if (!isYouTubeStreamUrl(url)) return { ok: false, reason: 'cdn-response' };
   // The resolver reads HLS manifests; segment errors remain the player's responsibility.
   if (/\.m3u8(?:[?#]|$)|\/manifest\/hls(?:_|\/|\?)/i.test(url)) return { ok: true, url };
-  const signal = AbortSignal.timeout(5000);
+  const signal = currentStreamResolveSignal()
+    ? AbortSignal.any([currentStreamResolveSignal()!, AbortSignal.timeout(5000)])
+    : AbortSignal.timeout(5000);
   try {
     for (let redirects = 0; redirects <= 2; redirects++) {
       const userAgent = youtubeAccountMediaUserAgent(url);
-      const response = await YouTubeMusicTransport.fetch(url, {
-        headers: { Range: 'bytes=0-1023', ...(userAgent ? { 'User-Agent': userAgent } : {}) },
-        cache: 'no-store',
-        credentials: 'omit',
-        redirect: 'manual',
-        signal,
-      });
+      const response = await streamWait(
+        YouTubeMusicTransport.fetch(url, {
+          headers: { Range: 'bytes=0-1023', ...(userAgent ? { 'User-Agent': userAgent } : {}) },
+          cache: 'no-store',
+          credentials: 'omit',
+          redirect: 'manual',
+          signal,
+        }),
+      );
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
-        await discardYouTubeResponse(response);
+        await streamWait(discardYouTubeResponse(response));
         let next = '';
         try {
           if (location) next = new URL(location, url).href;
         } catch {
+          assertStreamResolveActive();
           /* Reject invalid redirects. */
         }
         if (redirects < 2 && isYouTubeStreamUrl(next) && next !== url) {
@@ -64,7 +80,9 @@ export async function probeYouTubeMedia(
       const acceptedMime =
         kind === 'video' ? /^video\//i.test(mime) : /^(audio|video)\/(mp4|webm)$/i.test(mime);
       if (![200, 206].includes(response.status) || !acceptedMime) {
-        await discardYouTubeResponse(response);
+        await streamWait(discardYouTubeResponse(response));
+        const failure = streamHttpFailure(response.status);
+        if (failure) throw createStreamResolveError(failure);
         const reason = [200, 206].includes(response.status) ? 'cdn-response' : 'cdn-http';
         PlaybackLogger.warn(
           '[YouTubeMusic:MediaProbe] media=' +
@@ -81,14 +99,16 @@ export async function probeYouTubeMedia(
       const reader = response.body?.getReader();
       if (!reader) return { ok: false, reason: 'cdn-response' };
       try {
-        const chunk = await reader.read();
+        const chunk = await streamWait(reader.read());
         if (!chunk.done && chunk.value?.byteLength) return { ok: true, url };
         return { ok: false, reason: 'cdn-response' };
       } finally {
-        await reader.cancel().catch(() => {});
+        await streamWait(reader.cancel().catch(() => {}));
       }
     }
-  } catch {
+  } catch (error) {
+    assertStreamResolveActive();
+    if (getStreamResolveFailure(error)) throw error;
     PlaybackLogger.warn('[YouTubeMusic:MediaProbe] media=' + kind + ' failure=network');
     return { ok: false, reason: 'network' };
   }

@@ -1,3 +1,4 @@
+import { isTasteEligible } from '../src/shared/utils/tastePolicy.ts';
 import { stripModuleImports } from './helpers/sourceInspection.mjs';
 import {
   matchesWaveSource,
@@ -8,6 +9,11 @@ import {
   createWavePreferences,
   WAVE_SESSION_IDLE_MS,
 } from '../src/shared/services/wavePreferences.ts';
+import { createWaveSessionState } from '../src/shared/services/waveSession.ts';
+import {
+  createWaveRefreshPolicy,
+  WAVE_REFRESH_PENDING_LIMIT,
+} from '../src/shared/services/waveRefreshPolicy.ts';
 import { isYouTubeItemDisabled } from '../src/shared/services/youtubeAvailability.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,9 +36,17 @@ const song = (id, artist, title = 'Melody', duration = 200) => ({
   preview: '',
   source: 'soundcloud',
 });
-function waveHarness(batches, likes = [], storage, now = Date.now) {
+function waveHarness(
+  batches,
+  likes = [],
+  storage,
+  now = Date.now,
+  loadPolicy = async () => ({ revision: 0, exclusions: [] }),
+) {
   const calls = [],
     plays = [],
+    logs = [],
+    errors = [],
     cleanups = [];
   const queueRef = { current: [] },
     queueIndexRef = { current: -1 };
@@ -42,16 +56,21 @@ function waveHarness(batches, likes = [], storage, now = Date.now) {
       const reply = batches.shift();
       return typeof reply === 'function' ? reply(...args) : reply || [];
     },
+    getTasteProfile: async () => ({ revision: 0, likes, artists: [] }),
     getLikedTracks: async () => likes,
     getFollowedArtists: async () => [],
     getTopScrobbledArtists: async () => [],
   };
   const sandbox = vm.createContext({
-    console,
+    console: { ...console, error: (...args) => errors.push(args) },
     Map,
     Set,
     Object,
     AbortController,
+    isTasteEligible,
+    useTastePolicy: () => ({ revision: 0, exclusions: [] }),
+    readTastePolicy: () => ({ revision: 0, exclusions: [] }),
+    refreshTastePolicy: loadPolicy,
     isYouTubeItemDisabled,
     matchesWaveSource,
     normalizeWaveSource,
@@ -63,6 +82,9 @@ function waveHarness(batches, likes = [], storage, now = Date.now) {
     normalizeWaveSeed,
     waveFamiliarArtists,
     createWaveMemory: () => createWaveMemory(storage || { getItem: () => null, setItem() {} }),
+    createWaveSessionState,
+    WAVE_REFRESH_PENDING_LIMIT,
+    createWaveRefreshPolicy: () => createWaveRefreshPolicy(now),
     createWavePreferences: () =>
       createWavePreferences(storage || { getItem: () => null, setItem() {} }, now),
     useRef: (value) => ({ current: value }),
@@ -73,7 +95,10 @@ function waveHarness(batches, likes = [], storage, now = Date.now) {
       if (cleanup) cleanups.push(cleanup);
     },
     emitToast: () => {},
-    PlaybackLogger: { info: () => {} },
+    PlaybackLogger: {
+      info: (message) => logs.push(message),
+      warn: (message) => logs.push(message),
+    },
     platformBridge: bridge,
   });
   const source = stripModuleImports(
@@ -103,6 +128,8 @@ function waveHarness(batches, likes = [], storage, now = Date.now) {
     queueIndexRef,
     calls,
     plays,
+    logs,
+    errors,
     unmount: () => cleanups.forEach((cleanup) => cleanup()),
   };
 }
@@ -165,7 +192,7 @@ test('Refill preserves durable familiarity, records real listening, and counts a
   assert.equal(h.queueRef.current[1].id, 'known');
 });
 
-test('Switching wave mode retains recent real exposure and bounded session reactions', async () => {
+test('Switching mode retains listening history but restores only that mode temporary reactions', async () => {
   const current = song('current', 'Artist A', 'First');
   const h = waveHarness([[current], [song('new', 'Artist B', 'Second')]]);
   await h.api.startWave('default');
@@ -173,7 +200,12 @@ test('Switching wave mode retains recent real exposure and bounded session react
   await h.api.startWave('discover');
   assert.equal(h.calls[1][0], 'discover');
   assert.equal(h.calls[1][3].recentTracks[0].id, 'current');
-  assert.equal(h.calls[1][3].artistFeedback['artist a'], -0.6);
+  assert.equal(h.calls[1][3].artistFeedback['artist a'], undefined);
+  assert.equal(h.calls[1][3].skippedTracks.length, 0);
+  assert.equal(h.calls[1][3].discoveryAdjustment, 0);
+  await h.api.startWave('default');
+  assert.equal(h.calls[2][3].artistFeedback['artist a'], -0.6);
+  assert.equal(h.calls[2][3].skippedTracks[0].id, current.id);
 });
 
 test('Persistent taste records manual skips but keeps media-error transitions neutral', () => {
@@ -408,6 +440,97 @@ test('Stopping a wave detaches its refill; a restart shares only the new generat
   assert.ok(!h.queueRef.current.some((t) => t.id === 'old-current'));
 });
 
+test('Rejected policy preflight releases a superseded start and allows later startup and refill', async () => {
+  const old = deferredBatch();
+  let policyReads = 0,
+    oldSignal;
+  const h = waveHarness(
+    [
+      (...args) => {
+        oldSignal = args[4];
+        return old.promise;
+      },
+      [song('fresh', 'New Artist', 'Fresh music')],
+      [],
+    ],
+    [],
+    undefined,
+    Date.now,
+    async () => {
+      if (++policyReads === 2) throw Error('Policy unavailable');
+      return { revision: 0, exclusions: [] };
+    },
+  );
+  const previous = h.api.startWave();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.api.isWaveStartingRef.current, true);
+  await h.api.startWave('energy');
+  assert.equal(oldSignal.aborted, true);
+  assert.equal(h.api.isWaveStartingRef.current, false);
+  assert.equal(h.api.isFetchingMoreWaveRef.current, false);
+  assert.equal(h.api.isWaveActiveRef.current, false);
+  old.resolve([song('stale', 'Old Artist')]);
+  await previous;
+  await h.api.startWave('chill');
+  await h.api.fetchMoreWaveTracks();
+  assert.equal(h.plays.length, 1);
+  assert.equal(h.plays[0].id, 'fresh');
+  assert.equal(h.calls.length, 3);
+  assert.equal(h.api.isFetchingMoreWaveRef.current, false);
+});
+
+test('Rejected policy preflight detaches an active refill without stopping the playing wave', async () => {
+  const old = deferredBatch();
+  let policyReads = 0,
+    refillSignal;
+  const h = waveHarness(
+    [
+      [song('current', 'Artist')],
+      (...args) => {
+        refillSignal = args[4];
+        return old.promise;
+      },
+      [song('fresh', 'Other Artist', 'Fresh music')],
+    ],
+    [],
+    undefined,
+    Date.now,
+    async () => {
+      if (++policyReads === 2) throw Error('Policy unavailable');
+      return { revision: 0, exclusions: [] };
+    },
+  );
+  await h.api.startWave();
+  const pending = h.api.fetchMoreWaveTracks();
+  await h.api.startWave('energy');
+  assert.equal(refillSignal.aborted, true);
+  assert.equal(h.api.isWaveActiveRef.current, true);
+  assert.equal(h.api.isFetchingMoreWaveRef.current, false);
+  old.resolve([song('stale', 'Old Artist')]);
+  await pending;
+  await h.api.fetchMoreWaveTracks();
+  assert.equal(h.calls.length, 3);
+  assert.ok(h.queueRef.current.some((track) => track.id === 'fresh'));
+  assert.equal(h.api.isFetchingMoreWaveRef.current, false);
+});
+
+test('Stopping or unmounting during policy preflight cannot start obsolete music', async () => {
+  for (const action of ['stop', 'unmount']) {
+    let resolvePolicy;
+    const policy = new Promise((resolve) => {
+      resolvePolicy = resolve;
+    });
+    const h = waveHarness([[song('obsolete', 'Artist')]], [], undefined, Date.now, () => policy);
+    const pending = h.api.startWave();
+    if (action === 'stop') h.api.stopWave();
+    else h.unmount();
+    resolvePolicy({ revision: 0, exclusions: [] });
+    await pending;
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.plays.length, 0);
+  }
+});
+
 test('Wave restart, stop and unmount abort the actual bridge request signals', async () => {
   let firstSignal;
   const old = deferredBatch();
@@ -420,6 +543,7 @@ test('Wave restart, stop and unmount abort the actual bridge request signals', a
     [],
   ]);
   const first = h.api.startWave();
+  await new Promise((resolve) => setImmediate(resolve)); // Policy preflight completes before a bridge signal exists.
   assert.equal(firstSignal.aborted, false);
   await h.api.startWave('energy');
   assert.equal(firstSignal.aborted, true);
@@ -439,6 +563,7 @@ test('Wave restart, stop and unmount abort the actual bridge request signals', a
   await pending;
   const third = waveHarness([() => new Promise((resolve) => setImmediate(() => resolve([])))]);
   const starting = third.api.startWave();
+  await new Promise((resolve) => setImmediate(resolve));
   third.unmount();
   assert.equal(third.calls[0][4].aborted, true);
   await starting;
@@ -619,4 +744,180 @@ test('Background refill keeps the announced next track before newly ranked recom
   await h.api.fetchMoreWaveTracks();
   assert.equal(h.queueRef.current[1].id, announced.id);
   assert.ok(h.queueRef.current.some((track) => track.id === 'new'));
+});
+
+const selection = (prefix, count = 25) =>
+  Array.from({ length: count }, (_, i) =>
+    song(prefix + '-' + i, prefix + ' musician ' + i, prefix + ' melody ' + i),
+  );
+function skipCurrent(h, seconds = 5, reason = 'skip') {
+  const track = h.queueRef.current[h.queueIndexRef.current];
+  h.api.recordWavePlayback(track, seconds, track.duration, reason);
+  h.queueIndexRef.current++;
+  return track;
+}
+
+test('Three early skips refresh candidates before queue exhaustion and keep the live current/announced prefix', async () => {
+  const response = deferredBatch();
+  const h = waveHarness([selection('initial'), () => response.promise]);
+  await h.api.startWave();
+  const skipped = Array.from({ length: 3 }, () => skipCurrent(h));
+  assert.equal(
+    h.calls.length,
+    2,
+    'Refresh starts with over twenty unplayed tracks still available',
+  );
+  assert.equal(h.calls[1][3].skippedTracks.length, 3);
+  assert.ok(
+    skipped.every((track) => h.calls[1][3].skippedTracks.some((item) => item.id === track.id)),
+  );
+  const prefix = h.queueRef.current.slice(0, h.queueIndexRef.current + 2).map((track) => track.id);
+  const existing = h.queueRef.current.map((track) => track.id);
+  const waiter = h.api.fetchMoreWaveTracks();
+  response.resolve(selection('fresh'));
+  await waiter;
+  assert.deepEqual(
+    Array.from(h.queueRef.current.slice(0, prefix.length), (track) => track.id),
+    prefix,
+  );
+  assert.ok(existing.every((id) => h.queueRef.current.some((track) => track.id === id)));
+  assert.ok(h.queueRef.current.some((track) => track.id.startsWith('fresh-')));
+  assert.equal(h.plays.length, 1, 'A background refresh never calls playTrack');
+  assert.ok(h.logs.some((message) => message.includes('reason=refresh')));
+});
+
+test('A refresh supersedes an older refill while its waiters continue waiting for the fresh batch', async () => {
+  const old = deferredBatch(),
+    fresh = deferredBatch();
+  const h = waveHarness([selection('initial'), () => old.promise, () => fresh.promise]);
+  await h.api.startWave();
+  let completed = false;
+  const waiter = h.api.fetchMoreWaveTracks().then(() => {
+    completed = true;
+  });
+  for (let i = 0; i < 3; i++) skipCurrent(h);
+  assert.equal(h.calls[1][4].aborted, true);
+  assert.equal(h.calls.length, 2, 'Only one provider batch is active');
+  old.resolve(selection('obsolete'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.calls.length, 3);
+  assert.equal(completed, false);
+  assert.equal(h.api.isFetchingMoreWaveRef.current, true);
+  assert.equal(h.calls[2][3].skippedTracks.length, 3);
+  const announced = h.queueRef.current[h.queueIndexRef.current + 1].id;
+  fresh.resolve(selection('fresh', 100));
+  await waiter;
+  assert.ok(!h.queueRef.current.some((track) => track.id.startsWith('obsolete-')));
+  assert.equal(h.queueRef.current[h.queueIndexRef.current + 1].id, announced);
+  assert.ok(h.queueRef.current.length - h.queueIndexRef.current - 1 <= 50);
+  assert.ok(h.logs.some((message) => message.includes('reason=refresh')));
+  assert.equal(h.api.isFetchingMoreWaveRef.current, false);
+});
+
+test('Refresh failures and empty replies retain all queued music and release the loading flag', async () => {
+  for (const reply of [
+    [],
+    () => {
+      throw new Error('Temporary provider failure');
+    },
+  ]) {
+    const h = waveHarness([selection('initial'), reply]);
+    await h.api.startWave();
+    for (let i = 0; i < 3; i++) skipCurrent(h);
+    const ids = h.queueRef.current.map((track) => track.id);
+    await h.api.fetchMoreWaveTracks();
+    assert.deepEqual(
+      Array.from(h.queueRef.current, (track) => track.id),
+      ids,
+    );
+    assert.equal(h.api.isFetchingMoreWaveRef.current, false);
+    assert.equal(h.plays.length, 1);
+  }
+});
+
+test('Immediate manual skips can refresh the pool without pretending the songs were heard or disliked', async () => {
+  const response = deferredBatch();
+  const h = waveHarness([selection('initial'), () => response.promise]);
+  await h.api.startWave();
+  for (let i = 0; i < 3; i++) skipCurrent(h, 0);
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls[1][3].skippedTracks.length, 0);
+  assert.equal(h.calls[1][3].recentTracks.length, 0);
+  assert.deepEqual(Object.keys(h.calls[1][3].artistFeedback), []);
+  response.resolve(selection('fresh'));
+  await h.api.fetchMoreWaveTracks();
+});
+
+test('Discovery skips stay in discovery after switching modes, including cancellation of a running refresh', async () => {
+  const pending = deferredBatch();
+  const h = waveHarness([
+    selection('discovery'),
+    () => pending.promise,
+    selection('ordinary'),
+    selection('resumed'),
+  ]);
+  await h.api.startWave('discover');
+  for (let i = 0; i < 3; i++) skipCurrent(h);
+  const oldRequest = h.api.fetchMoreWaveTracks();
+  await h.api.startWave('default');
+  const ordinary = h.calls[2][3];
+  assert.equal(ordinary.discoveryAdjustment, 0);
+  assert.equal(ordinary.skippedTracks.length, 0);
+  assert.deepEqual(Object.keys(ordinary.artistFeedback), []);
+  assert.equal(ordinary.recentTracks.length, 3, 'Heard music remains excluded across modes');
+  await h.api.startWave('discover');
+  const resumed = h.calls[3][3];
+  assert.ok(resumed.discoveryAdjustment < 0 && resumed.discoveryAdjustment >= -0.1);
+  assert.equal(resumed.skippedTracks.length, 3);
+  assert.ok(Object.values(resumed.artistFeedback).every((value) => value >= -0.3));
+  pending.resolve(selection('obsolete'));
+  await oldRequest;
+  assert.ok(!h.queueRef.current.some((track) => track.id.startsWith('obsolete-')));
+});
+
+test('A failed mode start restores the old mode reactions and keeps its seed out of that mode', async () => {
+  const h = waveHarness([selection('ordinary'), [], []]);
+  await h.api.startWave();
+  const current = h.queueRef.current[0];
+  h.api.recordWavePlayback(current, 5, 200);
+  const seed = song('discovery-seed', 'Selected musician', 'Selected song');
+  await h.api.startWave('discover', seed);
+  assert.equal(h.calls[1][3].positiveTracks[0].id, seed.id);
+  await h.api.fetchMoreWaveTracks();
+  assert.equal(h.calls[2][0], 'default');
+  assert.equal(h.calls[2][3].skippedTracks[0].id, current.id);
+  assert.ok(!h.calls[2][1].some((track) => track.id === seed.id));
+});
+
+test('Repeated refresh triggers respect cooldown and bound the pending queue without dropping existing entries', async () => {
+  let now = 100000;
+  const h = waveHarness(
+    [selection('initial'), selection('first', 100), selection('second', 100)],
+    [],
+    undefined,
+    () => now,
+  );
+  await h.api.startWave();
+  for (let i = 0; i < 3; i++) skipCurrent(h);
+  await h.api.fetchMoreWaveTracks();
+  assert.ok(h.queueRef.current.length - h.queueIndexRef.current - 1 <= 50);
+  for (let i = 0; i < 6; i++) skipCurrent(h);
+  assert.equal(h.calls.length, 2, 'A skip storm does not create more requests');
+  now += 60001;
+  skipCurrent(h);
+  const ids = h.queueRef.current.map((track) => track.id);
+  await h.api.fetchMoreWaveTracks();
+  assert.equal(h.calls.length, 3);
+  assert.ok(ids.every((id) => h.queueRef.current.some((track) => track.id === id)));
+  assert.ok(h.queueRef.current.length - h.queueIndexRef.current - 1 <= 50);
+});
+
+test('Batch merging lets version ranking choose a regular recording even when its slower copy arrives first', async () => {
+  const slow = song('slowed', 'New musician', 'New song (Slowed)');
+  const regular = song('regular', 'New musician', 'New song');
+  const h = waveHarness([[song('current', 'Current musician', 'Current song')], [slow, regular]]);
+  await h.api.startWave();
+  await h.api.fetchMoreWaveTracks();
+  assert.ok(h.queueRef.current.some((track) => track.id === regular.id));
+  assert.ok(!h.queueRef.current.some((track) => track.id === slow.id));
 });

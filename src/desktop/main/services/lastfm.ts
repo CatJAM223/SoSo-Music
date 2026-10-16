@@ -63,7 +63,7 @@ export class LastFmService {
     const apiKey = this.API_KEY;
     const safeMessage = (value: unknown) => String(value).split(apiKey).join('[redacted]');
     if (!apiKey) {
-      if (required) throw new Error('Добавьте ключ Last.fm в Настройки → Интеграции.');
+      if (required) throw new Error('Добавьте ключ Last.fm в Настройки → API.');
       return null;
     }
     const query = new URLSearchParams({

@@ -40,10 +40,38 @@ function injectIcon() {
     );
   } catch (e) {}
 
+  const packageInfo = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8'),
+  );
+  const versionParts = packageInfo.version.split('.').map(Number);
+  if (
+    versionParts.length !== 3 ||
+    versionParts.some((part) => !Number.isInteger(part) || part < 0 || part > 65535)
+  )
+    throw new Error('Unsupported executable version');
+  const versions = ResEdit.Resource.VersionInfo.fromEntries(res.entries);
+  if (!versions.length) versions.push(ResEdit.Resource.VersionInfo.createEmpty());
+  for (const info of versions) {
+    info.setFileVersion(...versionParts, 0);
+    info.setProductVersion(...versionParts, 0);
+    const languages = info.getAvailableLanguages();
+    if (!languages.length) languages.push({ lang: 1033, codepage: 1200 });
+    for (const language of languages)
+      info.setStringValues(language, {
+        FileVersion: packageInfo.version,
+        ProductVersion: packageInfo.version,
+        ProductName: packageInfo.productName,
+        FileDescription: packageInfo.productName,
+        OriginalFilename: path.basename(exePath),
+        InternalName: packageInfo.name,
+      });
+    info.outputToResourceEntries(res.entries);
+  }
+
   res.outputResource(exe);
   const newExeData = Buffer.from(exe.generate());
   fs.writeFileSync(exePath, newExeData);
-  console.log('Successfully injected icon.ico into SoSo Music.exe!');
+  console.log('Updated application icon and executable version: ' + packageInfo.version);
 }
 
 injectIcon();

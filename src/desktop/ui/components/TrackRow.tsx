@@ -3,8 +3,10 @@ import { t } from '../../../shared/i18n/locale';
 import { useYouTubeAvailability } from '../../../shared/hooks/useYouTubeAvailability';
 import { youtubeDisabledProps } from '../../../shared/services/youtubeAvailability';
 import React from 'react';
-import { Play, Pause, Plus, Download, CheckCircle2, Loader2 } from 'lucide-react';
+import { TasteContextMenu } from '../../../shared/components/TasteContextMenu';
+import { Play, Pause, Download, CheckCircle2, Loader2 } from 'lucide-react';
 import { Track } from '../../../shared/types';
+import type { PlaybackOrigin } from '../../../shared/types/tastePolicy';
 import {
   useAudioState,
   useAudioControls,
@@ -24,6 +26,8 @@ interface TrackRowProps {
   index: number;
   onOpenAddToPlaylist: (track: Track) => void;
   playlistContext?: Track[];
+  playbackOrigin?: PlaybackOrigin;
+  onPlayTrack?: (track: Track) => void;
   onNavigateToArtist?: (artist: { id?: string | number; name: string }) => void;
   onNavigateToAlbum?: (album: any) => void;
   hideAlbumColumn?: boolean;
@@ -83,6 +87,8 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
     index,
     onOpenAddToPlaylist,
     playlistContext,
+    playbackOrigin,
+    onPlayTrack,
     onNavigateToArtist,
     onNavigateToAlbum,
     hideAlbumColumn = false,
@@ -139,7 +145,8 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
       if (isCurrentFullTrack && !isSnippetPlaying) {
         togglePlay();
       } else {
-        playTrack(track, playlistContext);
+        if (onPlayTrack) onPlayTrack(track);
+        else playTrack(track, playlistContext, false, undefined, playbackOrigin);
       }
     };
 
@@ -157,11 +164,6 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
       toggleLike(track);
     };
 
-    const handleAddPlaylistClick = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      onOpenAddToPlaylist(track);
-    };
-
     const coverUrl = resolveTrackCover(track);
 
     return (
@@ -171,7 +173,10 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
         onDragStart={(e) => {
           e.dataTransfer.setData(
             'application/json',
-            JSON.stringify({ type: 'EXTERNAL_TRACK', track }),
+            JSON.stringify({
+              type: 'EXTERNAL_TRACK',
+              track: { ...track, queueOrigin: playbackOrigin },
+            }),
           );
           e.dataTransfer.setData('text/plain', `track:${track.id}`);
           e.dataTransfer.effectAllowed = 'copyMove';
@@ -456,15 +461,13 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
           </button>
         </div>
 
-        {/* Add to Playlist Button */}
         <div className="w-8 flex-shrink-0 flex justify-center">
-          <button
-            onClick={handleAddPlaylistClick}
-            aria-label={t('Добавить в плейлист')}
-            className="p-1 md:p-1.5 rounded-full text-slate-400 dark:text-zinc-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-zinc-700/60 opacity-60 md:opacity-0 group-hover:opacity-100 transition-all active:scale-125"
-          >
-            <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
-          </button>
+          <TasteContextMenu
+            scope="track"
+            id={track.id}
+            label={track.title + ' — ' + track.artist?.name}
+            onAdd={() => onOpenAddToPlaylist(track)}
+          />
         </div>
 
         {/* Duration */}

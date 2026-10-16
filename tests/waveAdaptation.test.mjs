@@ -278,3 +278,40 @@ test('a successful energetic song does not erase rejection of a calm song in the
     active = { ...song('active', 'Rock'), tags: ['energetic'] };
   assert.deepEqual(reconcileWavePositiveFeedback([calm], active), [calm]);
 });
+
+test('Discovery feedback cannot change novelty in other modes, while lasting liked taste stays shared', () => {
+  const p = createWavePreferences(storage());
+  for (let i = 0; i < 3; i++)
+    p.record(song('discovery-skip-' + i), -0.3, true, 'listen', 'discover');
+  assert.equal(p.discoveryAdjustment('default'), 0);
+  assert.equal(p.discoveryAdjustment('chill'), 0);
+  assert.ok(p.discoveryAdjustment('discover') < 0);
+  assert.ok(p.discoveryAdjustment('discover') >= -0.1);
+  p.record(song('liked-discovery'), 1, true, 'like', 'discover');
+  assert.ok(p.learnedTracks().some((track) => track.id === 'liked-discovery'));
+  for (let i = 0; i < 3; i++) p.record(song('ordinary-skip-' + i), -0.6, true, 'listen', 'default');
+  assert.ok(p.discoveryAdjustment('default') < p.discoveryAdjustment('discover'));
+});
+
+test('Discovery is more tolerant of implicit skips; measured successes and media errors keep their meaning', () => {
+  for (const seconds of [5, 20]) {
+    const ordinary = getWavePlaybackFeedback(seconds, 200, 'skip', 'default');
+    const discovery = getWavePlaybackFeedback(seconds, 200, 'skip', 'discover');
+    assert.ok(discovery < 0 && discovery > ordinary);
+  }
+  for (const reason of ['error', 'interrupted'])
+    assert.equal(getWavePlaybackFeedback(5, 200, reason, 'discover'), 0);
+  assert.equal(getWavePlaybackFeedback(195, 200, 'ended', 'discover'), 0.35);
+});
+
+test('Idle sessions clear every mode temporary buffer while preserving confirmed discoveries', () => {
+  let stamp = 100000;
+  const p = createWavePreferences(storage(), () => stamp);
+  for (const mood of ['default', 'discover', 'chill'])
+    for (let i = 0; i < 3; i++) p.record(song(mood + '-' + i), -0.6, true, 'listen', mood);
+  p.record(song('liked'), 1, true, 'like', 'discover');
+  stamp += WAVE_SESSION_IDLE_MS + 1;
+  assert.equal(p.touchSession(), true);
+  for (const mood of ['default', 'discover', 'chill']) assert.equal(p.discoveryAdjustment(mood), 0);
+  assert.equal(p.learnedTracks()[0].id, 'liked');
+});

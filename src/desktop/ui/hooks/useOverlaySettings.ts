@@ -40,5 +40,20 @@ export function useOverlaySettings(active: boolean) {
       if (ticket === revision.current) setBusy(false);
     }
   }
-  return { enabled, busy, error, save };
+  async function edit() {
+    if (enabled !== true || busy || !window.electronAPI?.editPlayerOverlay) return false;
+    const ticket = ++revision.current;
+    setBusy(true);
+    setError('');
+    try {
+      await window.electronAPI.editPlayerOverlay();
+      return ticket === revision.current;
+    } catch {
+      if (ticket === revision.current) setError(t('Не удалось открыть настройку оверлея.'));
+      return false;
+    } finally {
+      if (ticket === revision.current) setBusy(false);
+    }
+  }
+  return { enabled, busy, error, save, edit };
 }

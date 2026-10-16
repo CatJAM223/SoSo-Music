@@ -32,18 +32,7 @@ function initializer(relativePath, name) {
   }).outputText;
 }
 function filterTracksByQuery(tracks, query) {
-  const ctx = vm.createContext({
-    tracks,
-    queryLower: query.trim().toLowerCase(),
-    filterLibraryTracks,
-    useMemo: (callback) => callback(),
-  });
-  vm.runInContext(
-    initializer('../src/shared/hooks/useMyMusicViewModel.ts', 'filteredTracks') +
-      '\nthis.result = actual;',
-    ctx,
-  );
-  return Array.from(ctx.result);
+  return filterLibraryTracks(tracks, query.trim().toLowerCase());
 }
 
 function sleepTimerHarness() {

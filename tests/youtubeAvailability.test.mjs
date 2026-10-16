@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as tastePolicy from '../src/shared/utils/tastePolicy.ts';
 import * as access from '../src/shared/services/youtubeAvailability.ts';
+import * as playbackIntent from '../src/shared/utils/playbackIntent.ts';
 const yt = { id: 'yt_fixture', source: 'youtube' },
   sc = { id: 'sc_fixture', source: 'soundcloud' };
 function desktop(t) {
@@ -88,6 +90,9 @@ function playGateFixture() {
   const events = [];
   const scope = {
     ...access,
+    ...playbackIntent,
+    ...tastePolicy,
+    AbortController,
     retryingTemporaryFailureRef: ref(false),
     temporaryRecoveryRef: ref(null),
     temporaryRetryAttemptRef: ref(0),
@@ -148,6 +153,9 @@ test('Play/pause opt-out has positive resume/pause controls for both providers',
   const events = [],
     scope = {
       ...access,
+      ...playbackIntent,
+      ...tastePolicy,
+      AbortController,
       currentTrackRef: ref(yt),
       isWaveStartingRef: ref(false),
       audioRef: ref({ paused: true }),
@@ -179,6 +187,9 @@ test('Prefetch opt-out preserves permitted requests and skips blocked YouTube', 
   const calls = [],
     scope = {
       ...access,
+      ...playbackIntent,
+      ...tastePolicy,
+      AbortController,
       false: false,
       audioRef: ref({ paused: false, readyState: 4 }),
       pendingResolutionRef: ref(false),
@@ -203,12 +214,17 @@ test('Snippet opt-out keeps both permitted providers resolving while blocked You
   desktop(t);
   access.setYouTubePlaybackDisabled(true);
   const requests = [],
+    requestSignals = [],
     selected = [],
     loads = [],
     scope = {
       ...access,
+      ...playbackIntent,
+      ...tastePolicy,
+      AbortController,
       snippetAudioRef: ref({ pause() {}, currentTime: 0 }),
       streamRequestIdRef: ref(0),
+      streamAbortRef: ref(null),
       onPauseMainAudio: () => {},
       setSnippetTrack: (track) => selected.push(track.id),
       setSnippetProgress: () => {},
@@ -225,8 +241,9 @@ test('Snippet opt-out keeps both permitted providers resolving while blocked You
       detectTrackSource: (track) => track.source,
       loadStreamIntoAudio: (...args) => loads.push(args),
       platformBridge: {
-        getFullStreamUrl: async (track) => {
+        getFullStreamUrl: async (track, _options, signal) => {
           requests.push(track.id);
+          requestSignals.push(signal);
           return null;
         },
       },
@@ -243,6 +260,7 @@ test('Snippet opt-out keeps both permitted providers resolving while blocked You
   assert.deepEqual(selected, []);
   assert.deepEqual(loads, []);
   assert.equal(scope.streamRequestIdRef.current, 0);
+  assert.equal(scope.streamAbortRef.current, null);
   preview(sc);
   await Promise.resolve();
   assert.deepEqual(requests, [sc.id]);
@@ -253,6 +271,8 @@ test('Snippet opt-out keeps both permitted providers resolving while blocked You
   assert.deepEqual(requests, [sc.id, yt.id]);
   assert.deepEqual(selected, [sc.id, yt.id]);
   assert.equal(scope.streamRequestIdRef.current, 2);
+  assert.equal(requestSignals[0].aborted, true, 'replacement cancels the old snippet stream owner');
+  assert.equal(requestSignals[1].aborted, false);
 });
 
 test('Offline download opt-out blocks all side effects and permits actual saving when allowed', async (t) => {
@@ -263,6 +283,9 @@ test('Offline download opt-out blocks all side effects and permits actual saving
     progress = [],
     scope = {
       ...access,
+      ...playbackIntent,
+      ...tastePolicy,
+      AbortController,
       getOfflineDownloadProgress: () => null,
       setOfflineDownloadProgress: (id, value) => progress.push([id, value]),
       emitToast: () => {},
@@ -312,6 +335,9 @@ test('Actual next-track callback skips blocked items and stops an all-YouTube re
     paused = 0;
   const scope = {
     ...access,
+    ...playbackIntent,
+    ...tastePolicy,
+    AbortController,
     currentTrackRef: { current: sc },
     audioRef: {
       current: {

@@ -51,7 +51,8 @@ test('main wave IPC keeps a liked recording cover through taste selection and th
       'getDislikedWaveTracks',
     ].map((key) => [key, () => []]),
   );
-  db.getLikedTracks = () => [liked];
+  db.getTastePolicy = () => ({ revision: 0, exclusions: [] });
+  db.getTasteLikedTracks = () => [liked];
   t.mock.method(MusicAggregatorService, 'getWaveBatch', async (_mood, seeds) => {
     const pool = new WaveCandidatePool({
       mood: 'favorites',

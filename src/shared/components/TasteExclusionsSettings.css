@@ -1,0 +1,60 @@
+.taste-exclusions {
+  min-width: 0;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--settings-line);
+}
+.taste-exclusions-title {
+  display: block;
+  color: var(--settings-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.taste-exclusions-description,
+.taste-exclusions-empty,
+.taste-exclusions-error {
+  margin: 6px 0 0;
+  color: var(--settings-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.taste-exclusions-empty {
+  margin-top: 12px;
+}
+.taste-exclusions-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.taste-exclusions-item {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.taste-exclusions-label {
+  min-width: 0;
+  flex: 1 1 200px;
+  color: var(--settings-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.taste-exclusions .taste-exclusions-action {
+  max-width: 100%;
+  flex: 0 1 auto;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.taste-exclusions-error {
+  color: #ef4444;
+}

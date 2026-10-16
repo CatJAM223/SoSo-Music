@@ -1490,3 +1490,67 @@ test('Watch preference does not convert per-recording age restrictions into anot
   );
   assert.equal(players, 0);
 });
+
+test('Account bootstrap recovers a player-script failure using a signed local client and watch page', async (t) => {
+  const f = fixture(t),
+    { Innertube } = await import('youtubei.js');
+  f.setCookies(['SAPISID', 'SID'].map((name) => ({ name, value: 'synthetic' })));
+  await f.account.status();
+  const calls = [];
+  t.mock.method(Innertube, 'create', async (options) => {
+    calls.push(options);
+    if (calls.length === 1)
+      throw Object.assign(new Error('Failed to get player data'), { name: 'PlayerError' });
+    return {
+      session: {},
+      actions: {},
+      getBasicInfo: () => assert.fail('Recovered bootstrap must use the signed watch response'),
+    };
+  });
+  let watches = 0;
+  f.account.getWatchInfo = async () => {
+    watches++;
+    return { info: validAudioInfo(), player: undefined };
+  };
+  const result = await f.account.resolve('W0LiTBNjJ_o', {});
+  assert.ok(result.url);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].retrieve_player, false);
+  assert.equal(calls[1].generate_session_locally, true);
+  assert.equal(calls[1].retrieve_innertube_config, false);
+  assert.ok(calls[1].cookie.includes('SAPISID=synthetic'));
+  assert.equal(watches, 1);
+  assert.equal((await f.account.status()).connected, true);
+  assert.equal((await f.account.status()).error, undefined);
+});
+test('Account bootstrap never treats a real network or access error as a player-script recovery', async (t) => {
+  const f = fixture(t),
+    { Innertube } = await import('youtubei.js');
+  f.setCookies(['SAPISID', 'SID'].map((name) => ({ name, value: 'synthetic' })));
+  await f.account.status();
+  let calls = 0;
+  t.mock.method(Innertube, 'create', async () => {
+    calls++;
+    throw new TypeError('fetch failed');
+  });
+  await assert.rejects(f.account.getClient(), /fetch failed/);
+  assert.equal(calls, 1);
+  t.mock.method(Innertube, 'create', async () => {
+    calls++;
+    throw new Error('YOUTUBE_AUDIO_LOGIN_REQUIRED');
+  });
+  await assert.rejects(f.account.getClient(), /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
+  assert.equal(calls, 2);
+});
+test('Refresh reports a client failure without accusing the internet or deleting the signed-in account', async (t) => {
+  const f = fixture(t);
+  f.setCookies(['SAPISID', 'SID'].map((name) => ({ name, value: 'synthetic' })));
+  await f.account.status();
+  f.account.getClient = async () => {
+    throw new TypeError('Invalid client bootstrap');
+  };
+  const status = await f.account.refresh();
+  assert.equal(status.connected, true);
+  assert.match(status.error, /не смог подготовить/);
+  assert.doesNotMatch(status.error, /проверьте соединение/i);
+});

@@ -94,7 +94,7 @@ try {
               return { contents: 'export const emitToast=()=>{};', loader: 'js' };
             return {
               contents:
-                'export const platformBridge={getLyrics:async()=>[{time:12,text:"First lyric"},{time:20,text:"Second lyric"},{time:30,text:"Third lyric"}],getChords:async()=>null,getSongsterrTab:async()=>null,getListeningHistory:async()=>[],getStats:async()=>null,getLanSyncStatus:async()=>({active:false,addresses:[]}),onLanSyncImported:()=>()=>{},getOfficialVideoClip:async()=>window.fixtureVideoMode?(window.fixtureClipId||"fixture1234"):null,getVideoStream:async(id,options)=>{window.fixtureVideoRequests.push({id,options});if(window.fixtureStreamResolver)return window.fixtureStreamResolver(id,options);return window.fixtureVideoRequests.length===1?"":window.fixtureVideoUrl;}};',
+                'export const platformBridge={getTastePolicy:async()=>({revision:0,exclusions:[]}),onTastePolicyChanged:()=>()=>{},getLyrics:async()=>[{time:12,text:"First lyric"},{time:20,text:"Second lyric"},{time:30,text:"Third lyric"}],getChords:async()=>null,getSongsterrTab:async()=>null,getListeningHistory:async()=>[],getStats:async()=>null,getLanSyncStatus:async()=>({active:false,addresses:[]}),onLanSyncImported:()=>()=>{},getOfficialVideoClip:async()=>window.fixtureVideoMode?(window.fixtureClipId||"fixture1234"):null,getVideoStream:async(id,options)=>{window.fixtureVideoRequests.push({id,options});if(window.fixtureStreamResolver)return window.fixtureStreamResolver(id,options);return window.fixtureVideoRequests.length===1?"":window.fixtureVideoUrl;}};',
               loader: 'js',
             };
           });
@@ -114,6 +114,7 @@ try {
       '\n' +
       [
         'src/shared/components/settings/settings.css',
+        'src/shared/components/TasteExclusionsSettings.css',
         'src/shared/components/settings/SettingsLibraryTaste.css',
         'src/shared/components/settings/LibraryGenreChart.css',
         'src/desktop/ui/components/DesktopConnectionDialogs.css',

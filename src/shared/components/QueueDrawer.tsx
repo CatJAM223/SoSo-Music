@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAudioState, useAudioControls } from '../context/AudioContext';
 import { Track } from '../types';
+import { queueEntryKey } from '../utils/queueEntry';
 import { advanceTrackArtwork } from '../utils/trackArtwork';
 import { detectTrackSource, resolveTrackCover, formatTime } from '../utils/formatters';
 import { extractAllArtists } from '../utils/artistParser';
@@ -282,7 +283,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                   return (
                     <div
                       {...youtubeDisabledProps(track, youtubeDisabled)}
-                      key={`${track.id}-${actualIndex}-${item.isLoopWrapped ? 'loop' : 'normal'}`}
+                      key={queueEntryKey(track)}
                       role="listitem"
                       data-queue-next={idx === 0 ? true : undefined}
                       onDragStart={(e) => {

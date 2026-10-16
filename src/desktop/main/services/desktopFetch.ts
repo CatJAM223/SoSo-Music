@@ -1,3 +1,7 @@
+import { ProviderHttpPolicy } from './providerHttpPolicy.ts';
+import { streamRequestInit } from './streamResolveContext.ts';
+const providerHttpPolicy = new ProviderHttpPolicy();
+
 // Keep catalog resolution and audio downloads on Electron's network stack.
 // A local VPN proxy can give Node fetch and Chromium different exit IPs;
 // media URLs resolved on one connection may then fail on the other.
@@ -15,10 +19,21 @@ export async function resetDesktopYouTubeSession(): Promise<void> {
 
 export function setDesktopFetch(fetcher: typeof electronFetch): void {
   electronFetch = fetcher;
+  providerHttpPolicy.clear();
+}
+
+export function desktopProviderFetch(
+  url: string,
+  init: RequestInit | undefined,
+  fetcher: (url: string, init?: RequestInit) => Promise<Response>,
+): Promise<Response> {
+  return providerHttpPolicy.fetch(url, streamRequestInit(init), fetcher);
 }
 
 export function desktopFetch(url: string, init?: RequestInit): Promise<Response> {
-  return electronFetch ? electronFetch(url, init) : fetch(url, init);
+  return desktopProviderFetch(url, init, (target, options) =>
+    electronFetch ? electronFetch(target, options) : fetch(target, options),
+  );
 }
 
 export function setDesktopNetworkRecovery(recover: typeof networkRecovery): void {

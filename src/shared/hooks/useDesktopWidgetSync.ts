@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Track } from '../types';
 
 interface UseDesktopWidgetSyncProps {
@@ -34,6 +34,26 @@ export function useDesktopWidgetSync({
   setVolume,
   toggleLike,
 }: UseDesktopWidgetSyncProps) {
+  const [widgetOpen, setWidgetOpen] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let receivedEvent = false;
+    const unsubscribe = window.electronAPI?.onWidgetVisibilityChanged?.((open) => {
+      receivedEvent = true;
+      if (active) setWidgetOpen(open);
+    });
+    void window.electronAPI
+      ?.isWidgetOpen?.()
+      .then((open) => {
+        if (active && !receivedEvent) setWidgetOpen(open);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
+
   // Sync playback state to Desktop Mini-Widget (only on discrete state changes, avoiding IPC flooding)
   useEffect(() => {
     if (window.electronAPI?.sendWidgetState) {
@@ -50,9 +70,9 @@ export function useDesktopWidgetSync({
     }
   }, [currentTrack, isPlaying, duration, likedTrackIds, volume, audioRef]);
 
-  // Periodic throttled sync (every 5 seconds) to prevent any drift in Mini-Widget without IPC flooding
+  // Only an open widget needs progress correction; the overlay uses discrete metadata above.
   useEffect(() => {
-    if (!isPlaying || !window.electronAPI?.sendWidgetState) return;
+    if (!widgetOpen || !isPlaying || !window.electronAPI?.sendWidgetState) return;
     const interval = setInterval(() => {
       if (window.electronAPI?.sendWidgetState && currentTrackRef.current) {
         const idStr = String(currentTrackRef.current.id);
@@ -68,7 +88,7 @@ export function useDesktopWidgetSync({
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [isPlaying, likedTrackIds, currentTrackRef, audioRef]);
+  }, [widgetOpen, isPlaying, likedTrackIds, currentTrackRef, audioRef]);
 
   // Listen to remote commands from Desktop Mini-Widget
   useEffect(() => {

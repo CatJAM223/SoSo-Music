@@ -1,6 +1,13 @@
+import {
+  assertStreamResolveActive,
+  currentStreamResolveSignal,
+  streamWait,
+  streamShared,
+} from './streamResolveContext.ts';
 import { requestSignal } from '../../../shared/utils/requestSignal.ts';
 import {
   createStreamResolveError,
+  getStreamResolveFailure,
   streamHttpFailure,
   streamTransportFailure,
   type StreamResolveFailure,
@@ -25,17 +32,23 @@ export class SoundCloudTransport {
     retryTransient = false,
     strictPlayback = retryTransient,
     signal?: AbortSignal,
+    onStatus?: (status: number) => void,
   ): Promise<any> {
+    assertStreamResolveActive();
+    signal ??= currentStreamResolveSignal();
     signal?.throwIfAborted();
     let transientFailure = false;
     let failure: StreamResolveFailure | null = null;
     try {
-      const response = await this.fetch(endpoint, {
-        headers: { 'User-Agent': USER_AGENT },
-        signal: requestSignal(signal, 8000),
-      });
-      if (response.ok) return await response.json();
-      await response.body?.cancel().catch(() => {});
+      const response = await streamWait(
+        this.fetch(endpoint, {
+          headers: { 'User-Agent': USER_AGENT },
+          signal: requestSignal(signal, 8000),
+        }),
+      );
+      onStatus?.(response.status);
+      if (response.ok) return await streamWait(response.json());
+      await streamWait(response.body?.cancel().catch(() => {}));
       const requestPath = new URL(endpoint).pathname;
       const kind = requestPath.includes('/media/')
         ? 'media'
@@ -49,7 +62,7 @@ export class SoundCloudTransport {
       transientFailure = response.status >= 500;
       if ((response.status === 401 || response.status === 403) && !isRetry) {
         signal?.throwIfAborted();
-        const key = await refreshKey();
+        const key = await streamShared(() => refreshKey());
         signal?.throwIfAborted();
         if (key)
           return this.fetchJson(
@@ -60,22 +73,38 @@ export class SoundCloudTransport {
             retryTransient,
             strictPlayback,
             signal,
+            onStatus,
           );
       }
     } catch (error) {
+      assertStreamResolveActive();
       signal?.throwIfAborted();
       transientFailure = true;
-      failure = streamTransportFailure(error);
+      failure = getStreamResolveFailure(error) || streamTransportFailure(error);
       console.debug('[SoundCloudTransport] Direct request failed:', error);
+    }
+    if (failure === 'rate-limit') {
+      if (strictPlayback) throw createStreamResolveError(failure);
+      return null;
     }
     // Playback may recover a dropped connection once; typing/search never multiplies retries.
     if (transientFailure && retryTransient) {
       try {
-        await recoverDesktopNetwork();
+        await streamShared(() => recoverDesktopNetwork());
       } catch {
+        assertStreamResolveActive();
         /* Retry the request even if proxy reload failed. */
       }
-      return this.fetchJson(endpoint, proxyUrl, refreshKey, isRetry, false, strictPlayback, signal);
+      return this.fetchJson(
+        endpoint,
+        proxyUrl,
+        refreshKey,
+        isRetry,
+        false,
+        strictPlayback,
+        signal,
+        onStatus,
+      );
     }
     if (!proxyUrl) {
       if (strictPlayback && failure) throw createStreamResolveError(failure);
@@ -88,17 +117,21 @@ export class SoundCloudTransport {
           : proxyUrl.includes('?')
             ? `${proxyUrl}&url=${encodeURIComponent(endpoint)}`
             : `${proxyUrl.endsWith('/') ? proxyUrl : `${proxyUrl}/`}${encodeURIComponent(endpoint)}`;
-      const response = await this.fetch(proxyEndpoint, {
-        headers: { 'User-Agent': USER_AGENT },
-        signal: requestSignal(signal, 8000),
-      });
-      if (response.ok) return await response.json();
-      await response.body?.cancel().catch(() => {});
+      const response = await streamWait(
+        this.fetch(proxyEndpoint, {
+          headers: { 'User-Agent': USER_AGENT },
+          signal: requestSignal(signal, 8000),
+        }),
+      );
+      onStatus?.(response.status);
+      if (response.ok) return await streamWait(response.json());
+      await streamWait(response.body?.cancel().catch(() => {}));
       PlaybackLogger.warn('[SoundCloud:HTTP] kind=relay status=' + response.status);
       failure = streamHttpFailure(response.status) || failure;
     } catch (error) {
+      assertStreamResolveActive();
       signal?.throwIfAborted();
-      failure = streamTransportFailure(error);
+      failure = getStreamResolveFailure(error) || streamTransportFailure(error);
       console.debug('[SoundCloudTransport] Proxy request failed:', error);
     }
     if (strictPlayback && failure) throw createStreamResolveError(failure);

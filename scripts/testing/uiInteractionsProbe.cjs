@@ -342,11 +342,17 @@ app.whenReady().then(async () => {
           document.documentElement.style.setProperty('--theme-accent', '#06b6d4');
           document.documentElement.style.setProperty('--theme-accent-rgb', '6, 182, 212');
           await wait();
-          if (
+          // The registered mood colour and background colour animate in succession.
+          // Await the actual result while keeping the offscreen compositor producing frames.
+          const themeDeadline = performance.now() + 2000;
+          while (
             getComputedStyle(selected.querySelector('.wave-slice-shape')).backgroundColor !==
             'rgb(6, 182, 212)'
-          )
-            throw Error('Theme change did not update selection');
+          ) {
+            if (performance.now() >= themeDeadline)
+              throw Error('Theme change did not update selection');
+            await new Promise(requestAnimationFrame);
+          }
           const energy = document.querySelector('[data-wave-slice="energy"]');
           energy.focus();
           await wait();

@@ -3,6 +3,7 @@ import { t } from '../../../shared/i18n/locale';
 import React, { useEffect, useState, useMemo } from 'react';
 import { ListMusic, Play, Trash2, Music, Clock, Search, X, Plus, ImagePlus } from 'lucide-react';
 import { Playlist, Track } from '../../../shared/types';
+import { TasteContextMenu } from '../../../shared/components/TasteContextMenu';
 import { TrackTable } from '../components/TrackTable';
 import { useAudioControls } from '../../../shared/context/AudioContext';
 import { ConfirmDeleteModal } from '../components/modals/ConfirmDeleteModal';
@@ -79,7 +80,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({
 
   const handlePlayAll = () => {
     if (tracks.length > 0) {
-      playTrack(tracks[0], tracks);
+      playTrack(tracks[0], tracks, false, undefined, { kind: 'playlist', id: String(playlist.id) });
     }
   };
 
@@ -177,6 +178,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({
               <span>{t('Добавить трек')}</span>
             </button>
 
+            <TasteContextMenu scope="playlist" id={playlist.id} label={playlist.name} />
             <button
               onClick={() => setIsDeleteModalOpen(true)}
               className="flex items-center gap-1.5 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full bg-white dark:bg-zinc-800/80 hover:bg-red-50 dark:hover:bg-red-500/20 text-slate-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 text-xs font-semibold border border-slate-200 dark:border-zinc-700 transition-colors shadow-sm"
@@ -262,6 +264,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({
           </div>
         ) : (
           <TrackTable
+            playbackOrigin={{ kind: 'playlist', id: String(playlist.id) }}
             tracks={filteredTracks}
             onOpenAddToPlaylist={onOpenAddToPlaylist}
             onNavigateToArtist={onNavigateToArtist}
