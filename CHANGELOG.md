@@ -1,7 +1,22 @@
 # Changelog
 
+### [3.2.0]
+
+- Preserve in-flight prefetch for the selected track instead of cancelling and resolving it again; pause, switching and shutdown still cancel stale work.
+- Start RAM-cached audio before IndexedDB lookup and play offline audio without waiting for artwork. Apply late artwork only to its owning playback request.
+- Verify startup regressions through the actual player/cache/shared-resolver chain and isolated mutation checks.
+
 ### [3.1.5]
 
+- Save local native crash dumps, main/child-process errors, session exit status and bounded memory diagnostics. Recover the main renderer with a retry budget; verify real renderer and main-process crashes in an isolated profile.
+
+- Run the full Electron/UI suite and integration sensitivity checks in CI and before releases. Verify real main/preload wiring, wallpaper decoding/seek/restart, foreign-window rejection and browser CSP enforcement; check the production YouTube adapter after building. Replace inline boot JavaScript with local assets and hash the development React Refresh preamble.
+
+- Restrict local wallpapers to picker-approved file capabilities, upgrade Electron to 44.9.0, and cancel concurrent LAN starts safely. Reselect an existing wallpaper once after upgrading.
+
+- Restore overlays from actual native visibility without moving them to the cursor display; recreate a failed renderer on the next toggle. Use a full-window update backdrop with a smaller announcement card.
+- Refresh SoundCloud snippet links before playback and recover once through another rendition; closing or pausing prevents stale preview callbacks from restarting audio. Remove library item counters from My Music tabs.
+- Bound silent HLS startup to 8 seconds, try another SoundCloud rendition on recovery and keep HLS MediaSources separate from cached audio files. Preserve the queue on repeated transport timeouts and support the soundcloud.cloud delivery domain.
 - Recover removed saved SoundCloud recordings through bounded matching in the same service, preserving library IDs.
 - Preserve the signed-in YouTube watch parser in production builds, retry internal client bootstrap once and distinguish preparation errors from network failures.
 

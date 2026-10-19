@@ -18,6 +18,10 @@ import * as access from '../src/shared/utils/youtubeAudioAccessError.ts';
 import * as tastePolicy from '../src/shared/utils/tastePolicy.ts';
 import { HlsRecoveryBudget } from '../src/shared/utils/hlsRecovery.ts';
 
+import { AudioCacheService } from '../src/shared/services/audioCacheService.ts';
+import { SharedStreamResolver } from '../src/desktop/main/services/sharedStreamResolver.ts';
+import { currentStreamResolveSignal } from '../src/desktop/main/services/streamResolveContext.ts';
+import { platformBridge } from '../src/shared/bridge/platformBridge.ts';
 import { AudioCrossfade } from '../src/shared/services/audioCrossfade.ts';
 import { TrackVolumeNormalization } from '../src/shared/services/trackVolumeNormalization.ts';
 import { StreamResolveTimeoutError } from '../src/shared/utils/streamResolveDeadline.ts';
@@ -80,6 +84,8 @@ function fixture({
   native = false,
   realCrossfade = false,
   realDeadline = false,
+  cacheService = null,
+  offline = {},
   now = () => performance.now(),
 } = {}) {
   const nativeLoads = [],
@@ -189,6 +195,9 @@ function fixture({
       },
     },
     '../utils/hlsRecovery': { HlsRecoveryBudget },
+    '../utils/audioStartup': {
+      source: new URL('../src/shared/utils/audioStartup.ts', import.meta.url),
+    },
     '../services/audioCrossfade': {
       AudioCrossfade: realCrossfade
         ? AudioCrossfade
@@ -247,8 +256,8 @@ function fixture({
       },
     },
     '../services/audioCacheService': {
-      AudioCacheService: { isHlsUrl: () => false },
-      audioCacheService: {
+      AudioCacheService,
+      audioCacheService: cacheService || {
         clear: noop,
         setPlaybackActive: noop,
         getCachedBlobUrl: () => null,
@@ -262,7 +271,12 @@ function fixture({
       },
     },
     '../services/offlineCacheService': {
-      offlineCacheService: { getCachedTrackUrl: async () => null, releaseUnusedTrackUrls: noop },
+      offlineCacheService: {
+        getCachedTrackUrl: async () => null,
+        releaseUnusedTrackUrls: noop,
+        ownsBlobUrl: () => false,
+        ...offline,
+      },
     },
     '../context/ToastContext': { emitToast: (message) => toasts.push(message) },
     '../utils/logger': { logger: { debug: noop, warn: noop } },
@@ -1771,4 +1785,213 @@ test('Actual core forwards its resolution signal to the bridge and pause cancels
   await f.h.flush();
   assert.equal(f.audio.plays, 0);
   f.h.unmount();
+});
+
+function hlsStartupFixture() {
+  const requests = [],
+    sources = [],
+    instances = [];
+  const queue = [{ ...track('fixture'), id: '2381180949', source: 'soundcloud' }];
+  const f = fixture({
+    queue,
+    resolve: async (item, options) => {
+      requests.push({ id: item.id, ...options });
+      return 'https://playback.media-streaming.soundcloud.cloud/fixture/playlist.m3u8';
+    },
+  });
+  class HeldManifest {
+    static isSupported() {
+      return true;
+    }
+    static Events = {
+      MEDIA_ATTACHED: 'attached',
+      MANIFEST_PARSED: 'manifest',
+      ERROR: 'error',
+      DESTROYING: 'destroying',
+    };
+    static ErrorTypes = { NETWORK_ERROR: 'network', MEDIA_ERROR: 'media' };
+    callbacks = new Map();
+    constructor() {
+      instances.push(this);
+    }
+    on(name, callback) {
+      this.callbacks.set(name, callback);
+    }
+    attachMedia(audio) {
+      audio.src = 'blob:hls-' + instances.length;
+      this.callbacks.get('attached')?.();
+    }
+    loadSource(url) {
+      sources.push(url);
+    }
+    destroy() {
+      this.callbacks.get('destroying')?.();
+    }
+  }
+  f.bindings['hls.js'].default = HeldManifest;
+  f.bindings['../services/audioCacheService'].AudioCacheService.isHlsUrl = () => true;
+  return { ...f, requests, sources, instances };
+}
+test('Actual hook recovers HLS before its first manifest, tries another rendition, then preserves the queue', async () => {
+  const f = hlsStartupFixture();
+  await f.h.api().playTrack(f.props.queueRef.current[0]);
+  await f.h.flush();
+  assert.equal(f.audio.paused, true);
+  assert.equal(f.audio.plays, 0);
+  assert.equal(f.sources.length, 1);
+  f.h.fireTimers(8000);
+  await f.h.flush();
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests[1].forceRefresh, true);
+  assert.equal(f.requests[1].preferAlternateFormat, true);
+  f.h.fireTimers(8000);
+  await f.h.flush();
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.h.api().playbackIssue.kind, 'timeout');
+  assert.equal(f.h.api().isLoadingTrack, false);
+  assert.equal(f.props.queueIndexRef.current, 0);
+  assert.equal(f.props.queueRef.current[0].id, '2381180949');
+  f.h.unmount();
+  assert.equal(f.h.lateUpdates(), 0);
+});
+test('Actual hook does not refresh a silently loading HLS source after pause or unmount', async () => {
+  for (const action of ['pause', 'unmount']) {
+    const f = hlsStartupFixture();
+    await f.h.api().playTrack(f.props.queueRef.current[0]);
+    await f.h.flush();
+    if (action === 'pause') f.h.api().pauseMainAudio();
+    else f.h.unmount();
+    f.h.fireTimers(8000);
+    if (action === 'pause') await f.h.flush();
+    else await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.h.lateUpdates(), 0);
+    f.h.unmount();
+  }
+});
+
+// Exercise the real hook -> cache -> shared resolver ownership, replacing transport only.
+function sharedPrefetchFixture(t, options = {}) {
+  const cache = new AudioCacheService(),
+    shared = new SharedStreamResolver(),
+    requests = [];
+  const resolve = (item, settings, signal) =>
+    shared.resolve(item, settings || {}, signal, (_track, liveOptions) => {
+      const result = deferred(),
+        transportSignal = currentStreamResolveSignal();
+      const request = { id: item.id, signal: transportSignal, result, liveOptions };
+      requests.push(request);
+      return new Promise((yes, no) => {
+        const abort = () => no(transportSignal.reason);
+        transportSignal.addEventListener('abort', abort, { once: true });
+        result.promise
+          .then(yes, no)
+          .finally(() => transportSignal.removeEventListener('abort', abort));
+      });
+    });
+  t.mock.method(platformBridge, 'getFullStreamUrl', resolve);
+  const f = fixture({ ...options, cacheService: cache, resolve });
+  t.after(() => {
+    f.h.unmount();
+    cache.clear();
+  });
+  return { ...f, cache, requests };
+}
+
+test('selecting an in-flight prefetched track keeps one transport and promotes session recovery', async (t) => {
+  const f = sharedPrefetchFixture(t);
+  const [selected, other] = f.props.queueRef.current;
+  const prefetch = f.cache.prefetchTrack(selected);
+  const speculative = f.cache.prefetchTrack(other);
+  await f.h.flush();
+  await f.h.api().playTrack(selected);
+  await f.h.flush();
+  assert.equal(f.requests.length, 2, 'one transport each for selected and unrelated prefetch');
+  const active = f.requests.find((r) => r.id === selected.id);
+  assert.equal(active.signal.aborted, false);
+  assert.equal(active.liveOptions.allowSessionRecovery, true);
+  assert.equal(f.requests.find((r) => r.id === other.id).signal.aborted, true);
+  active.result.resolve('https://rr1.googlevideo.com/videoplayback?itag=140');
+  await Promise.all([prefetch, speculative]);
+  await f.h.flush();
+  assert.equal(f.audio.plays, 1);
+  assert.equal(f.requests.filter((r) => r.id === selected.id).length, 1);
+});
+
+test('rapid selection while buffering cancels the retained prefetch; its late source cannot play', async (t) => {
+  const f = sharedPrefetchFixture(t);
+  const [first, second] = f.props.queueRef.current;
+  const prefetch = f.cache.prefetchTrack(first);
+  await f.h.flush();
+  await f.h.api().playTrack(first);
+  await f.h.flush();
+  await f.h.api().playTrack(second);
+  await f.h.flush();
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests[0].signal.aborted, true);
+  f.requests[0].result.resolve('https://rr1.googlevideo.com/videoplayback?itag=18');
+  await prefetch;
+  await f.h.flush();
+  assert.equal(f.audio.plays, 0);
+  f.requests[1].result.resolve('https://rr1.googlevideo.com/videoplayback?itag=140');
+  await f.h.flush();
+  assert.equal(f.audio.plays, 1);
+  assert.equal(f.h.api().currentTrack.id, second.id);
+});
+
+test('pause and unmount cancel a selected prefetch even while offline storage is pending', async (t) => {
+  for (const action of ['pause', 'unmount']) {
+    const lookup = deferred();
+    const f = sharedPrefetchFixture(t, { offline: { getCachedTrackUrl: () => lookup.promise } });
+    const prefetch = f.cache.prefetchTrack(f.props.queueRef.current[0]);
+    await f.h.flush();
+    const selection = f.h.api().playTrack(f.props.queueRef.current[0]);
+    await f.h.flush();
+    assert.equal(f.requests[0].signal.aborted, false);
+    if (action === 'pause') f.h.api().pauseMainAudio();
+    else f.h.unmount();
+    assert.equal(f.requests[0].signal.aborted, true);
+    lookup.resolve(null);
+    await Promise.all([selection, prefetch]);
+    if (action === 'pause') await f.h.flush();
+    assert.equal(f.audio.plays, 0);
+    assert.equal(f.h.lateUpdates(), 0);
+  }
+});
+
+test('offline audio starts before delayed artwork; a late cover cannot overwrite the next selection', async () => {
+  for (const switchTrack of [false, true]) {
+    const cover = deferred();
+    const f = fixture({
+      offline: {
+        getCachedTrackUrl: async () => 'blob:offline-audio',
+        getCachedCoverUrl: () => cover.promise,
+      },
+    });
+    try {
+      const [first, second] = f.props.queueRef.current;
+      const selection = f.h.api().playTrack(first);
+      await f.h.flush();
+      assert.equal(f.audio.plays, 1, 'artwork is still pending');
+      assert.equal(f.audio.src, 'blob:offline-audio');
+      await selection;
+      assert.equal(f.bridgeCalls.length, 0);
+      if (switchTrack) {
+        f.bindings['../services/offlineCacheService'].offlineCacheService.getCachedTrackUrl =
+          async () => null;
+        await f.h.api().playTrack(second);
+        await f.h.flush();
+      }
+      cover.resolve('blob:offline-cover');
+      await f.h.flush();
+      assert.equal(f.h.api().currentTrack.id, switchTrack ? second.id : first.id);
+      assert.equal(
+        f.h.api().currentTrack.cover_url,
+        switchTrack ? undefined : 'blob:offline-cover',
+      );
+    } finally {
+      cover.resolve(null);
+      f.h.unmount();
+    }
+  }
 });

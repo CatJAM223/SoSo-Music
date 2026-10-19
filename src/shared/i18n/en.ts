@@ -374,6 +374,8 @@ export const english: Record<string, string> = {
   'Остановить сниппет': 'Stop preview',
   'Слушать 10-секундный сниппет': 'Play a 10-second preview',
   Сниппет: 'Preview',
+  'Не удалось запустить сниппет. Нажмите воспроизведение, чтобы повторить.':
+    'Could not start the preview. Press play to try again.',
   'Загрузка трека': 'Loading track',
   Приостановить: 'Pause',
   Воспроизвести: 'Play',

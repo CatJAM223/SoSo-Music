@@ -11,18 +11,29 @@ import { toMediaFileUrl } from '../src/shared/utils/formatters.ts';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('Audit Fix: Content Security Policy in index.html is strict and allows media scheme', () => {
-  const indexHtml = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf-8');
-  assert.ok(indexHtml.includes('http-equiv="Content-Security-Policy"'));
-  assert.ok(!indexHtml.includes("'unsafe-eval'"), 'CSP must NOT include unsafe-eval');
-  assert.ok(
-    indexHtml.includes("media-src 'self' blob: https: media:"),
-    'media-src must include media: scheme',
-  );
-  assert.ok(
-    indexHtml.includes("img-src 'self' data: https: blob: media:"),
-    'img-src must include media: scheme',
-  );
+test('Application CSP permits only local executable scripts and explicitly bounded media sources', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  const content = html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/i)?.[1];
+  assert.ok(content, 'Application must deliver a CSP');
+  const directives = new Map();
+  for (const part of content.split(';').filter((part) => part.trim())) {
+    const [name, ...values] = part.trim().split(/\s+/);
+    assert.ok(!directives.has(name), 'Duplicate CSP directive: ' + name);
+    directives.set(name, values);
+  }
+  assert.deepEqual(directives.get('script-src'), ["'self'", "'wasm-unsafe-eval'"]);
+  assert.deepEqual(directives.get('default-src'), ["'self'"]);
+  for (const name of ['object-src', 'base-uri', 'form-action'])
+    assert.deepEqual(directives.get(name), ["'none'"], name);
+  for (const name of ['img-src', 'media-src', 'connect-src'])
+    assert.ok(
+      directives.get(name).includes('media:'),
+      name + ' must explicitly allow authorized local media',
+    );
+  for (const [, attributes, body] of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    assert.equal(body.trim(), '', 'Executable boot scripts must be external local files');
+    assert.match(attributes, /\bsrc="\/(?!\/)[^"]+"/);
+  }
 });
 
 test('Audit Fix: WallpaperBackground URL generator uses media://local/ custom scheme', () => {

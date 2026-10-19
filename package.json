@@ -1,7 +1,7 @@
 {
   "name": "soso-music",
   "productName": "SoSo Music",
-  "version": "3.1.5",
+  "version": "3.2.0",
   "description": "Desktop Music Player with SoundCloud, YouTube Music and SQLite",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -35,7 +35,13 @@
     "test:widget-resources": "node scripts/testing/testWidgetResources.mjs",
     "test:settings-lifecycle": "node scripts/testing/testSettingsLifecycle.mjs",
     "format": "prettier --write src scripts tests *.json *.js *.ts",
-    "format:check": "prettier --check src scripts tests *.json *.js *.ts"
+    "format:check": "prettier --check src scripts tests *.json *.js *.ts",
+    "test:media-access": "node scripts/testing/testMediaFileAccess.mjs",
+    "test:desktop-bootstrap": "node scripts/testing/testDesktopBootstrap.mjs",
+    "test:production": "node scripts/testing/testYouTubeProductionClient.mjs && node scripts/testing/testDesktopBootstrap.mjs --production --crashes",
+    "test:integration-sensitivity": "node scripts/testing/testIntegrationSensitivity.mjs",
+    "test:runtime-crashes": "node scripts/testing/testDesktopBootstrap.mjs --crashes",
+    "test:startup-sensitivity": "node scripts/testing/testPlaybackStartupSensitivity.mjs"
   },
   "build": {
     "appId": "com.sosomusic.app",
@@ -111,7 +117,7 @@
     "@types/sql.js": "^1.4.9",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
-    "electron": "^33.2.0",
+    "electron": "^44.9.0",
     "electron-builder": "^25.1.8",
     "esbuild": "0.21.5",
     "jsqr": "^1.4.0",

@@ -7,6 +7,11 @@ import { detectTrackSource } from '../utils/formatters';
 import { platformBridge } from '../bridge/platformBridge';
 import { isPlayableDirectAudioUrl } from '../utils/audioUrlValidator';
 import { getSnippetProgressState } from '../utils/snippetProgress';
+import type { AudioLoadOwner } from '../utils/audioStartup';
+import type { StreamResolveFailure } from '../utils/streamResolveError';
+import { resolvePlayerStream } from '../services/playerStreamResolution';
+import { PlaybackLogger } from '../services/playbackLogger';
+import { emitToast } from '../context/ToastContext';
 import {
   SNIPPET_DURATION,
   DEFAULT_TRACK_DURATION,
@@ -25,6 +30,8 @@ interface UseSnippetControllerProps {
     startSeekSeconds?: number,
     isSnippet?: boolean,
     trackId?: string | number,
+    bypassMemoryBlob?: boolean,
+    loadOwner?: AudioLoadOwner,
   ) => void;
   streamRequestIdRef: React.MutableRefObject<number>;
 }
@@ -43,6 +50,11 @@ export function useSnippetController({
   const snippetTrackRef = useRef<Track | null>(null);
   const snippetStartRef = useRef<number>(10);
   const snippetEndRef = useRef<number>(20);
+  const snippetLoadVersionRef = useRef(0);
+  const snippetWantsPlayRef = useRef(false);
+  const snippetRetryRef = useRef<(() => void) | null>(null);
+  const snippetFailureRef = useRef<((kind?: StreamResolveFailure) => void) | null>(null);
+  const snippetNeedsResolveRef = useRef(false);
 
   const [snippetTrack, setSnippetTrack] = useState<Track | null>(null);
   const [isSnippetPlaying, setIsSnippetPlaying] = useState<boolean>(false);
@@ -57,6 +69,11 @@ export function useSnippetController({
   // Stop snippet helper (closes modal and resets resources)
   const stopSnippet = useCallback(() => {
     streamRequestIdRef.current++;
+    snippetWantsPlayRef.current = false;
+    snippetLoadVersionRef.current++;
+    snippetRetryRef.current = null;
+    snippetFailureRef.current = null;
+    snippetTrackRef.current = null;
     streamAbortRef.current?.abort();
     streamAbortRef.current = null;
     if (snippetHlsRef.current) {
@@ -90,15 +107,21 @@ export function useSnippetController({
     };
 
     const handleSnippetPause = () => {
-      setIsSnippetPlaying(false);
+      if (snippetAudio.paused) setIsSnippetPlaying(false);
     };
 
     const handleSnippetPlay = () => {
-      setIsSnippetPlaying(true);
+      if (snippetWantsPlayRef.current && snippetTrackRef.current && !snippetAudio.paused)
+        setIsSnippetPlaying(true);
     };
 
-    const handleSnippetError = (e: any) => {
-      console.warn('Snippet audio loading notice:', e);
+    const handleSnippetError = () => {
+      if (!snippetAudio.error) return;
+      PlaybackLogger.warn('[Snippet:Playback] Media source failed', {
+        trackId: snippetTrackRef.current?.id,
+        code: snippetAudio.error.code,
+      });
+      snippetFailureRef.current?.('network');
       setIsSnippetPlaying(false);
     };
 
@@ -108,6 +131,12 @@ export function useSnippetController({
     snippetAudio.addEventListener('error', handleSnippetError);
 
     return () => {
+      snippetWantsPlayRef.current = false;
+      streamAbortRef.current?.abort();
+      streamAbortRef.current = null;
+      snippetLoadVersionRef.current++;
+      snippetRetryRef.current = null;
+      snippetFailureRef.current = null;
       if (snippetHlsRef.current) {
         snippetHlsRef.current.destroy();
         snippetHlsRef.current = null;
@@ -166,22 +195,37 @@ export function useSnippetController({
     const snippetAudio = snippetAudioRef.current;
     if (!snippetAudio || !snippetTrack || isYouTubeItemDisabled(snippetTrack)) return;
 
-    if (isSnippetPlaying) {
+    if (isSnippetPlaying || snippetWantsPlayRef.current) {
+      snippetWantsPlayRef.current = false;
       snippetAudio.pause();
       setIsSnippetPlaying(false);
     } else {
       onPauseMainAudio();
+      snippetWantsPlayRef.current = true;
+      if (snippetNeedsResolveRef.current || snippetAudio.readyState < 2 || snippetAudio.error) {
+        snippetRetryRef.current?.();
+        return;
+      }
       const start = snippetStartRef.current;
       const end = snippetEndRef.current;
       if (snippetAudio.currentTime < start || snippetAudio.currentTime >= end) {
         snippetAudio.currentTime = start;
       }
+      const requestId = streamRequestIdRef.current;
+      const version = snippetLoadVersionRef.current;
+      const isCurrentResume = () =>
+        requestId === streamRequestIdRef.current &&
+        version === snippetLoadVersionRef.current &&
+        snippetWantsPlayRef.current &&
+        !streamAbortRef.current?.signal.aborted;
       snippetAudio
         .play()
         .then(() => {
-          setIsSnippetPlaying(true);
+          if (isCurrentResume()) setIsSnippetPlaying(true);
         })
-        .catch(console.error);
+        .catch((error) => {
+          if (isCurrentResume() && error?.name !== 'AbortError') snippetFailureRef.current?.();
+        });
     }
   }, [snippetTrack, isSnippetPlaying, onPauseMainAudio]);
 
@@ -205,98 +249,130 @@ export function useSnippetController({
       const snippetAudio = snippetAudioRef.current;
       if (!snippetAudio) return;
 
-      const currentRequestId = ++streamRequestIdRef.current;
       streamAbortRef.current?.abort();
+      snippetWantsPlayRef.current = false;
+      snippetHlsRef.current?.destroy();
+      snippetHlsRef.current = null;
+      snippetAudio.pause();
+      snippetAudio.removeAttribute('src');
+      snippetAudio.load();
+      onPauseMainAudio();
+      const currentRequestId = ++streamRequestIdRef.current;
       const streamController = new AbortController();
       streamAbortRef.current = streamController;
-
-      // Immediately pause main playback if playing
-      onPauseMainAudio();
-
-      // Open snippet modal INSTANTLY (0ms latency!)
+      snippetTrackRef.current = track;
+      snippetWantsPlayRef.current = true;
+      snippetNeedsResolveRef.current = false;
       setSnippetTrack(track);
       setSnippetProgress(0);
       setIsSnippetPlaying(true);
-
       const trackDuration = track.duration || DEFAULT_TRACK_DURATION;
-      const cachedStream = resolvedStreamCache.current.get(String(track.id));
-      const hasFullStream = !!(
-        cachedStream && Date.now() - cachedStream.timestamp < STREAM_URL_MAX_AGE_MS
-      );
-
-      // Preview files are only 30s long — clamp seek to fit within them
-      // Full streams can be seeked to the track midpoint
-      let startPoint: number;
-      if (hasFullStream) {
-        startPoint = Math.max(5, Math.floor(trackDuration / 2) - 5);
-      } else {
-        // For 30s preview: place snippet at second 10-20 (safe zone)
-        startPoint = Math.min(20, Math.max(5, Math.floor(30 / 2) - 5));
-      }
-      snippetStartRef.current = startPoint;
-      snippetEndRef.current = startPoint + SNIPPET_DURATION;
-
-      try {
-        snippetAudio.pause();
-        snippetAudio.currentTime = startPoint;
-      } catch (e) {}
-
-      const directSrc =
-        (hasFullStream && cachedStream?.url) ||
-        (isPlayableDirectAudioUrl(track.preview) ? track.preview : '');
-      if (directSrc) {
-        loadStreamIntoAudio(snippetAudio, snippetHlsRef, directSrc, startPoint, true, track.id);
-      }
-
-      // Resolve full stream if not yet cached
-      if (!hasFullStream) {
-        platformBridge
-          .getFullStreamUrl(
-            {
-              ...track,
-              title: track.title,
-              artist:
-                typeof track.artist === 'object' && track.artist
-                  ? track.artist
-                  : { name: String(track.artist || '') },
-              id: track.id,
-              preview: track.preview,
-              duration: track.duration,
-              source: detectTrackSource(track),
-            },
-            undefined,
-            streamController.signal,
-          )
-          .then((fullStreamUrl) => {
-            if (currentRequestId !== streamRequestIdRef.current) return;
-            if (fullStreamUrl) {
-              resolvedStreamCache.current.set(String(track.id), {
-                url: fullStreamUrl,
-                timestamp: Date.now(),
-              });
-              if (
-                snippetAudioRef.current &&
-                snippetTrackRef.current &&
-                String(snippetTrackRef.current.id) === String(track.id)
-              ) {
-                const fullStartPoint = Math.max(5, Math.floor(trackDuration / 2) - 5);
-                snippetStartRef.current = fullStartPoint;
-                snippetEndRef.current = fullStartPoint + SNIPPET_DURATION;
-                loadStreamIntoAudio(
-                  snippetAudioRef.current,
-                  snippetHlsRef,
-                  fullStreamUrl,
-                  fullStartPoint,
-                  true,
-                  track.id,
-                );
-              }
+      const source = detectTrackSource(track);
+      const fullStart = Math.max(0, Math.floor((trackDuration - SNIPPET_DURATION) / 2));
+      snippetStartRef.current = fullStart;
+      snippetEndRef.current = fullStart + SNIPPET_DURATION;
+      let resolving = false,
+        recoveryAttempt = 0;
+      const isCurrent = () =>
+        !streamController.signal.aborted &&
+        currentRequestId === streamRequestIdRef.current &&
+        snippetTrackRef.current === track &&
+        snippetWantsPlayRef.current;
+      const unavailable = (kind?: StreamResolveFailure) => {
+        if (!isCurrent()) return;
+        snippetNeedsResolveRef.current = true;
+        snippetWantsPlayRef.current = false;
+        setIsSnippetPlaying(false);
+        PlaybackLogger.warn('[Snippet:Playback] Preview source unavailable', {
+          trackId: track.id,
+          source,
+          kind,
+          attempt: recoveryAttempt,
+        });
+        emitToast(
+          'Не удалось запустить сниппет. Нажмите воспроизведение, чтобы повторить.',
+          'warning',
+          5000,
+        );
+      };
+      const load = (url: string, start: number) => {
+        if (!isCurrent()) return;
+        const version = ++snippetLoadVersionRef.current;
+        const owner: AudioLoadOwner = {
+          signal: streamController.signal,
+          isCurrent: () => isCurrent() && version === snippetLoadVersionRef.current,
+          onFailure: (kind) => {
+            if (!owner.isCurrent() || resolving) return;
+            resolvedStreamCache.current.delete(String(track.id));
+            snippetNeedsResolveRef.current = true;
+            if (recoveryAttempt >= 1 || kind === 'rate-limit') {
+              unavailable(kind);
+              return;
             }
-          })
-          .catch((error) => {
-            if (!streamController.signal.aborted) console.warn(error);
-          });
-      }
+            recoveryAttempt++;
+            PlaybackLogger.info('[Snippet:Recovery] Refreshing the same recording', {
+              trackId: track.id,
+              source,
+              kind,
+            });
+            void resolveFull(true);
+          },
+        };
+        snippetFailureRef.current = owner.onFailure;
+        loadStreamIntoAudio(snippetAudio, snippetHlsRef, url, start, true, track.id, true, owner);
+      };
+      const resolveFull = async (alternate = false) => {
+        if (resolving || !isCurrent()) return;
+        resolving = true;
+        snippetNeedsResolveRef.current = true;
+        try {
+          const url = await resolvePlayerStream(
+            { ...track, source },
+            {
+              forceRefresh: true,
+              allowSessionRecovery: true,
+              preferAlternateFormat: alternate && source === 'soundcloud',
+            },
+            streamController.signal,
+            (item, options, signal) => platformBridge.getFullStreamUrl(item, options, signal),
+          );
+          if (!isCurrent()) return;
+          if (!isPlayableDirectAudioUrl(url)) {
+            unavailable();
+            return;
+          }
+          resolvedStreamCache.current.set(String(track.id), { url, timestamp: Date.now() });
+          snippetStartRef.current = fullStart;
+          snippetEndRef.current = fullStart + SNIPPET_DURATION;
+          const position = snippetAudio.currentTime;
+          const seek =
+            position >= fullStart && position < snippetEndRef.current ? position : fullStart;
+          snippetNeedsResolveRef.current = false;
+          resolving = false;
+          load(url, seek);
+        } catch (error) {
+          if (isCurrent()) unavailable();
+        } finally {
+          resolving = false;
+        }
+      };
+      snippetRetryRef.current = () => {
+        if (!isCurrent()) return;
+        recoveryAttempt = 0;
+        setIsSnippetPlaying(true);
+        void resolveFull();
+      };
+      const cached = resolvedStreamCache.current.get(String(track.id));
+      const cachedUrl =
+        cached &&
+        Date.now() - cached.timestamp < STREAM_URL_MAX_AGE_MS &&
+        isPlayableDirectAudioUrl(cached.url)
+          ? cached.url
+          : '';
+      // SoundCloud can reject signed HLS links before the generic seven-minute cache expires.
+      // A fresh same-recording lookup avoids replaying that rejected manifest on every click.
+      if (source !== 'soundcloud' && cachedUrl) load(cachedUrl, fullStart);
+      else void resolveFull();
     },
     [onPauseMainAudio, resolvedStreamCache, streamRequestIdRef, loadStreamIntoAudio],
   );

@@ -57,6 +57,9 @@ function harness(resolveStream) {
     resolvePlayerStream,
     navigator: { onLine: true },
     NativeAudioElement: class {},
+    isCachedAudioDecodeError: () => false,
+    audioCacheService: { getCachedBlobUrl: () => null, discardByUrl: () => events.push('discard') },
+    offlineCacheService: { ownsBlobUrl: () => false },
     getStreamResolveFailure,
     StreamResolveTimeoutError,
     withStreamResolveDeadline,
@@ -218,4 +221,25 @@ test('An ordinary empty-src media event is ignored after deliberate teardown', a
   h.trigger(new Event('error'));
   await h.flush();
   assert.equal(h.requests.length, 0);
+});
+
+test('SoundCloud startup renews the same recording in another rendition, then holds the queue on timeout', async () => {
+  const h = harness(
+    async () => 'https://playback.media-streaming.soundcloud.cloud/audio/playlist.m3u8',
+  );
+  h.context.currentTrackRef.current.source = 'soundcloud';
+  h.context.currentTrackRef.current.id = '2381180949';
+  h.audio.src = h.audio.currentSrc = 'blob:fixture-hls';
+  // A destroyed HLS MediaSource is still a blob URL; it is not an offline cached file.
+  h.trigger(true, 42, 'timeout');
+  await h.flush();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].track.id, '2381180949');
+  assert.equal(h.requests[0].options.preferAlternateFormat, true);
+  h.audio.src = h.audio.currentSrc = 'blob:fixture-hls-refreshed';
+  h.trigger(true, 42, 'timeout');
+  await h.flush();
+  assert.equal(h.requests.length, 1);
+  assert.ok(h.events.includes('temporary:timeout'));
+  assert.ok(!h.events.includes('skip'));
 });

@@ -730,6 +730,7 @@ export class SoundCloudService {
     clientId: string,
     attempted = new Set<string>(),
     fullDuration = 0,
+    preferAlternateFormat = false,
   ): Promise<string | null> {
     assertStreamResolveActive();
     if (!Array.isArray(transcodings) || transcodings.length === 0) return null;
@@ -764,6 +765,8 @@ export class SoundCloudService {
       return bIsProg - aIsProg;
     });
 
+    // Try a different rendition of this recording after its first CDN/decoder failed.
+    if (preferAlternateFormat) sorted.reverse();
     let temporaryFailure: unknown;
     for (const tc of sorted) {
       try {
@@ -779,6 +782,11 @@ export class SoundCloudService {
           streamJson.url.startsWith('http') &&
           !isSoundCloudPreviewUrl(streamJson.url)
         ) {
+          PlaybackLogger.debug('[SoundCloud:Format] Selected recording rendition', {
+            protocol: tc.format?.protocol,
+            preset: tc.preset,
+            alternate: preferAlternateFormat,
+          });
           return streamJson.url;
         }
       } catch (e) {
@@ -1054,7 +1062,13 @@ export class SoundCloudService {
         const transcodings: any[] = trackJson?.media?.transcodings || [];
 
         const streamUrl = await streamWait(
-          this.resolveStreamFromTranscodings(transcodings, clientId, attempted, fullDuration),
+          this.resolveStreamFromTranscodings(
+            transcodings,
+            clientId,
+            attempted,
+            fullDuration,
+            !!options.preferAlternateFormat,
+          ),
         );
         if (streamUrl) {
           if (this.streamCache.size >= this.MAX_CACHE_SIZE) {

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; media-src 'self' blob: https: media:; img-src 'self' data: https: blob: media:; frame-src 'self' https:; connect-src 'self' https: data: blob: ws: wss:; worker-src 'self' blob:; object-src 'none';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; media-src 'self' blob: https: media:; img-src 'self' data: https: blob: media:; frame-src 'self' https:; connect-src 'self' media: https: data: blob: ws: wss:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none';" />
     <meta name="theme-color" content="#121212" />
     <title>SoSo Music</title>
     <link rel="icon" type="image/png" href="/icon.png" />
@@ -16,18 +16,7 @@
     <link rel="preconnect" href="https://i1.sndcdn.com" crossorigin>
     <link rel="preconnect" href="https://i.ytimg.com" crossorigin>
     <link href="/fonts/fonts.css" rel="stylesheet">
-    <script>
-      try {
-        const savedTheme = localStorage.getItem('soso_theme') || 'dark';
-        if (savedTheme === 'dark') {
-          document.documentElement.classList.add('dark');
-          document.documentElement.setAttribute('data-theme', 'dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-          document.documentElement.setAttribute('data-theme', 'light');
-        }
-      } catch (e) {}
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body class="font-sans antialiased overflow-hidden select-none bg-[#f8fafc] dark:bg-[#121212] text-slate-900 dark:text-slate-100">
     <div id="root">

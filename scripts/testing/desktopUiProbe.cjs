@@ -82,7 +82,29 @@ app
           }
           if (method === 'capturePage') {
             args[1] = { ...args[1], stayHidden: true, stayAwake: true };
-            window.webContents.invalidate();
+            // After resizing, Chromium 152 may retire the previous surface before
+            // the replacement is painted. Capture a real frame of the current size.
+            await new Promise((resolve, reject) => {
+              const [width, height] = window.getContentSize();
+              const finish = (error) => {
+                clearTimeout(deadline);
+                clearInterval(pump);
+                window.webContents.off('paint', painted);
+                if (error) reject(error);
+                else resolve();
+              };
+              const painted = (_event, _dirty, image) => {
+                const size = image.getSize();
+                if (size.width === width && size.height === height) finish();
+              };
+              const deadline = setTimeout(
+                () => finish(Error('Current-size capture frame did not paint')),
+                2000,
+              );
+              const pump = setInterval(() => window.webContents.invalidate(), 16);
+              window.webContents.on('paint', painted);
+              window.webContents.invalidate();
+            });
           }
           const result = await Promise.race([
             invoke(...args),
@@ -126,8 +148,8 @@ app
       app.exit(1);
     });
     const errors = [];
-    window.webContents.on('console-message', (_event, level, message) => {
-      if (level === 3) errors.push(message);
+    window.webContents.on('console-message', (event) => {
+      if (event.level === 'error') errors.push(event.message);
     });
     try {
       await window.loadFile(path.join(output, 'index.html'));
@@ -1039,7 +1061,8 @@ app
         const originalTrack=window.fixtureAudioState.currentTrack;window.renderUpdateFixture();await wait(()=>window.fixtureUpdateListener);const before=audio.currentTime;
         window.fixtureUpdateListener({status:'available',currentVersion:'3.1.0',latestVersion:'3.2.0',message:'Available'});await wait(()=>document.querySelector('.app-update-notice'));
         if(document.querySelector('.app-update-notice').textContent.includes('Музыка продолжает играть')||document.querySelector('.app-update-notes')||!document.querySelector('.app-update-wave'))throw Error('Update notice ignores minimal design');
-        const panel=document.querySelector('.app-update-notice').getBoundingClientRect();if(panel.top<44||panel.bottom>innerHeight-92)throw Error('Update notice covers title or player bar');
+        const shade=document.querySelector('.app-update-shade').getBoundingClientRect();if(Math.abs(shade.top)>.5||Math.abs(shade.left)>.5||Math.abs(shade.right-innerWidth)>.5||Math.abs(shade.bottom-innerHeight)>.5)throw Error('Update backdrop does not cover the full window');
+        const panel=document.querySelector('.app-update-notice').getBoundingClientRect();if(panel.top<44||panel.bottom>innerHeight-92)throw Error('Update notice covers title or player bar');if(panel.width>721||panel.height>481)throw Error('Update notice is not compact');
         await new Promise(r=>setTimeout(r,200));if(audio.paused||audio.currentTime<=before||window.fixtureAudioState.currentTrack!==originalTrack)throw Error('Update notice interrupted playback');
         const oldOpen=window.open;window.open=url=>{window.fixtureUpdateURL=url;return null;};document.querySelector('.app-update-download').click();await wait(()=>!document.querySelector('.app-update-notice'));window.open=oldOpen;
         if(window.fixtureUpdateURL!=='https://github.com/CatJAM223/SoSo-Music/releases/tag/v3.2.0')throw Error('Wrong update download target');
