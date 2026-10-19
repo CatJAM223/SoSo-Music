@@ -16,6 +16,13 @@ type ConfirmImport = (summary: LanImportSummary, signal: AbortSignal) => Promise
 
 export class LanSyncServer {
   private server: http.Server | null = null;
+  private starting: {
+    server: http.Server;
+    controller: AbortController;
+    promise: Promise<LanSyncSession>;
+    cancel: () => void;
+  } | null = null;
+  private sessionController: AbortController | null = null;
   private code = '';
   private idleTimer: NodeJS.Timeout | null = null;
   private readonly database: DatabaseManager;
@@ -41,37 +48,86 @@ export class LanSyncServer {
     return { active: true, addresses, code: this.code, port };
   }
 
-  async start(): Promise<LanSyncSession> {
-    if (this.server) return this.status();
-    this.code = String(randomInt(10000000, 100000000));
+  start(): Promise<LanSyncSession> {
+    if (this.starting) return this.starting.promise;
+    if (this.server) return Promise.resolve(this.status());
+    const controller = new AbortController();
     const server = http.createServer((request, response) => {
-      void this.handle(request, response);
-    });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(0, '0.0.0.0', () => {
-          server.off('error', reject);
-          resolve();
-        });
+      void this.handle(request, response, server).catch(() => {
+        if (!response.headersSent && !response.destroyed)
+          this.reply(response, 500, { success: false });
       });
-      this.server = server;
-      this.touch();
-      return this.status();
-    } catch (error) {
+    });
+    let resolve!: (status: LanSyncSession) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<LanSyncSession>((done, fail) => {
+      resolve = done;
+      reject = fail;
+    });
+    const inactive = (): LanSyncSession => ({ active: false, addresses: [] });
+    const pending = {
+      server,
+      controller,
+      promise,
+      cancel: () => {
+        if (this.starting === pending) this.starting = null;
+        controller.abort();
+        server.closeAllConnections();
+        server.close();
+        resolve(inactive());
+      },
+    };
+    // Publish the pending operation before listening so concurrent callers share it.
+    this.starting = pending;
+    const onError = (error: Error) => {
+      if (this.starting === pending) this.starting = null;
       server.close();
-      this.code = '';
-      throw error;
+      if (controller.signal.aborted) resolve(inactive());
+      else reject(error);
+    };
+    server.once('error', onError);
+    try {
+      server.listen({ port: 0, host: '0.0.0.0', signal: controller.signal }, () => {
+        server.off('error', onError);
+        if (controller.signal.aborted || this.starting !== pending) {
+          server.close();
+          resolve(inactive());
+          return;
+        }
+        this.starting = null;
+        this.sessionController = controller;
+        this.server = server;
+        this.code = String(randomInt(10000000, 100000000));
+        this.touch();
+        resolve(this.status());
+      });
+    } catch (error) {
+      if (this.starting === pending) this.starting = null;
+      server.off('error', onError);
+      server.close();
+      reject(error);
     }
+    return promise;
   }
 
   stop(): LanSyncSession {
+    this.starting?.cancel();
     this.pendingImport?.abort();
+    this.pendingImport = null;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
-    this.server?.close();
+    const server = this.server;
     this.server = null;
     this.code = '';
+    this.sessionController?.abort();
+    this.sessionController = null;
+    if (server) {
+      // Give an aborted approval time to return its 403 before closing stuck connections.
+      const deadline = setTimeout(() => server.closeAllConnections(), 1000);
+      deadline.unref();
+      server.once('close', () => clearTimeout(deadline));
+      server.close();
+    }
     return this.status();
   }
 
@@ -88,7 +144,11 @@ export class LanSyncServer {
     response.end(JSON.stringify(payload));
   }
 
-  private async handle(request: http.IncomingMessage, response: http.ServerResponse) {
+  private async handle(
+    request: http.IncomingMessage,
+    response: http.ServerResponse,
+    server: http.Server,
+  ) {
     const remote = request.socket.remoteAddress?.replace(/^::ffff:/, '') || '';
     const localPeer = remote === '127.0.0.1' || remote === '::1' || isPrivateLanIPv4(remote);
     if (!localPeer) {
@@ -98,7 +158,11 @@ export class LanSyncServer {
     const supplied = request.headers.authorization?.replace(/^Bearer /, '') || '';
     const expected = Buffer.from(this.code);
     const actual = Buffer.from(supplied);
-    if (!this.server || actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    if (
+      this.server !== server ||
+      actual.length !== expected.length ||
+      !timingSafeEqual(actual, expected)
+    ) {
       this.reply(response, 401, { success: false, message: 'Неверный код сопряжения.' });
       return;
     }
@@ -169,7 +233,7 @@ export class LanSyncServer {
         this.confirmImport && !controller.signal.aborted
           ? await Promise.race([this.confirmImport(summary, controller.signal), canceled])
           : false;
-      if (!approved || controller.signal.aborted || !this.server) {
+      if (!approved || controller.signal.aborted || this.server !== server) {
         if (!response.destroyed)
           this.reply(response, 403, {
             success: false,

@@ -1,7 +1,5 @@
 import { t } from '../../../shared/i18n/locale';
 type Props = {
-  loaded: number;
-  total: number;
   loading: boolean;
   refreshing: boolean;
   error: string | null;
@@ -10,8 +8,6 @@ type Props = {
   onRetry: () => void;
 };
 export function LibraryPageControls({
-  loaded,
-  total,
   loading,
   refreshing,
   error,
@@ -19,12 +15,14 @@ export function LibraryPageControls({
   onLoadMore,
   onRetry,
 }: Props) {
+  if (!hasMore && !error && !refreshing) return null;
   return (
     <div className="flex flex-wrap items-center gap-3 py-3" aria-busy={loading || refreshing}>
-      <span className="text-xs text-slate-500" aria-live="polite">
-        {loaded} / {total}
-        {refreshing ? ' · ' + t('Обновляем…') : ''}
-      </span>
+      {refreshing && (
+        <span className="text-xs text-slate-500" aria-live="polite">
+          {t('Обновляем…')}
+        </span>
+      )}
       {error && (
         <span role="alert">
           {error}{' '}

@@ -1,3 +1,4 @@
+import { isSoundCloudUrl } from '../../shared/utils/soundcloudUrl';
 import { startAppUpdateMonitor } from './services/appUpdateMonitor';
 import { DesktopControls } from './services/desktopControls';
 import { createPlayerOverlayWindow } from './services/playerOverlayWindow';
@@ -24,11 +25,11 @@ import {
   session,
   dialog,
   protocol,
-  net,
+  crashReporter,
 } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { MediaFileAccess, MEDIA_SCHEME, createMediaHandler } from './services/mediaFileAccess';
 import { DatabaseManager } from './db';
 import { WaveEngine } from './services/waveEngine';
 import { LibraryTasteService } from './services/libraryTaste';
@@ -44,12 +45,13 @@ import { LocalListenServer } from './services/localListenServer';
 import { configureListenProtocol } from './services/listenProtocol';
 import { clearYouTubeSessionCache } from './services/youtubeSessionCache';
 import { createAppUpdateChecker } from './services/appUpdates';
-import { registerMainWindowHandlers } from './ipc/mainWindowHandlers';
+import { assertMainWindowSender, registerMainWindowHandlers } from './ipc/mainWindowHandlers';
 import { registerYouTubeAccountHandlers } from './ipc/youtubeAccountHandlers';
 import { YouTubeAccountService } from './services/youtubeAccount';
 import { DiscordRPCService } from './services/discordRpc';
 import { YouTubeMusicService } from './services/youtubeMusic';
 import { PlaybackLogger } from './services/playbackLogger';
+import { startRuntimeDiagnostics, recoverMainRenderer } from './services/runtimeDiagnostics';
 import { playbackRouteLog } from './services/playbackRoute';
 import { ZapretService } from './services/zapretService';
 import { LanImportApproval } from './services/lanImportApproval';
@@ -70,15 +72,6 @@ import {
 } from './services/playlistImport';
 import type { Track } from '../../shared/types';
 import { normalizeWaveSeed } from '../../shared/utils/waveRecommendations';
-
-// Global main-process safety nets to prevent uncaught errors from crashing Electron or popping OS dialogs
-process.on('uncaughtException', (error) => {
-  console.error('[Main Process] Uncaught Exception:', error);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.error('[Main Process] Unhandled Rejection:', reason);
-});
 
 // Enforce single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -101,6 +94,7 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.sosomusic.app');
 }
 process.title = 'SoSo Music';
+startRuntimeDiagnostics(app, crashReporter);
 
 // Disable autoplay gesture requirement so audio can play immediately on click
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -166,6 +160,7 @@ dbManager.setPersistenceStatusHandler((status) => {
   if (mainWindow && !mainWindow.isDestroyed())
     mainWindow.webContents.send('library:persistenceStatus', status);
 });
+const mediaFileAccess = new MediaFileAccess(app.getPath('userData'));
 const lanImportApproval = new LanImportApproval(() => mainWindow);
 const lanSyncServer = new LanSyncServer(
   dbManager,
@@ -313,6 +308,8 @@ async function createWindow() {
       backgroundThrottling: false,
     },
   });
+
+  recoverMainRenderer(mainWindow, () => isQuitting);
 
   mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) listenRendererReady = false;
@@ -842,7 +839,8 @@ function registerIpcHandlers() {
   });
 
   // Video / GIF Wallpaper picker (Desktop custom themes)
-  ipcMain.handle('wallpaper:selectVideo', async () => {
+  ipcMain.handle('wallpaper:selectVideo', async (event) => {
+    assertMainWindowSender(event, mainWindow);
     const focusedWindow = BrowserWindow.getFocusedWindow() || mainWindow;
     const result = await dialog.showOpenDialog(focusedWindow as any, {
       title: t('Выберите видео или GIF для фона приложения'),
@@ -853,7 +851,6 @@ function registerIpcHandlers() {
         },
         { name: t('Видео (MP4 / WebM)'), extensions: ['mp4', 'webm', 'ogv', 'm4v', 'mov'] },
         { name: t('Изображения (GIF / PNG)'), extensions: ['gif', 'png', 'jpg', 'jpeg', 'webp'] },
-        { name: t('Все файлы'), extensions: ['*'] },
       ],
       properties: ['openFile'],
     });
@@ -865,16 +862,18 @@ function registerIpcHandlers() {
     const filePath = result.filePaths[0];
     return {
       success: true,
-      filePath,
+      filePath: mediaFileAccess.select(filePath),
       fileName: path.basename(filePath),
     };
   });
 
   // Database Backup & Restore handlers
   lanImportApproval.register(ipcMain);
-  ipcMain.handle('sync:start', () => lanSyncServer.start());
-  ipcMain.handle('sync:stop', () => lanSyncServer.stop());
-  ipcMain.handle('sync:status', () => lanSyncServer.status());
+  registerMainWindowHandlers(ipcMain, () => mainWindow, {
+    'sync:start': () => lanSyncServer.start(),
+    'sync:stop': () => lanSyncServer.stop(),
+    'sync:status': () => lanSyncServer.status(),
+  });
   ipcMain.handle('db:exportDatabase', async () => {
     const exportResult = dbManager.exportData();
     if (!exportResult.success) {
@@ -940,53 +939,7 @@ function registerIpcHandlers() {
   });
 }
 
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'media',
-    privileges: {
-      secure: true,
-      standard: true,
-      supportFetchAPI: true,
-      stream: true,
-      bypassCSP: true,
-    },
-  },
-]);
-
-function extractFilePathFromMediaUrl(rawUrl: string): string {
-  try {
-    const parsed = new URL(rawUrl);
-    let filePath = decodeURIComponent(parsed.pathname);
-
-    if (process.platform === 'win32') {
-      // Case 1: host is 'local', pathname is '/C:/path/to/file'
-      if (filePath.startsWith('/') && /^[a-zA-Z]:/.test(filePath.slice(1))) {
-        filePath = filePath.slice(1);
-      }
-      // Case 2: host was treated as single letter drive (e.g. media://c/path/to/file)
-      else if (/^[a-zA-Z]$/.test(parsed.host)) {
-        filePath = `${parsed.host}:${filePath}`;
-      }
-      // Case 3: query param ?path=...
-      else if (parsed.searchParams.has('path')) {
-        filePath = parsed.searchParams.get('path') || filePath;
-      }
-    } else {
-      if (parsed.searchParams.has('path')) {
-        filePath = parsed.searchParams.get('path') || filePath;
-      }
-    }
-
-    return path.normalize(filePath);
-  } catch {
-    let clean = rawUrl.replace(/^media:\/\/local\//i, '').replace(/^media:\/\//i, '');
-    clean = decodeURIComponent(clean).replace(/^\/+/, '');
-    if (process.platform !== 'win32') {
-      clean = '/' + clean;
-    }
-    return path.normalize(clean);
-  }
-}
+protocol.registerSchemesAsPrivileged([MEDIA_SCHEME]);
 
 let youtubeAccount: YouTubeAccountService | null = null;
 let disposeAccountHandlers: (() => void) | null = null;
@@ -998,8 +951,10 @@ app.whenReady().then(async () => {
     process.env.VITE_DEV_SERVER_URL,
   );
   desktopControls = new DesktopControls(app.getPath('userData'), globalShortcut, (action) => {
-    if (action === 'overlay') playerOverlay?.toggle();
-    else if (mainWindow && !mainWindow.isDestroyed())
+    if (action === 'overlay') {
+      PlaybackLogger.debug('[Overlay:Shortcut] Toggle requested');
+      playerOverlay?.toggle();
+    } else if (mainWindow && !mainWindow.isDestroyed())
       mainWindow.webContents.send('widget:command', action);
   });
   playerOverlay.setEnabled(desktopControls.status().overlayEnabled);
@@ -1076,39 +1031,7 @@ app.whenReady().then(async () => {
     await clearYouTubeSessionCache(session.defaultSession);
     await youtubeAccount?.resetCache();
   });
-  protocol.handle('media', async (request) => {
-    try {
-      const resolvedPath = extractFilePathFromMediaUrl(request.url);
-      if (!resolvedPath || !fs.existsSync(resolvedPath)) {
-        console.warn('[Main] media protocol file not found:', request.url, '->', resolvedPath);
-        return new Response('File not found', { status: 404 });
-      }
-      const response = await net.fetch(pathToFileURL(resolvedPath).toString(), {
-        headers: request.headers,
-      });
-      // Permit analysis by our file renderer/dev server while preserving streamed range responses.
-      const origin = request.headers.get('origin');
-      let ownOrigin = origin === 'null';
-      if (origin) {
-        try {
-          const devUrl = process.env.VITE_DEV_SERVER_URL;
-          ownOrigin ||= Boolean(devUrl && new URL(devUrl).origin === origin);
-        } catch {}
-      }
-      if (!ownOrigin) return response;
-      const headers = new Headers(response.headers);
-      headers.set('access-control-allow-origin', origin!);
-      headers.set('vary', 'Origin');
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
-    } catch (err) {
-      console.error('[Main] media protocol error:', err);
-      return new Response('Internal Error', { status: 500 });
-    }
-  });
+  protocol.handle('media', createMediaHandler(mediaFileAccess, process.env.VITE_DEV_SERVER_URL));
 
   // Network-level Ad Blocker for Songsterr tabs and YouTube background streaming
   try {
@@ -1166,7 +1089,7 @@ app.whenReady().then(async () => {
       return callback({ requestHeaders: details.requestHeaders });
     }
     const headers = { ...details.requestHeaders };
-    if (details.url.includes('sndcdn.com') || details.url.includes('soundcloud.com')) {
+    if (isSoundCloudUrl(details.url)) {
       headers['Referer'] = 'https://soundcloud.com/';
       headers['Origin'] = 'https://soundcloud.com';
     }
@@ -1191,6 +1114,7 @@ app.whenReady().then(async () => {
   // Ensure CORS compliance for renderer requests (streams, covers, HLS, APIs) with webSecurity enabled
   const CORS_ALLOWED_DOMAINS = [
     'soundcloud.com',
+    'soundcloud.cloud',
     'sndcdn.com',
     'bandcamp.com',
     'bcbits.com',

@@ -796,8 +796,6 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
       {activePage && (
         <LibraryPageControls
-          loaded={activePage.items.length}
-          total={activePage.total}
           loading={activePage.loading || activePage.loadingMore}
           refreshing={activePage.refreshing}
           error={activePage.error}

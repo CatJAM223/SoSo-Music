@@ -1,4 +1,5 @@
 import { BrowserWindow, screen, type IpcMainInvokeEvent } from 'electron';
+import { PlaybackLogger } from './playbackLogger';
 import { trackArtworkCandidates } from '../../../shared/utils/trackArtwork.ts';
 import type { WidgetState } from '../../../shared/types';
 export function createPlayerOverlayWindow(
@@ -8,6 +9,7 @@ export function createPlayerOverlayWindow(
 ) {
   let window: BrowserWindow | null = null;
   let visible = false;
+  let ready = false;
   let started = false;
   let editing = false;
   let enabled = true;
@@ -41,24 +43,40 @@ export function createPlayerOverlayWindow(
     window.webContents.send('overlay:editingChanged', editing);
   }
   function show() {
-    if (!window || window.isDestroyed()) return;
+    if (!window || window.isDestroyed() || !ready) return;
+    if (window.isMinimized()) window.restore();
+    window.setAlwaysOnTop(true, 'screen-saver');
+    visible = true;
     sendTrack(true);
     if (editing) {
       window.show();
       window.focus();
     } else window.showInactive();
+    window.moveTop();
+    PlaybackLogger.debug('[Overlay:Visibility] Shown', {
+      editing,
+      minimized: window.isMinimized(),
+      visible: window.isVisible(),
+    });
   }
   function toggle() {
     if (!enabled || !started) return false;
-    visible = !visible;
+    const existing = window && !window.isDestroyed();
+    const actualVisible = existing
+      ? ready
+        ? window!.isVisible() && !window!.isMinimized()
+        : visible
+      : false;
+    visible = !actualVisible;
     editing = false;
     if (window && !window.isDestroyed()) {
       applyMode();
       if (!visible) {
         window.hide();
+        PlaybackLogger.debug('[Overlay:Visibility] Hidden by toggle');
         return false;
       }
-      window.setBounds(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds);
+      window.setBounds(screen.getDisplayMatching(window.getBounds()).bounds);
       show();
       return true;
     }
@@ -85,12 +103,15 @@ export function createPlayerOverlayWindow(
       },
     });
     window = win;
+    ready = false;
     win.setAlwaysOnTop(true, 'screen-saver');
     win.setIgnoreMouseEvents(true);
     win.webContents.on('will-navigate', (event) => event.preventDefault());
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.once('ready-to-show', () => {
-      if (!win.isDestroyed() && visible) {
+      if (window !== win || win.isDestroyed()) return;
+      ready = true;
+      if (visible) {
         applyMode();
         show();
       }
@@ -99,8 +120,24 @@ export function createPlayerOverlayWindow(
       if (window === win) {
         window = null;
         visible = false;
+        ready = false;
         editing = false;
+        lastTrackKey = null;
       }
+    });
+    const nativeHidden = () => {
+      if (window !== win || win.isDestroyed() || (win.isVisible() && !win.isMinimized())) return;
+      visible = false;
+      editing = false;
+      applyMode();
+    };
+    win.on('hide', nativeHidden);
+    win.on('minimize', nativeHidden);
+    win.webContents.on('render-process-gone', (_event, details) => {
+      PlaybackLogger.warn('[Overlay:Renderer] Renderer exited; next toggle recreates the window', {
+        reason: details.reason,
+      });
+      if (!win.isDestroyed()) win.destroy();
     });
     const adjust = () => {
       if (!win.isDestroyed()) win.setBounds(screen.getDisplayMatching(win.getBounds()).bounds);
@@ -111,8 +148,13 @@ export function createPlayerOverlayWindow(
       screen.removeListener('display-metrics-changed', adjust);
       screen.removeListener('display-removed', adjust);
     });
-    if (devUrl) void win.loadURL(devUrl + '#/overlay');
-    else void win.loadFile(renderer, { hash: '/overlay' });
+    const loading = devUrl
+      ? win.loadURL(devUrl + '#/overlay')
+      : win.loadFile(renderer, { hash: '/overlay' });
+    void loading.catch((error) => {
+      PlaybackLogger.warn('[Overlay:Renderer] Window loading failed', error);
+      if (!win.isDestroyed()) win.destroy();
+    });
     return true;
   }
   function owns(event: IpcMainInvokeEvent) {

@@ -127,3 +127,41 @@ test('SoundCloud missing-ID recovery is bounded and cancelled responses cannot p
   await assert.rejects(pending, { name: 'AbortError' });
   assert.equal(sc.streamCache.has('stream:' + original.id), false);
 });
+
+test('SoundCloud recovery changes rendition of the same recording and still excludes previews', async (t) => {
+  const normal = 'https://api-v2.soundcloud.com/media/tracks:900101/aac_160k';
+  const alternate = 'https://api-v2.soundcloud.com/media/tracks:900101/abr_sq';
+  sc.streamCache.clear();
+  t.after(() => sc.streamCache.clear());
+  t.mock.method(sc, 'getSoundCloudKey', async () => 'fixture-key');
+  const calls = [];
+  t.mock.method(sc, 'fetchWithRelay', async (url) => {
+    calls.push(url);
+    if (url.includes('/tracks/900101?'))
+      return {
+        id: 900101,
+        duration: 98000,
+        media: {
+          transcodings: [
+            { url: normal, format: { protocol: 'hls' } },
+            { url: alternate, format: { protocol: 'hls' } },
+            { url: alternate + '/snipped', snipped: true, format: { protocol: 'hls' } },
+          ],
+        },
+      };
+    return {
+      url: url.startsWith(normal)
+        ? 'https://cdn.sndcdn.com/normal.m3u8'
+        : 'https://cdn.sndcdn.com/alternate.m3u8',
+    };
+  });
+  const track = { ...replacement, id: '900101' };
+  assert.equal(await sc.getFullStreamUrl(track), 'https://cdn.sndcdn.com/normal.m3u8');
+  calls.length = 0;
+  assert.equal(
+    await sc.getFullStreamUrl(track, { forceRefresh: true, preferAlternateFormat: true }),
+    'https://cdn.sndcdn.com/alternate.m3u8',
+  );
+  assert.ok(calls.some((url) => url.startsWith(alternate)));
+  assert.ok(calls.every((url) => !url.includes('snipped') && !url.startsWith(normal)));
+});

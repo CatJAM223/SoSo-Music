@@ -75,13 +75,15 @@ function hlsFixture({
   const begin = source.indexOf('        const recoveryBudget = new HlsRecoveryBudget();');
   const end = source.indexOf('\n      } else {', begin);
   assert.ok(begin >= 0 && end > begin);
-  let callback;
+  const callbacks = new Map();
+  let timeout;
   const calls = [],
     positions = [];
   const hls = {
-    on(_event, fn) {
-      callback = fn;
+    on(event, fn) {
+      callbacks.set(event, fn);
     },
+    loadSource() {},
     startLoad() {
       calls.push('reload');
       if (throws) throw new Error('network');
@@ -91,6 +93,7 @@ function hlsFixture({
     },
     destroy() {
       calls.push('destroy');
+      callbacks.get('destroying')?.();
       context.audio.currentTime = 0;
       if (destroyThrows) throw new Error('detach');
     },
@@ -100,9 +103,21 @@ function hlsFixture({
     hls,
     hlsRef: { current: hls },
     Hls: {
-      Events: { ERROR: 'error' },
+      Events: { ERROR: 'error', DESTROYING: 'destroying' },
       ErrorTypes: { NETWORK_ERROR: 'network', MEDIA_ERROR: 'media' },
     },
+    watchAudioStartup(_audio, current, expired) {
+      timeout = () => {
+        if (current()) expired();
+      };
+      return () => {
+        timeout = null;
+      };
+    },
+    playbackAbortRef: { current: new AbortController() },
+    streamUrl: 'https://fixture.invalid/playlist.m3u8',
+    trackId: 'fixture',
+    loadOwner: undefined,
     isStaleLoad: () => stale,
     isSnippet: snippet,
     audio: {
@@ -124,8 +139,11 @@ function hlsFixture({
     context,
     calls,
     positions,
-    emit(type = 'network', fatal = true) {
-      callback('error', { type, fatal });
+    expire() {
+      timeout?.();
+    },
+    emit(type = 'network', fatal = true, extra = {}) {
+      callbacks.get('error')('error', { type, fatal, ...extra });
     },
   };
 }
@@ -176,4 +194,28 @@ test('HLS detach preserves resume position and cleanup failures still reach URL 
     assert.deepEqual(h.positions, [42]);
     assert.equal(h.context.hlsRef.current, null);
   }
+});
+
+test('HLS startup without any manifest/error event still forces one source refresh', () => {
+  const h = hlsFixture();
+  h.expire();
+  h.expire();
+  assert.deepEqual(h.calls, ['destroy', 'refresh']);
+  assert.deepEqual(h.positions, [42]);
+  const stale = hlsFixture({ stale: true });
+  stale.expire();
+  assert.deepEqual(stale.calls, []);
+});
+
+test('Rejected HLS manifests refresh immediately and snippets report failure to their own owner', () => {
+  const main = hlsFixture();
+  main.emit('network', true, { details: 'manifestLoadError', response: { code: 403 } });
+  assert.deepEqual(main.calls, ['destroy', 'refresh']);
+  const snippet = hlsFixture({ snippet: true }),
+    failures = [];
+  snippet.context.loadOwner = { onFailure: (kind) => failures.push(kind) };
+  snippet.emit('network', true, { details: 'manifestLoadError', response: { code: 403 } });
+  snippet.emit();
+  assert.deepEqual(snippet.calls, ['destroy', 'pause']);
+  assert.deepEqual(failures, ['network']);
 });

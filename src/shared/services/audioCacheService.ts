@@ -92,11 +92,31 @@ export class AudioCacheService {
   }
 
   /** The audible stream gets priority over bulk downloads during startup/stalls. */
-  public setPlaybackBuffering(buffering: boolean): void {
-    if (this.playbackBuffering === buffering) return;
+  public setPlaybackBuffering(
+    buffering: boolean,
+    playback?: { trackId: string | number; signal: AbortSignal },
+  ): void {
     this.playbackBuffering = buffering;
     if (!buffering) return;
-    this.abortFetches();
+    // Keep the selected resolution alive until playback acquires its own IPC lease.
+    // Bulk downloads still stop, including downloads for the selected recording.
+    const selectedId = playback && !playback.signal.aborted ? String(playback.trackId) : undefined;
+    this.abortFetches(selectedId);
+    if (selectedId === undefined || !playback) return;
+    const controller = this.prefetchControllers.get(selectedId);
+    const pending = this.pendingPrefetches.get(selectedId);
+    if (!controller || !pending) return;
+    const abort = () => {
+      controller.abort();
+      if (this.prefetchControllers.get(selectedId) === controller) {
+        this.prefetchControllers.delete(selectedId);
+        this.pendingPrefetches.delete(selectedId);
+      }
+    };
+    playback.signal.addEventListener('abort', abort, { once: true });
+    const cleanup = () => playback.signal.removeEventListener('abort', abort);
+    void pending.then(cleanup, cleanup);
+    if (playback.signal.aborted) abort();
   }
 
   public setPlaybackActive(active: boolean): void {
@@ -120,11 +140,16 @@ export class AudioCacheService {
     }
   }
 
-  private abortFetches(): void {
+  private abortFetches(preserveTrackId?: string): void {
     this.cacheGeneration++;
-    for (const controller of this.prefetchControllers.values()) controller.abort();
-    this.prefetchControllers.clear();
-    this.pendingPrefetches.clear();
+    for (const [id, controller] of this.prefetchControllers) {
+      if (id === preserveTrackId) continue;
+      controller.abort();
+      this.prefetchControllers.delete(id);
+    }
+    for (const id of this.pendingPrefetches.keys()) {
+      if (id !== preserveTrackId) this.pendingPrefetches.delete(id);
+    }
     for (const controller of this.fetchControllers.values()) controller.abort();
     this.fetchControllers.clear();
     this.activeFetches.clear();
@@ -209,7 +234,7 @@ export class AudioCacheService {
   }
 
   /**
-   * Proactively pre-fetches and caches upcoming tracks so they start instantly with 0ms buffering.
+   * Resolves upcoming tracks and caches eligible audio within the download budget.
    *
    * @param track         - The track to prefetch.
    * @param preResolvedUrl - Optional: a fresh stream URL already resolved by AudioContext's

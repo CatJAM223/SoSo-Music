@@ -57,8 +57,16 @@ jobs:
       - name: Prepare Rust target
         run: rustup target add wasm32-unknown-unknown
       - run: npm ci
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run architecture:check
-      - run: npm run release:check
-      - run: npm test
+      - run: npm run test:all
+      - run: npm run build:renderer
+      - run: npm run test:production
+      - name: Save failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-diagnostics
+          path: |
+            scratch/*.json
+            scratch/check-logs/**
+          if-no-files-found: ignore
+          retention-days: 7

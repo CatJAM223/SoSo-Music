@@ -6,3 +6,18 @@ export function withSoundCloudClientId(url: string, clientId: string): string {
   }
   return `${url}${url.includes('?') ? '&' : '?'}client_id=${encodedClientId}`;
 }
+
+/** SoundCloud now also delivers HLS playlists/fragments from soundcloud.cloud. */
+export function isSoundCloudUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      ['soundcloud.com', 'sndcdn.com', 'soundcloud.cloud'].some(
+        (domain) => url.hostname === domain || url.hostname.endsWith('.' + domain),
+      )
+    );
+  } catch {
+    return false;
+  }
+}

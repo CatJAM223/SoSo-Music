@@ -6,7 +6,7 @@ import type { PlaybackOrigin } from '../types/tastePolicy';
 import { normalizePlaybackOrigin, withPlaybackOrigin } from '../utils/tastePolicy';
 import { queueEntryKey } from '../utils/queueEntry';
 import { AudioProgressWatchdog } from '../utils/audioProgressWatchdog';
-import { readCachedPlayerSource } from '../services/playerCachedSource';
+import { readCachedPlayerCover, readCachedPlayerSource } from '../services/playerCachedSource';
 import type { WavePlaybackReason } from '../utils/waveFeedback';
 import { BoundedMap, BoundedSet } from '../utils/boundedCache';
 import { getStreamResolveFailure, type StreamResolveFailure } from '../utils/streamResolveError';
@@ -22,6 +22,7 @@ import { StreamResolveTimeoutError } from '../utils/streamResolveDeadline';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Hls from 'hls.js';
 import { HlsRecoveryBudget } from '../utils/hlsRecovery';
+import { watchAudioStartup, type AudioLoadOwner } from '../utils/audioStartup';
 import { AudioCrossfade } from '../services/audioCrossfade';
 import {
   createPlayerAudio,
@@ -290,7 +291,9 @@ export function useAudioPlayerCore({
   // Mutable refs to eliminate stale closures in audio event listeners
   const nextTrackRef = useRef<() => void>(() => {});
   const prevTrackRef = useRef<() => void>(() => {});
-  const handleErrorRef = useRef<(failedLoad?: true, resumePosition?: number) => void>(() => {});
+  const handleErrorRef = useRef<
+    (failedLoad?: true, resumePosition?: number, temporaryFailure?: StreamResolveFailure) => void
+  >(() => {});
   const handleUnavailableStreamRef = useRef<(track: Track, requestId: number) => void>(() => {});
   const isTransitioningTrackRef = useRef<boolean>(false);
   const trackTransitionTimestampRef = useRef<number>(0);
@@ -548,6 +551,7 @@ export function useAudioPlayerCore({
       isSnippet: boolean = false,
       trackId?: string | number,
       bypassMemoryBlob: boolean = false,
+      loadOwner?: AudioLoadOwner,
     ) => {
       pendingSeekCleanupRef.current.get(audio)?.();
       if (!isSnippet) {
@@ -555,7 +559,11 @@ export function useAudioPlayerCore({
         resetBufferedRanges();
       }
       const loadId = isSnippet ? null : ++streamLoadIdRef.current;
-      const isStaleLoad = () => loadId !== null && loadId !== streamLoadIdRef.current;
+      const isStaleLoad = () =>
+        (loadId !== null && loadId !== streamLoadIdRef.current) ||
+        !!loadOwner?.signal.aborted ||
+        (loadOwner !== undefined && !loadOwner.isCurrent());
+      if (isStaleLoad()) return;
       const handlePlaybackStarted = (crossfadeSeconds: number) => {
         if (isStaleLoad()) return;
         if (isSnippet) {
@@ -599,9 +607,8 @@ export function useAudioPlayerCore({
             getSafeAudioSourceLabel(streamUrl),
           );
         }
-        if (!isSnippet) {
-          handleErrorRef.current?.();
-        }
+        if (isSnippet) loadOwner?.onFailure();
+        else handleErrorRef.current?.();
         return;
       }
 
@@ -627,7 +634,6 @@ export function useAudioPlayerCore({
             typeof startSeekSeconds === 'number' && startSeekSeconds > 0 ? startSeekSeconds : -1,
         });
         hlsRef.current = hls;
-        hls.loadSource(streamUrl);
         hls.on(Hls.Events.MEDIA_ATTACHED, () => {
           if (!isSnippet && !isStaleLoad()) bufferedSourceRef.current = { audio, url: audio.src };
         });
@@ -661,6 +667,7 @@ export function useAudioPlayerCore({
               if (isStaleLoad()) return;
               isTransitioningTrackRef.current = false;
               console.warn('HLS play error:', e);
+              if (isSnippet && e?.name !== 'AbortError') loadOwner?.onFailure();
               if (!isSnippet) {
                 setIsLoadingTrack(false);
                 if (e?.name !== 'AbortError') {
@@ -672,36 +679,75 @@ export function useAudioPlayerCore({
 
         const recoveryBudget = new HlsRecoveryBudget();
         let recoveryFailed = false;
-        const failHls = () => {
+        const failHls = (failure?: StreamResolveFailure) => {
           if (recoveryFailed || isStaleLoad()) return;
           recoveryFailed = true;
           const resumePosition = audio.currentTime;
           try {
             hls.destroy();
+          } catch {
+            PlaybackLogger.warn('[AudioPlayer:HLS] Cleanup failed; continuing source recovery');
           } finally {
             if (hlsRef.current === hls) hlsRef.current = null;
-            if (isSnippet) audio.pause();
-            else handleErrorRef.current?.(true, resumePosition);
+            if (isSnippet) {
+              audio.pause();
+              loadOwner?.onFailure(failure);
+            } else handleErrorRef.current?.(true, resumePosition, failure);
           }
         };
         hls.on(Hls.Events.ERROR, (_event, data) => {
-          if (recoveryFailed || isStaleLoad() || !data.fatal) return;
+          if (recoveryFailed || isStaleLoad()) return;
+          PlaybackLogger.warn('[AudioPlayer:HLS] Source loading error', {
+            trackId,
+            type: data.type,
+            details: data.details,
+            fatal: data.fatal,
+            status: data.response?.code,
+            readyState: audio.readyState,
+          });
+          if (!data.fatal) return;
           const kind =
             data.type === Hls.ErrorTypes.NETWORK_ERROR
               ? 'network'
               : data.type === Hls.ErrorTypes.MEDIA_ERROR
                 ? 'media'
                 : 'other';
+          // startLoad() cannot repair a rejected/expired master manifest.
+          if (
+            kind === 'network' &&
+            (data.details === 'manifestLoadError' ||
+              data.details === 'manifestLoadTimeOut' ||
+              data.response?.code === 401 ||
+              data.response?.code === 403 ||
+              data.response?.code === 429)
+          ) {
+            failHls(data.response?.code === 429 ? 'rate-limit' : 'network');
+            return;
+          }
           const action = recoveryBudget.next(kind);
           try {
             if (action === 'reload') hls.startLoad();
             else if (action === 'recover') hls.recoverMediaError();
-            else failHls();
+            else failHls(kind === 'network' ? 'network' : undefined);
           } catch {
             PlaybackLogger.warn('[AudioPlayer:HLS] Recovery failed; refreshing the stream');
-            failHls();
+            failHls(kind === 'network' ? 'network' : undefined);
           }
         });
+        const stopStartupWatch = watchAudioStartup(
+          audio,
+          () => !recoveryFailed && !isStaleLoad() && hlsRef.current === hls,
+          () => {
+            PlaybackLogger.warn('[AudioPlayer:HLS] No playback start after 8s; refreshing source', {
+              trackId,
+              readyState: audio.readyState,
+            });
+            failHls('timeout');
+          },
+          loadOwner?.signal ?? (isSnippet ? undefined : playbackAbortRef.current.signal),
+        );
+        hls.on(Hls.Events.DESTROYING, stopStartupWatch);
+        hls.loadSource(streamUrl);
       } else {
         // Use local cached Blob if available for 100% offline background resilience
         const cachedBlob =
@@ -761,6 +807,7 @@ export function useAudioPlayerCore({
               if (isStaleLoad()) return;
               isTransitioningTrackRef.current = false;
               console.warn('Audio play notice:', e);
+              if (isSnippet && e?.name !== 'AbortError') loadOwner?.onFailure();
               if (!isSnippet) {
                 setIsLoadingTrack(false);
                 if (e?.name !== 'AbortError') {
@@ -1406,7 +1453,11 @@ export function useAudioPlayerCore({
       );
     };
 
-    const handleError = (failedLoad?: Event | true, resumePosition?: number) => {
+    const handleError = (
+      failedLoad?: Event | true,
+      resumePosition?: number,
+      temporaryFailure?: StreamResolveFailure,
+    ) => {
       if (audioRef.current !== audio || pendingResolutionRef.current) return;
       // A queued DOM event from the detached source has no current MediaError.
       if (failedLoad !== true && failedLoad && !audio.error) return;
@@ -1423,10 +1474,17 @@ export function useAudioPlayerCore({
       }
 
       const trk = currentTrackRef.current;
+      // HLS uses a blob MediaSource too; only cache-owned blobs are offline files.
+      const isCachedBlob = Boolean(
+        trk &&
+        audio.src.startsWith('blob:') &&
+        (audioCacheService.getCachedBlobUrl(trk.id) === audio.src ||
+          offlineCacheService.ownsBlobUrl(audio.src)),
+      );
       if (
         trk &&
         navigator.onLine === false &&
-        !(audio.src.startsWith('blob:') && isCachedAudioDecodeError(audio.error))
+        !(isCachedBlob && isCachedAudioDecodeError(audio.error))
       ) {
         holdTemporaryFailure('network', trk, resumePosition ?? audio.currentTime);
         return;
@@ -1468,8 +1526,8 @@ export function useAudioPlayerCore({
       console.warn('Audio playback error encountered:', errCode, errMsg);
       setIsLoadingTrack(false);
 
-      // If the error is on a blob: URL, the cached blob is corrupted
-      if (trk && audio.src && audio.src.startsWith('blob:')) {
+      // Retry failed offline files without resetting the HLS source recovery budget.
+      if (trk && isCachedBlob) {
         const badUrl = audio.src;
         console.warn('[AudioContext] Playback error on blob: URL for:', trk.title);
         const damaged = isCachedAudioDecodeError(audio.error);
@@ -1532,7 +1590,8 @@ export function useAudioPlayerCore({
           {
             forceRefresh: true,
             allowSessionRecovery: true,
-            preferAlternateFormat: isYouTubeTrack && retryNumber > 1,
+            preferAlternateFormat:
+              (isYouTubeTrack && retryNumber > 1) || detectTrackSource(trk) === 'soundcloud',
             excludeItag: isYouTubeTrack && retryNumber > 1 ? getAudioItag(errorSource) : undefined,
           },
           !isYouTubeTrack,
@@ -1541,6 +1600,10 @@ export function useAudioPlayerCore({
       }
 
       if (trk) resolvedStreamCache.current.delete(String(trk.id));
+      if (temporaryFailure && trk) {
+        holdTemporaryFailure(temporaryFailure, trk, resumeAt);
+        return;
+      }
       handleErrorFallbackSkip(trk, requestId);
     };
 
@@ -1656,7 +1719,7 @@ export function useAudioPlayerCore({
         PlaybackLogger.warn(
           `[AudioPlayer:Stalled] No playable data for "${currentTrack?.title || 'Unknown'}" after 8s; retrying the stream`,
         );
-        handleErrorRef.current?.(true);
+        handleErrorRef.current?.(true, audio.currentTime, 'timeout');
       }, 8000);
     };
 
@@ -1890,7 +1953,12 @@ export function useAudioPlayerCore({
         attempt: temporaryRetryAttemptRef.current,
       });
       pendingSeekCleanupRef.current.get(audio)?.();
-      audioCacheService.setPlaybackBuffering(true);
+      audioCacheService.setPlaybackBuffering(
+        true,
+        rejectedStreamTracksRef.current.has(String(track.id))
+          ? undefined
+          : { trackId: track.id, signal: playbackAbortRef.current.signal },
+      );
       mainHlsRef.current?.destroy();
       mainHlsRef.current = null;
       audio.pause();
@@ -1954,7 +2022,6 @@ export function useAudioPlayerCore({
 
       const cachedSource = await readCachedPlayerSource(track, {
         offlineUrl: (id) => offlineCacheService.getCachedTrackUrl(id),
-        offlineCover: (id) => offlineCacheService.getCachedCoverUrl(id),
         memoryUrl: (id) => audioCacheService.getCachedBlobUrl(id),
         isCurrent: () => currentRequestId === streamRequestIdRef.current,
       });
@@ -1968,6 +2035,26 @@ export function useAudioPlayerCore({
           setIsLoadingTrack(false);
         }
         loadStreamIntoAudio(audio, mainHlsRef, cachedSource.url, startPosition, false, track.id);
+        // Start audio before touching artwork storage. A late reply belongs only to this request.
+        if (cachedSource.kind === 'offline' || offlineCacheService.ownsBlobUrl(cachedSource.url)) {
+          void readCachedPlayerCover(track.id, {
+            offlineCover: (id) => offlineCacheService.getCachedCoverUrl(id),
+            isCurrent: () => currentRequestId === streamRequestIdRef.current,
+          }).then((cover) => {
+            if (!cover || currentRequestId !== streamRequestIdRef.current) return;
+            setCurrentTrack((current) => {
+              if (!current || currentRequestId !== streamRequestIdRef.current) return current;
+              return {
+                ...current,
+                cover_url: cover,
+                album:
+                  current.album && typeof current.album === 'object'
+                    ? { ...current.album, cover, cover_medium: cover }
+                    : current.album,
+              };
+            });
+          });
+        }
         return;
       }
       if (navigator.onLine === false) {

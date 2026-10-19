@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { selectPlayerQueue } from '../src/shared/utils/playerQueueSelection.ts';
-import { readCachedPlayerSource } from '../src/shared/services/playerCachedSource.ts';
+import {
+  readCachedPlayerCover,
+  readCachedPlayerSource,
+} from '../src/shared/services/playerCachedSource.ts';
 const track = (id) => ({
   id,
   title: 'Track ' + id,
@@ -26,66 +29,102 @@ test('queue selection retains a repeated saved occurrence, detects collection ch
   assert.equal(selectPlayerQueue(queue, 2, track('new'), [track('new')]).resetShuffle, true);
 });
 
-test('late offline source and cover replies cannot read another cache or install audio for an old selection', async () => {
+test('a valid RAM source bypasses offline storage; a RAM fill during an offline miss is reused', async () => {
+  const original = track('saved');
+  let offlineReads = 0;
+  const readers = {
+    offlineUrl: async () => {
+      offlineReads++;
+      throw Error('storage unavailable');
+    },
+    memoryUrl: () => 'blob:memory',
+    isCurrent: () => true,
+  };
+  assert.deepEqual(await readCachedPlayerSource(original, readers), {
+    kind: 'memory',
+    url: 'blob:memory',
+    track: original,
+  });
+  assert.equal(offlineReads, 0);
+  let memory = null;
+  readers.memoryUrl = () => memory;
+  readers.offlineUrl = async () => {
+    memory = 'blob:completed';
+    return null;
+  };
+  assert.equal((await readCachedPlayerSource(original, readers)).url, 'blob:completed');
+});
+
+test('offline audio is available without awaiting artwork or changing provider metadata', async () => {
+  const original = track('saved');
+  const result = await readCachedPlayerSource(original, {
+    offlineUrl: async () => 'blob:offline',
+    memoryUrl: () => null,
+    isCurrent: () => true,
+  });
+  assert.deepEqual(result, { kind: 'offline', url: 'blob:offline', track: original });
+  assert.equal(original.album.cover, undefined);
+  assert.equal(
+    await readCachedPlayerCover(original.id, {
+      offlineCover: async () => 'blob:cover',
+      isCurrent: () => true,
+    }),
+    'blob:cover',
+  );
+});
+
+test('stale offline replies cannot read another cache or return artwork for the new selection', async () => {
   let finish,
     current = true,
-    coverReads = 0,
-    memoryReads = 0;
-  const readers = {
+    memoryReads = 0,
+    coverReads = 0;
+  const pending = readCachedPlayerSource(track('old'), {
     offlineUrl: () =>
       new Promise((resolve) => {
         finish = resolve;
       }),
-    offlineCover: async () => {
-      coverReads++;
-      return 'blob:cover';
-    },
     memoryUrl: () => {
       memoryReads++;
-      return 'blob:memory';
+      return null;
     },
     isCurrent: () => current,
-  };
-  const pending = readCachedPlayerSource(track('old'), readers);
+  });
   current = false;
   finish('blob:offline');
   assert.deepEqual(await pending, { kind: 'stale' });
+  assert.equal(memoryReads, 1, 'only the synchronous RAM lookup precedes cancellation');
+  const readers = {
+    offlineCover: () => {
+      coverReads++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+    isCurrent: () => current,
+  };
+  assert.equal(await readCachedPlayerCover('old', readers), null);
   assert.equal(coverReads, 0);
-  assert.equal(memoryReads, 0);
   current = true;
-  readers.offlineUrl = async () => 'blob:offline';
-  readers.offlineCover = () =>
-    new Promise((resolve) => {
-      finish = resolve;
-    });
-  const coverPending = readCachedPlayerSource(track('old'), readers);
-  await Promise.resolve();
+  const coverPending = readCachedPlayerCover('old', readers);
   current = false;
-  finish('blob:cover');
-  assert.deepEqual(await coverPending, { kind: 'stale' });
-  assert.equal(memoryReads, 0);
+  finish('blob:old-cover');
+  assert.equal(await coverPending, null);
 });
 
-test('offline audio takes priority over memory, includes offline artwork and leaves provider metadata untouched', async () => {
-  const original = track('saved');
-  const result = await readCachedPlayerSource(original, {
-    offlineUrl: async () => 'blob:offline',
-    offlineCover: async () => 'blob:cover',
-    memoryUrl: () => {
-      throw Error('Memory must not override offline data');
-    },
-    isCurrent: () => true,
-  });
-  assert.equal(result.kind, 'offline');
-  assert.equal(result.track.album.cover, 'blob:cover');
-  assert.equal(original.album.cover, undefined);
-  assert.deepEqual(
-    await readCachedPlayerSource(original, {
-      offlineUrl: async () => null,
-      offlineCover: async () => null,
-      memoryUrl: () => 'blob:memory',
-      isCurrent: () => true,
-    }),
-    { kind: 'memory', url: 'blob:memory', track: original },
-  );
+test('unavailable artwork does not reject a successful offline audio lookup', async () => {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(
+      await readCachedPlayerCover('saved', {
+        offlineCover: async () => {
+          throw Error('broken artwork record');
+        },
+        isCurrent: () => true,
+      }),
+      null,
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
 });

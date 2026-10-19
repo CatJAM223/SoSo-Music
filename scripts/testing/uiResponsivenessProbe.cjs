@@ -15,6 +15,14 @@ const timeout = setTimeout(() => {
 }, 80000);
 const evaluate = (source) => win.webContents.executeJavaScript(source, true);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const until = async (source, label) => {
+  const deadline = Date.now() + 7000;
+  while (Date.now() < deadline) {
+    if (await evaluate(source)) return;
+    await pause(20);
+  }
+  throw Error('UI fixture did not become ready: ' + label);
+};
 const stats = (values) => {
   if (!values.length) return { count: 0, medianMs: null, p95Ms: null, maxMs: null };
   const sorted = [...values].sort((a, b) => a - b);
@@ -61,9 +69,17 @@ app
             rate: throttle,
           });
           await evaluate(`mountUi(${count},${artwork})`);
-          await pause(180);
+          // Await real loading/commit state. Deliberately delayed library stats must not
+          // be counted as progress-induced renders, even on an overloaded machine.
+          await until(
+            '!!window.uiControls && window.uiLibrary?.stats.durationSeconds === 1 && !window.uiLibrary.loadingTracks && window.uiArtist?.loading === false',
+            'initial model data',
+          );
           await evaluate('switchUiTrack(0)');
-          await pause(100);
+          await until(
+            'window.uiState?.currentTrack?.id === "sc_100000" && window.uiState.isPlaying',
+            'initial playback',
+          );
           const observed = await evaluate('uiProbe.renders');
           assert.ok(
             observed.TrackTable > 0 && observed.TrackRow > 0,
@@ -178,6 +194,8 @@ app
         externalRequests,
         artwork: 'missing fields and fully populated stable file URLs; no network artwork',
         screen: 'hidden BrowserWindow, backgroundThrottling=false; no frame-presentation claims',
+        readiness:
+          'Actual model loading state and committed playback; initial stats delayed by 500ms',
       },
       results,
     };

@@ -1,3 +1,4 @@
+import { resolvePlayerStream } from '../src/shared/services/playerStreamResolution.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -222,7 +223,7 @@ test('Snippet opt-out keeps both permitted providers resolving while blocked You
       ...playbackIntent,
       ...tastePolicy,
       AbortController,
-      snippetAudioRef: ref({ pause() {}, currentTime: 0 }),
+      snippetAudioRef: ref({ pause() {}, removeAttribute() {}, load() {}, currentTime: 0 }),
       streamRequestIdRef: ref(0),
       streamAbortRef: ref(null),
       onPauseMainAudio: () => {},
@@ -237,6 +238,14 @@ test('Snippet opt-out keeps both permitted providers resolving while blocked You
       SNIPPET_DURATION: 15,
       snippetHlsRef: ref(null),
       snippetTrackRef: ref(null),
+      snippetLoadVersionRef: ref(0),
+      snippetWantsPlayRef: ref(false),
+      snippetRetryRef: ref(null),
+      snippetFailureRef: ref(null),
+      snippetNeedsResolveRef: ref(false),
+      resolvePlayerStream,
+      PlaybackLogger: { info() {}, warn() {} },
+      emitToast() {},
       isPlayableDirectAudioUrl: () => false,
       detectTrackSource: (track) => track.source,
       loadStreamIntoAudio: (...args) => loads.push(args),

@@ -12,6 +12,9 @@ const root = fileURLToPath(new URL('../../', import.meta.url)),
   require = createRequire(import.meta.url);
 const scratch = path.join(root, 'scratch'),
   output = fs.mkdtempSync(path.join(scratch, 'ui-interactions-'));
+const mutation = process.env.SOSO_UI_TEST_MUTATION || '';
+if (!['', 'player-button'].includes(mutation)) throw Error('Unknown UI test mutation');
+let mutations = 0;
 const entry = `
 import React,{createContext,useContext,useState} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -54,6 +57,23 @@ try {
     define: { 'process.env.NODE_ENV': '"development"' },
     plugins: [
       {
+        name: 'isolated-player-button-mutation',
+        setup(builder) {
+          if (!mutation) return;
+          builder.onLoad(
+            { filter: /desktop[/\\]ui[/\\]components[/\\]PlayerBar\.tsx$/ },
+            (args) => {
+              const source = fs.readFileSync(args.path, 'utf8');
+              const before = 'onClick={togglePlay}';
+              if (source.split(before).length !== 2)
+                throw Error('Player button mutation must match once');
+              mutations++;
+              return { contents: source.replace(before, 'onClick={() => {}}'), loader: 'tsx' };
+            },
+          );
+        },
+      },
+      {
         name: 'services-only',
         setup(builder) {
           builder.onResolve(
@@ -88,6 +108,7 @@ try {
       },
     ],
   });
+  if (mutation && mutations !== 1) throw Error('UI mutation was not applied exactly once');
   const css = await postcss([
     tailwind({
       ...config,
