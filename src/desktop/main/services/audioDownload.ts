@@ -12,6 +12,7 @@ function isAllowedUrl(url: string): boolean {
     [
       'sndcdn.com',
       'soundcloud.com',
+      'soundcloud.cloud',
       'bcbits.com',
       'bandcamp.com',
       'googlevideo.com',
@@ -22,7 +23,13 @@ function isAllowedUrl(url: string): boolean {
     ].some(
       (domain) =>
         host.endsWith(`.${domain}`) ||
-        (['sndcdn.com', 'soundcloud.com', 'bcbits.com', 'bandcamp.com'].includes(domain) &&
+        ([
+          'sndcdn.com',
+          'soundcloud.com',
+          'soundcloud.cloud',
+          'bcbits.com',
+          'bandcamp.com',
+        ].includes(domain) &&
           host === domain),
     ) ||
     host === 'images.unsplash.com' ||
@@ -72,6 +79,8 @@ export async function downloadAudioBytes(url: string, options: Options = {}): Pr
       if (
         host.endsWith('.sndcdn.com') ||
         host.endsWith('.soundcloud.com') ||
+        host.endsWith('.soundcloud.cloud') ||
+        host === 'soundcloud.cloud' ||
         host === 'soundcloud.com'
       ) {
         headers.Referer = 'https://soundcloud.com/';

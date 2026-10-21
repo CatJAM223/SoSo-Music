@@ -6,7 +6,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   Heart,
   Play,
-  Clock,
   Disc3,
   Trash2,
   Users,
@@ -21,7 +20,7 @@ import { TrackTable } from '../components/TrackTable';
 import { VirtualCardGrid } from '../components/VirtualCardGrid';
 import { LibraryPageControls } from '../components/LibraryPageControls';
 
-import { formatTotalDuration, detectTrackSource } from '../../../shared/utils/formatters';
+import { detectTrackSource } from '../../../shared/utils/formatters';
 import { CatLoader } from '../components/CatLoader';
 import { PlaylistCover } from '../../../shared/components/PlaylistCover';
 import { playlistDescription } from '../../../shared/utils/playlistDescription';
@@ -139,52 +138,10 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             <Heart className="w-8 h-8 sm:w-12 sm:h-12" />
           </div>
 
-          <div className="sm:hidden flex-1 min-w-0">
-            <span className="text-[10px] font-semibold text-slate-500 dark:text-zinc-400">
-              {t('Медиатека')}
-            </span>
-            <h1 className="text-xl font-black text-slate-900 dark:text-white tracking-tight truncate">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
               {t('Моя музыка')}
             </h1>
-            <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-              {stats.playlists} {t(' плейлистов • ')}
-              {stats.tracks} {t(' треков')}
-            </p>
-          </div>
-          <div className="flex-1 min-w-0 space-y-1.5 hidden sm:block">
-            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
-              {t('Медиатека')}
-            </span>
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
-              {t('Моя музыка')}
-            </h1>
-
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-semibold text-slate-500 dark:text-zinc-400 pt-1">
-              <span>
-                {stats.playlists} {t(' плейлистов')}
-              </span>
-              <span>•</span>
-              <span>
-                {stats.tracks} {t(' треков')}
-              </span>
-              <span>•</span>
-              <span>
-                {stats.albums} {t(' альбомов')}
-              </span>
-              <span>•</span>
-              <span>
-                {stats.artists} {t(' исполнителей')}
-              </span>
-              {stats.tracks > 0 && (
-                <>
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    {formatTotalDuration(totalDurationSeconds)}
-                  </span>
-                </>
-              )}
-            </div>
           </div>
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-3 shrink-0 max-w-full">
@@ -430,6 +387,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           ) : filteredTracks.length > 0 ? (
             <TrackTable
               tracks={filteredTracks}
+              totalDurationSeconds={totalDurationSeconds}
               onPlayTrack={handlePlayLibraryTrack}
               onOpenAddToPlaylist={onOpenAddToPlaylist}
               onNavigateToArtist={onNavigateToArtist}

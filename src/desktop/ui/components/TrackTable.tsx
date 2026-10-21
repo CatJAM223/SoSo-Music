@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Track } from '../../../shared/types';
 import type { PlaybackOrigin } from '../../../shared/types/tastePolicy';
 import { TrackRow } from './TrackRow';
+import { formatTotalDuration } from '../../../shared/utils/formatters';
 
 interface TrackTableProps {
   tracks: Track[];
@@ -14,6 +15,7 @@ interface TrackTableProps {
   onNavigateToArtist?: (artist: { id?: string | number; name: string }) => void;
   onNavigateToAlbum?: (album: any) => void;
   hideAlbumColumn?: boolean;
+  totalDurationSeconds?: number;
 }
 
 const ROW_HEIGHT = 56;
@@ -28,6 +30,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   onNavigateToArtist,
   onNavigateToAlbum,
   hideAlbumColumn = false,
+  totalDurationSeconds,
 }) => {
   useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -102,8 +105,14 @@ export const TrackTable: React.FC<TrackTableProps> = ({
         <div className="w-8"></div>
         <div className="w-8"></div>
         <div className="w-8"></div>
-        <div className="w-12">
-          <span className="sr-only">{t('Длительность')}</span>
+        <div className="w-12 flex justify-end">
+          {totalDurationSeconds !== undefined && totalDurationSeconds > 0 ? (
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-medium normal-case tracking-normal tabular-nums">
+              {formatTotalDuration(totalDurationSeconds)}
+            </span>
+          ) : (
+            <span className="sr-only">{t('Длительность')}</span>
+          )}
         </div>
       </div>
 

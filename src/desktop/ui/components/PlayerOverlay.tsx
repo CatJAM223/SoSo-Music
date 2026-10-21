@@ -5,7 +5,7 @@ import { DEFAULT_OVERLAY_LAYOUT, type OverlayLayout } from '../../../shared/util
 import { advanceTrackArtwork, trackArtworkCandidates } from '../../../shared/utils/trackArtwork';
 import { DEFAULT_COVER_SVG_DATA_URI } from '../../../shared/utils/placeholder';
 import { useLocale } from '../../../shared/i18n/useLocale';
-import { t } from '../../../shared/i18n/locale';
+import { t, setLocale } from '../../../shared/i18n/locale';
 import './PlayerOverlay.css';
 type Panel = keyof OverlayLayout;
 export function PlayerOverlay() {
@@ -29,7 +29,8 @@ export function PlayerOverlay() {
   useEffect(() => {
     let active = true,
       receivedState = false,
-      receivedMode = false;
+      receivedMode = false,
+      receivedLanguage = false;
     const ticket = revision.current;
     const html = document.documentElement.style.background,
       body = document.body.style.background,
@@ -37,6 +38,16 @@ export function PlayerOverlay() {
     document.documentElement.style.background = 'transparent';
     document.body.style.background = 'transparent';
     document.body.style.overflow = 'hidden';
+    const offLanguage = window.electronAPI?.onOverlayLanguageChanged?.((language) => {
+      receivedLanguage = true;
+      if (active) setLocale(language);
+    });
+    void window.electronAPI
+      ?.getOverlayLanguage?.()
+      .then((language) => {
+        if (active && !receivedLanguage) setLocale(language);
+      })
+      .catch(() => {});
     const changeMode = (value: boolean) => {
       editMode.current = value;
       if (!value) drag.current = null;
@@ -78,6 +89,7 @@ export function PlayerOverlay() {
       active = false;
       off?.();
       offMode?.();
+      offLanguage?.();
       editMode.current = false;
       document.documentElement.style.background = html;
       document.body.style.background = body;

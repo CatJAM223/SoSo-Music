@@ -31,7 +31,9 @@ export class ProviderHttpPolicy {
     if (
       host === 'soundcloud.com' ||
       host.endsWith('.soundcloud.com') ||
-      host.endsWith('.sndcdn.com')
+      host.endsWith('.sndcdn.com') ||
+      host === 'soundcloud.cloud' ||
+      host.endsWith('.soundcloud.cloud')
     )
       return 'soundcloud';
     return url.origin;

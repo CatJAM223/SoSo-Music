@@ -299,3 +299,20 @@ test('SoundCloud rate limits neither reset connections nor fall through to a rel
     setDesktopNetworkRecovery(null);
   }
 });
+test('The current SoundCloud CDN shares the API cooldown rather than starting a new request', async () => {
+  const policy = new ProviderHttpPolicy();
+  await policy.fetch(
+    'https://api-v2.soundcloud.com/search/tracks',
+    {},
+    async () => new Response('', { status: 429, headers: { 'retry-after': '60' } }),
+  );
+  let requests = 0;
+  await assert.rejects(
+    policy.fetch('https://playback.media-streaming.soundcloud.cloud/audio.m4s', {}, async () => {
+      requests++;
+      return new Response('ok');
+    }),
+    /STREAM_RATE_LIMITED/,
+  );
+  assert.equal(requests, 0);
+});

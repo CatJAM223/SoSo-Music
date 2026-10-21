@@ -40,6 +40,7 @@ jobs:
       - run: npm run build
       - run: npm run test:production
       - run: npm run package:zip
+      - run: npm run package:7z
       - name: Save failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
@@ -56,6 +57,8 @@ jobs:
           path: |
             release/*.zip
             release/*.zip.sha256
+            release/*.7z
+            release/*.7z.sha256
           compression-level: 0
           retention-days: 14
           if-no-files-found: error
@@ -65,5 +68,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $releaseAssets = @(Get-ChildItem -Path release/*.zip,release/*.zip.sha256 -File | ForEach-Object { $_.FullName })
+          $releaseAssets = @(Get-ChildItem -Path release/*.zip,release/*.zip.sha256,release/*.7z,release/*.7z.sha256 -File | ForEach-Object { $_.FullName })
           gh release create $env:GITHUB_REF_NAME @releaseAssets --verify-tag --generate-notes --title "SoSo Music $env:GITHUB_REF_NAME"

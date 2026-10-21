@@ -125,6 +125,7 @@ test('IPC enforces separate permissions for player settings and overlay interact
       setEnabled: () => {},
       edit: () => (editing = true),
       isEditing: () => editing,
+      getLanguage: () => 'en',
       finishEditing: () => (editing = false),
     },
     () => null,
@@ -141,6 +142,8 @@ test('IPC enforces separate permissions for player settings and overlay interact
   assert.throws(() => handlers.get('overlay:finishEditing')(event));
   assert.throws(() => handlers.get('overlay:edit')({ ...event, senderFrame: {} }));
   assert.equal(handlers.get('overlay:isEditing')(overlayEvent), false);
+  assert.throws(() => handlers.get('overlay:getLanguage')(event));
+  assert.equal(handlers.get('overlay:getLanguage')(overlayEvent), 'en');
   assert.throws(() => handlers.get('overlay:saveLayout')(overlayEvent, {}), /editing required/);
   assert.equal(handlers.get('overlay:edit')(event), true);
   assert.equal(handlers.get('overlay:isEditing')(overlayEvent), true);

@@ -198,7 +198,11 @@ function TourSession({ onClose }: { onClose: () => void }) {
       setFeedback(result.message);
       setFeedbackError(!result.success);
       if (result.success)
-        setZapret((value) => (value ? { ...value, hasSoundcloud: true, hasSndcdn: true } : value));
+        setZapret((value) =>
+          value
+            ? { ...value, hasSoundcloud: true, hasSndcdn: true, hasSoundcloudCloud: true }
+            : value,
+        );
     } catch {
       setFeedbackError(true);
       setFeedback(t('Не удалось изменить список. Попробуйте ещё раз.'));
@@ -441,12 +445,12 @@ function TourSession({ onClose }: { onClose: () => void }) {
                     <div className="settings-row-copy">
                       <strong>SoundCloud</strong>
                       <span>
-                        {zapret.hasSoundcloud && zapret.hasSndcdn
-                          ? t('Оба домена уже добавлены.')
-                          : t('Нужны soundcloud.com и sndcdn.com.')}
+                        {zapret.hasSoundcloud && zapret.hasSndcdn && zapret.hasSoundcloudCloud
+                          ? t('Все домены SoundCloud уже добавлены.')
+                          : t('Нужны soundcloud.com, sndcdn.com и soundcloud.cloud.')}
                       </span>
                     </div>
-                    {!(zapret.hasSoundcloud && zapret.hasSndcdn) && (
+                    {!(zapret.hasSoundcloud && zapret.hasSndcdn && zapret.hasSoundcloudCloud) && (
                       <button
                         type="button"
                         className="settings-action"
@@ -493,7 +497,9 @@ function TourSession({ onClose }: { onClose: () => void }) {
             <div className="settings-row">
               <span>{t('Домены SoundCloud')}</span>
               <span>
-                {zapret?.hasSoundcloud && zapret.hasSndcdn ? t('Добавлены') : t('Без изменений')}
+                {zapret?.hasSoundcloud && zapret.hasSndcdn && zapret.hasSoundcloudCloud
+                  ? t('Добавлены')
+                  : t('Без изменений')}
               </span>
             </div>
           </div>

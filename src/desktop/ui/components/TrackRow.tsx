@@ -164,7 +164,7 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
       toggleLike(track);
     };
 
-    const coverUrl = resolveTrackCover(track);
+    const coverUrl = resolveTrackCover(track, undefined, 'thumbnail');
 
     return (
       <div
@@ -225,9 +225,10 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
             key={String(track.id) + ':' + coverUrl}
             src={coverUrl}
             alt={track.title}
-            onError={(event) => advanceTrackArtwork(event.currentTarget, track)}
+            onError={(event) => advanceTrackArtwork(event.currentTarget, track, 'thumbnail')}
             className="w-full h-full object-cover"
             loading="lazy"
+            decoding="async"
           />
           {/* Play Overlay */}
           <button

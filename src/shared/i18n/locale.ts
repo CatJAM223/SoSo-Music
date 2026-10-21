@@ -17,6 +17,9 @@ export function getIntlLocale(): string {
   return locale === 'en' ? 'en-US' : 'ru-RU';
 }
 function syncNativeLanguage() {
+  // The isolated overlay receives the main window's preference over IPC.
+  // Its empty localStorage must never reset the application's selected language.
+  if (typeof window !== 'undefined' && window.location?.hash === '#/overlay') return;
   if (typeof window !== 'undefined')
     void window.electronAPI?.setInterfaceLanguage?.(locale).catch(() => {});
 }

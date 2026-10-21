@@ -228,7 +228,7 @@ export function transformSCTrack(item: any): Track | null {
       source: 'soundcloud',
     },
     album: {
-      id: item.id,
+      id: `sc_track_album_${item.id}`,
       title: albumTitle,
       cover: finalCover,
       cover_small: finalCover,
@@ -251,7 +251,7 @@ export function transformSCTrack(item: any): Track | null {
 export function isValidTrackForArtist(track: Track, targetArtist: string): boolean {
   if (!track || !targetArtist) return false;
   const targetLower = targetArtist.toLowerCase().trim();
-  const targetNorm = targetLower.replace(/[^a-z0-9а-яё]/g, '');
+  const targetNorm = targetLower.normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '');
   if (!targetNorm) return false;
 
   const trackTitle = (track.title || '').toLowerCase().trim();
@@ -284,7 +284,10 @@ export function isValidTrackForArtist(track: Track, targetArtist: string): boole
 
   // 2. Direct artist exact match or multi-artist exact match
   const parsedArtists = parseMultiArtists(rawArtist).map((a) =>
-    a.toLowerCase().replace(/[^a-z0-9а-яё]/g, ''),
+    a
+      .toLowerCase()
+      .normalize('NFKC')
+      .replace(/[^\p{L}\p{N}]/gu, ''),
   );
   if (parsedArtists.includes(targetNorm)) {
     return true;
@@ -292,7 +295,10 @@ export function isValidTrackForArtist(track: Track, targetArtist: string): boole
 
   // 3. Featured in title exact match (e.g. "Song (feat. ThxSoMch)", "Song ft. ThxSoMch")
   const titleParsed = extractAllArtists('', trackTitle).map((a) =>
-    a.toLowerCase().replace(/[^a-z0-9а-яё]/g, ''),
+    a
+      .toLowerCase()
+      .normalize('NFKC')
+      .replace(/[^\p{L}\p{N}]/gu, ''),
   );
   if (titleParsed.includes(targetNorm)) {
     return true;
@@ -301,12 +307,18 @@ export function isValidTrackForArtist(track: Track, targetArtist: string): boole
   // 4. Track title starts with "Artist - Song" (exact artist prefix before delimiter)
   const dashMatch = trackTitle.match(/^([^-–—]+)\s*[-–—]\s*(.+)$/);
   if (dashMatch) {
-    const prefixNorm = dashMatch[1].toLowerCase().replace(/[^a-z0-9а-яё]/g, '');
+    const prefixNorm = dashMatch[1]
+      .toLowerCase()
+      .normalize('NFKC')
+      .replace(/[^\p{L}\p{N}]/gu, '');
     if (prefixNorm === targetNorm) {
       return true;
     }
     const prefixParsed = parseMultiArtists(dashMatch[1]).map((a) =>
-      a.toLowerCase().replace(/[^a-z0-9а-яё]/g, ''),
+      a
+        .toLowerCase()
+        .normalize('NFKC')
+        .replace(/[^\p{L}\p{N}]/gu, ''),
     );
     if (prefixParsed.includes(targetNorm)) {
       return true;

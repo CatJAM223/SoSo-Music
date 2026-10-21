@@ -8,6 +8,7 @@ export interface SearchPageState {
   results: Track[];
   artists: Artist[];
   completed: boolean;
+  failedSources?: MusicSource[];
 }
 export interface MyMusicPageState {
   tab: MyMusicTab;

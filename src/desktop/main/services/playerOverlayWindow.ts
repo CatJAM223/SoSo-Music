@@ -2,10 +2,16 @@ import { BrowserWindow, screen, type IpcMainInvokeEvent } from 'electron';
 import { PlaybackLogger } from './playbackLogger';
 import { trackArtworkCandidates } from '../../../shared/utils/trackArtwork.ts';
 import type { WidgetState } from '../../../shared/types';
+import {
+  DEFAULT_OVERLAY_LAYOUT,
+  overlayWindowBounds,
+  type OverlayLayout,
+} from '../../../shared/utils/desktopControls';
 export function createPlayerOverlayWindow(
   preload: string,
   renderer: string,
   devUrl: string | undefined,
+  readLayout: () => OverlayLayout = () => DEFAULT_OVERLAY_LAYOUT,
 ) {
   let window: BrowserWindow | null = null;
   let visible = false;
@@ -13,8 +19,21 @@ export function createPlayerOverlayWindow(
   let started = false;
   let editing = false;
   let enabled = true;
+  let language: 'ru' | 'en' = 'ru';
   let lastState: unknown = null;
   let lastTrackKey: string | null = null;
+  let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+  let previousBounds: ReturnType<typeof overlayWindowBounds> | undefined;
+  const cancelRelease = () => {
+    clearTimeout(releaseTimer);
+    releaseTimer = undefined;
+  };
+  function fitWindow() {
+    if (!window || window.isDestroyed()) return;
+    const display = screen.getDisplayMatching(window.getBounds());
+    previousBounds = overlayWindowBounds(display.workArea ?? display.bounds, readLayout(), editing);
+    window.setBounds(previousBounds);
+  }
   function sendTrack(force = false) {
     if (
       lastState === null ||
@@ -44,7 +63,9 @@ export function createPlayerOverlayWindow(
   }
   function show() {
     if (!window || window.isDestroyed() || !ready) return;
+    cancelRelease();
     if (window.isMinimized()) window.restore();
+    fitWindow();
     window.setAlwaysOnTop(true, 'screen-saver');
     visible = true;
     sendTrack(true);
@@ -76,12 +97,14 @@ export function createPlayerOverlayWindow(
         PlaybackLogger.debug('[Overlay:Visibility] Hidden by toggle');
         return false;
       }
-      window.setBounds(screen.getDisplayMatching(window.getBounds()).bounds);
       show();
       return true;
     }
+    const display = previousBounds
+      ? screen.getDisplayMatching(previousBounds)
+      : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     const win = new BrowserWindow({
-      ...screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds,
+      ...overlayWindowBounds(display.workArea ?? display.bounds, readLayout(), editing),
       show: false,
       frame: false,
       transparent: true,
@@ -94,6 +117,9 @@ export function createPlayerOverlayWindow(
       alwaysOnTop: true,
       title: 'SoSo Music Overlay',
       webPreferences: {
+        // Playback checkpoints are large localStorage writes. Sharing their session
+        // sends old/new queue strings to this otherwise idle renderer every 10s.
+        partition: 'soso-player-overlay',
         preload,
         nodeIntegration: false,
         contextIsolation: true,
@@ -118,6 +144,7 @@ export function createPlayerOverlayWindow(
     });
     win.on('closed', () => {
       if (window === win) {
+        cancelRelease();
         window = null;
         visible = false;
         ready = false;
@@ -130,6 +157,13 @@ export function createPlayerOverlayWindow(
       visible = false;
       editing = false;
       applyMode();
+      fitWindow();
+      cancelRelease();
+      releaseTimer = setTimeout(() => {
+        releaseTimer = undefined;
+        if (window === win && !visible && !win.isDestroyed()) win.destroy();
+      }, 15000);
+      releaseTimer.unref?.();
     };
     win.on('hide', nativeHidden);
     win.on('minimize', nativeHidden);
@@ -140,7 +174,7 @@ export function createPlayerOverlayWindow(
       if (!win.isDestroyed()) win.destroy();
     });
     const adjust = () => {
-      if (!win.isDestroyed()) win.setBounds(screen.getDisplayMatching(win.getBounds()).bounds);
+      if (!win.isDestroyed()) fitWindow();
     };
     screen.on('display-metrics-changed', adjust);
     screen.on('display-removed', adjust);
@@ -173,6 +207,12 @@ export function createPlayerOverlayWindow(
     },
     toggle,
     owns,
+    getLanguage: () => language,
+    setLanguage: (value: 'ru' | 'en') => {
+      language = value;
+      if (window && !window.isDestroyed())
+        window.webContents.send('overlay:languageChanged', language);
+    },
     isEditing: () => editing,
     edit: () => {
       if (!enabled) throw Error('OVERLAY_DISABLED');
@@ -185,6 +225,7 @@ export function createPlayerOverlayWindow(
     },
     finishEditing: () => {
       editing = false;
+      fitWindow();
       applyMode();
       return false;
     },
@@ -202,6 +243,7 @@ export function createPlayerOverlayWindow(
     setEnabled: (value: boolean) => {
       enabled = value;
       if (!enabled) {
+        cancelRelease();
         window?.destroy();
         window = null;
         visible = false;
@@ -212,6 +254,7 @@ export function createPlayerOverlayWindow(
     },
     dispose: () => {
       started = false;
+      cancelRelease();
       window?.destroy();
       window = null;
       visible = false;

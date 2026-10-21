@@ -1,14 +1,13 @@
 import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
 import React, { useEffect, useState, useMemo } from 'react';
-import { ListMusic, Play, Trash2, Music, Clock, Search, X, Plus, ImagePlus } from 'lucide-react';
+import { ListMusic, Play, Trash2, Music, Search, X, Plus, ImagePlus } from 'lucide-react';
 import { Playlist, Track } from '../../../shared/types';
 import { TasteContextMenu } from '../../../shared/components/TasteContextMenu';
 import { TrackTable } from '../components/TrackTable';
 import { useAudioControls } from '../../../shared/context/AudioContext';
 import { ConfirmDeleteModal } from '../components/modals/ConfirmDeleteModal';
 import { AddTrackToPlaylistModal } from '../components/modals/AddTrackToPlaylistModal';
-import { formatTotalDuration } from '../../../shared/utils/formatters';
 import { usePlaylistTracks } from '../../../shared/hooks/usePlaylistTracks';
 import { platformBridge } from '../../../shared/bridge/platformBridge';
 import { CatLoader } from '../components/CatLoader';
@@ -91,11 +90,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({
     onPlaylistDeleted();
   };
 
-  // Calculate total duration in human-readable Russian format
-  const formatTotalTime = () => {
-    const totalSecs = tracks.reduce((sum, t) => sum + (t.duration || 180), 0);
-    return formatTotalDuration(totalSecs);
-  };
+  const totalDurationSeconds = tracks.reduce((sum, track) => sum + (track.duration || 180), 0);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -186,22 +181,6 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({
               <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span>{t('Удалить плейлист')}</span>
             </button>
-
-            <div className="flex items-center gap-2 text-xs text-slate-700 dark:text-zinc-300 font-medium sm:ml-auto justify-center">
-              <span className="font-semibold">
-                {tracks.length}{' '}
-                {tracks.length === 1 ? t('трек') : tracks.length > 4 ? t('треков') : t('трека')}
-              </span>
-              {tracks.length > 0 && (
-                <>
-                  <span className="text-slate-400 dark:text-zinc-500">•</span>
-                  <span className="flex items-center gap-1 text-slate-500 dark:text-zinc-400">
-                    <Clock className="w-3.5 h-3.5" />
-                    {formatTotalTime()}
-                  </span>
-                </>
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -266,6 +245,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({
           <TrackTable
             playbackOrigin={{ kind: 'playlist', id: String(playlist.id) }}
             tracks={filteredTracks}
+            totalDurationSeconds={totalDurationSeconds}
             onOpenAddToPlaylist={onOpenAddToPlaylist}
             onNavigateToArtist={onNavigateToArtist}
             onNavigateToAlbum={onNavigateToAlbum}

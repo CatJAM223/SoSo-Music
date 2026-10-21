@@ -7,6 +7,7 @@ type Overlay = {
   setEnabled: (enabled: boolean) => void;
   edit: () => boolean;
   isEditing: () => boolean;
+  getLanguage: () => 'ru' | 'en';
   finishEditing: () => boolean;
 };
 export function registerDesktopControlsHandlers(
@@ -61,6 +62,10 @@ export function registerDesktopControlsHandlers(
   ipc.handle('overlay:getState', (event) => {
     assertOverlay(event);
     return getState();
+  });
+  ipc.handle('overlay:getLanguage', (event) => {
+    assertOverlay(event);
+    return overlay.getLanguage();
   });
   ipc.handle('overlay:saveLayout', (event, value: unknown) => {
     assertOverlay(event);

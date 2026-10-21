@@ -63,6 +63,49 @@ test('renderer recovery is delayed, deduplicated and limited to two attempts per
   assert.equal(f.reloads(), 3, 'A later isolated failure may recover again');
 });
 
+test('memory samples identify window roles and private bytes without recording provider URLs', (t) => {
+  const records = quiet(t);
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'soso-runtime-memory-'));
+  const app = new EventEmitter();
+  Object.assign(app, {
+    getPath: () => directory,
+    getVersion: () => 'test',
+    isReady: () => false,
+    getAppMetrics: () => [
+      { pid: 101, type: 'Tab', memory: { workingSetSize: 123, privateBytes: 75 } },
+      { pid: 102, type: 'Tab', memory: { workingSetSize: 234, privateBytes: 150 } },
+    ],
+  });
+  const events = ['uncaughtException', 'unhandledRejection', 'exit'];
+  const previous = new Map(events.map((event) => [event, new Set(process.listeners(event))]));
+  t.after(() => {
+    app.emit('will-quit');
+    for (const event of events)
+      for (const listener of process.listeners(event))
+        if (!previous.get(event).has(listener)) process.removeListener(event, listener);
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const window = (pid, url) => ({
+    isDestroyed: () => false,
+    webContents: {
+      isDestroyed: () => false,
+      getOSProcessId: () => pid,
+      getURL: () => url,
+    },
+  });
+  startRuntimeDiagnostics(app, { start() {} }, () => [
+    window(101, 'file:///player/index.html#/overlay'),
+    window(102, 'https://accounts.google.com/private?token=secret'),
+  ]);
+  app.emit('ready');
+  const sample = records.find((entry) => entry.message === '[Runtime] Process memory');
+  assert.equal(sample.meta.processes[0].window, 'overlay');
+  assert.equal(sample.meta.processes[0].privateBytesKB, 75);
+  assert.equal(sample.meta.processes[1].window, 'auxiliary');
+  assert.ok(!JSON.stringify(sample).includes('secret'));
+  assert.ok(!JSON.stringify(sample).includes('accounts.google.com'));
+});
+
 test('normal renderer exits and intentional kills do not reload', (t) => {
   const f = windowFixture(t);
   for (const reason of ['clean-exit', 'killed', 'launch-failed', 'integrity-failure'])

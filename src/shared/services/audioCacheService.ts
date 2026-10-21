@@ -47,8 +47,8 @@ export interface CachedAudioItem {
   timestamp: number;
 }
 
-const DEFAULT_MAX_ITEMS = 8;
-const DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
+const DEFAULT_MAX_ITEMS = 4;
+const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 const DEFAULT_CONCURRENT_FETCHES = 2;
 const IDLE_RELEASE_MS = 60000;
 const BLOB_DOWNLOAD_TIMEOUT_MS = 25000;

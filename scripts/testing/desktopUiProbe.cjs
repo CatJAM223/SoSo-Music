@@ -631,7 +631,7 @@ app
       if(document.querySelector('.onboarding-lastfm a')?.href!=='https://www.last.fm/api/account/create')throw Error('Last.fm key link missing in tour');
       await next();
       await wait(()=>[...document.querySelectorAll('.onboarding-panel button')].some(b=>b.textContent==='Добавить домены'));
-      [...document.querySelectorAll('.onboarding-panel button')].find(b=>b.textContent==='Добавить домены').click();await wait(()=>window.fixtureDomainsApplied);await wait(()=>document.querySelector('.onboarding-panel').textContent.includes('Оба домена уже добавлены'));
+      [...document.querySelectorAll('.onboarding-panel button')].find(b=>b.textContent==='Добавить домены').click();await wait(()=>window.fixtureDomainsApplied);await wait(()=>document.querySelector('.onboarding-panel').textContent.includes('Все домены SoundCloud уже добавлены'));
       await next();if(localStorage.getItem('soso_guitar_player')!=='false')throw Error('Preferences were applied before finishing');
       document.querySelector('.onboarding-panel [data-initial-focus]').click();await wait(()=>window.fixtureTourClosed===1);
       if(localStorage.getItem('soso_guitar_player')!=='true'||localStorage.getItem('soso_guitar_mode')!=='tabs'||localStorage.getItem('soso_find_clips')!=='true'||localStorage.getItem('soso_onboarding_completed')!=='true')throw Error('Completed tour did not save chosen settings');

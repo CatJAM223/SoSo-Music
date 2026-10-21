@@ -1,5 +1,15 @@
 # Changelog
 
+### [3.2.3]
+
+- Isolate overlay storage from playback checkpoints to prevent memory accumulation during long listening sessions. Preserve language changes, positioning and authorized local artwork through IPC and the isolated media handler.
+- Use a compact overlay window, release its renderer while hidden, load smaller track thumbnails and reduce the temporary audio cache limit to 16 MiB.
+- Improve SoundCloud delivery-domain support, artist catalog pagination, album matching and propagation of network errors.
+- Cancel superseded provider searches and show partial results with retry controls when a provider fails.
+- Simplify My Music and playlist headers, show subtle sidebar track counts and align total duration above the duration column.
+- Identify window roles and private process memory in runtime diagnostics; expand native Electron, playback and regression checks.
+- Publish portable Windows x64 builds in both ZIP and 7z formats with SHA-256 checksums.
+
 ### [3.2.0]
 
 - Preserve in-flight prefetch for the selected track instead of cancelling and resolving it again; pause, switching and shutdown still cancel stale work.

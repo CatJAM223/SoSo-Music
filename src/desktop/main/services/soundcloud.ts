@@ -9,7 +9,10 @@ import {
   isFullSoundCloudTranscoding,
   isSoundCloudPreviewUrl,
 } from '../../../shared/utils/soundcloudPlayback.ts';
-import { getStreamResolveFailure } from '../../../shared/utils/streamResolveError.ts';
+import {
+  createStreamResolveError,
+  getStreamResolveFailure,
+} from '../../../shared/utils/streamResolveError.ts';
 import { matchesImportedRecording } from '../../../shared/utils/recordingIdentity.ts';
 import type {
   Album,
@@ -84,6 +87,7 @@ export class SoundCloudService {
     retryTransient: boolean = false,
     signal?: AbortSignal,
     onStatus?: (status: number) => void,
+    strict = retryTransient,
   ): Promise<any> {
     const currentEndpoint = this.scClientId
       ? withSoundCloudClientId(endpoint, this.scClientId)
@@ -94,7 +98,7 @@ export class SoundCloudService {
       () => this.getSoundCloudKey(true),
       isRetry,
       retryTransient,
-      retryTransient,
+      strict,
       signal,
       onStatus,
     );
@@ -229,9 +233,11 @@ export class SoundCloudService {
     try {
       const clientId = await streamShared(() => this.getSoundCloudKey());
       const url = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(cleanQ)}&client_id=${clientId}&limit=${limit}`;
-      const json = await streamWait(this.fetchWithRelay(url, false, false, signal));
+      const json = await streamWait(
+        this.fetchWithRelay(url, false, false, signal, undefined, true),
+      );
       // A failed request is not an authoritative empty catalog; allow the next search to recover.
-      if (!Array.isArray(json?.collection)) return { data: [], total: 0 };
+      if (!Array.isArray(json?.collection)) throw createStreamResolveError('provider');
 
       const items: any[] = json.collection;
       const tracks: Track[] = [];
@@ -250,7 +256,7 @@ export class SoundCloudService {
       assertStreamResolveActive();
       signal?.throwIfAborted();
       console.error('[SoundCloudService] Search error:', e);
-      return { data: [], total: 0 };
+      throw e;
     }
   }
 
@@ -1183,11 +1189,15 @@ export class SoundCloudService {
    * Search Artists / Users on SoundCloud
    */
   public static async searchArtists(query: string, limit: number = 6): Promise<Artist[]> {
+    assertStreamResolveActive();
     if (!query || !query.trim()) return [];
     try {
-      const clientId = await this.getSoundCloudKey();
+      const clientId = await streamShared(() => this.getSoundCloudKey());
       const endpoint = `https://api-v2.soundcloud.com/search/users?q=${encodeURIComponent(query.trim())}&client_id=${clientId}&limit=${limit}`;
-      const json = await this.fetchWithRelay(endpoint);
+      const json = await streamWait(
+        this.fetchWithRelay(endpoint, false, false, undefined, undefined, true),
+      );
+      if (!Array.isArray(json?.collection)) throw createStreamResolveError('provider');
       const items: any[] = json?.collection || [];
       return items.map((u: any) => {
         const rawAvatar = u.avatar_url || '';
@@ -1205,7 +1215,8 @@ export class SoundCloudService {
       });
     } catch (e) {
       console.error('[SoundCloudService] searchArtists error:', e);
-      return [];
+      assertStreamResolveActive();
+      throw e;
     }
   }
 
@@ -1562,17 +1573,17 @@ export class SoundCloudService {
 
       if (numericUserId) {
         promises.push(
-          this.fetchWithRelay(
+          this.fetchCollectionPages(
             `https://api-v2.soundcloud.com/users/${numericUserId}/tracks?client_id=${clientId}&limit=100`,
           ),
         );
         promises.push(
-          this.fetchWithRelay(
+          this.fetchCollectionPages(
             `https://api-v2.soundcloud.com/users/${numericUserId}/albums?client_id=${clientId}&limit=50`,
           ),
         );
         promises.push(
-          this.fetchWithRelay(
+          this.fetchCollectionPages(
             `https://api-v2.soundcloud.com/users/${numericUserId}/playlists?client_id=${clientId}&limit=50`,
           ),
         );
@@ -1661,6 +1672,26 @@ export class SoundCloudService {
     return Array.from(tracksMap.values());
   }
 
+  /** Follow provider pagination without allowing repeated pages or arbitrary relay destinations. */
+  private static async fetchCollectionPages(endpoint: string): Promise<{ collection: any[] }> {
+    const initial = new URL(endpoint);
+    const pages = new Set<string>();
+    const collection: any[] = [];
+    let next = endpoint;
+    while (next && pages.size < 100) {
+      assertStreamResolveActive();
+      const url = new URL(next, initial);
+      if (url.origin !== initial.origin || url.pathname !== initial.pathname || pages.has(url.href))
+        break;
+      pages.add(url.href);
+      const response = await streamWait(this.fetchWithRelay(url.href));
+      if (!Array.isArray(response?.collection)) break;
+      collection.push(...response.collection);
+      next = typeof response.next_href === 'string' ? response.next_href : '';
+    }
+    return { collection };
+  }
+
   public static async getGenreList(): Promise<{ data: Genre[] }> {
     return await this.getGenres();
   }
@@ -1717,12 +1748,17 @@ export class SoundCloudService {
   private static async fetchPlaylistTracksById(
     playlistId: string,
     albumTitle?: string,
+    artistName?: string,
   ): Promise<Track[] | null> {
     const clientId = await this.getSoundCloudKey();
     const playlist = await this.fetchWithRelay(
       `https://api-v2.soundcloud.com/playlists/${playlistId}?client_id=${clientId}`,
     );
     if (!Array.isArray(playlist?.tracks)) return null;
+    const normalized = (value: string) => normalizeText(fixMojibake(value).normalize('NFKC'));
+    if (albumTitle && normalized(playlist.title || '') !== normalized(albumTitle)) return null;
+    if (artistName && normalized(playlist.user?.username || '') !== normalized(artistName))
+      return null;
 
     const fullTracksMap = await fetchSoundCloudPlaylistTrackDetails(playlist.tracks, (ids) =>
       this.fetchWithRelay(
@@ -1745,7 +1781,7 @@ export class SoundCloudService {
     const rawId = cleanSoundCloudPlaylistId(albumId);
     if (/^\d+$/.test(rawId)) {
       try {
-        const tracks = await this.fetchPlaylistTracksById(rawId, albumTitle);
+        const tracks = await this.fetchPlaylistTracksById(rawId, albumTitle, artistName);
         if (tracks !== null) return tracks;
       } catch (e) {
         console.error('[SoundCloudService] getAlbumTracks error:', e);
@@ -1762,37 +1798,36 @@ export class SoundCloudService {
         const playlists = await this.searchPlaylists(q, 8);
         if (playlists && playlists.length > 0) {
           const normTarget = albumTitle
+            .normalize('NFKC')
             .toLowerCase()
-            .replace(/[^a-z0-9а-яё]/g, '')
+            .replace(/[^\p{L}\p{N}]/gu, '')
             .trim();
           const normArtist = (artistName || '')
+            .normalize('NFKC')
             .toLowerCase()
-            .replace(/[^a-z0-9а-яё]/g, '')
+            .replace(/[^\p{L}\p{N}]/gu, '')
             .trim();
 
-          // Prioritize exact match or album marked playlists
-          const best =
-            playlists.find((pl: any) => {
-              const plTitle = fixMojibake(pl.title || '')
-                .toLowerCase()
-                .replace(/[^a-z0-9а-яё]/g, '')
-                .trim();
-              const plAuthor = (pl.user?.username || '')
-                .toLowerCase()
-                .replace(/[^a-z0-9а-яё]/g, '')
-                .trim();
-              const titleMatches =
-                plTitle === normTarget ||
-                plTitle.includes(normTarget) ||
-                normTarget.includes(plTitle);
-              const authorMatches =
-                !normArtist || plAuthor.includes(normArtist) || normArtist.includes(plAuthor);
-              return titleMatches && (authorMatches || pl.is_album);
-            }) || playlists[0];
+          // A playlist's album flag is not evidence that it belongs to the requested artist.
+          const best = playlists.find((pl: any) => {
+            const plTitle = fixMojibake(pl.title || '')
+              .normalize('NFKC')
+              .toLowerCase()
+              .replace(/[^\p{L}\p{N}]/gu, '')
+              .trim();
+            const plAuthor = (pl.user?.username || '')
+              .normalize('NFKC')
+              .toLowerCase()
+              .replace(/[^\p{L}\p{N}]/gu, '')
+              .trim();
+            const titleMatches = Boolean(normTarget && plTitle && plTitle === normTarget);
+            const authorMatches = !normArtist || Boolean(plAuthor && plAuthor === normArtist);
+            return titleMatches && authorMatches;
+          });
 
           const bestId = cleanSoundCloudPlaylistId(best?.id);
           if (bestId && bestId !== rawId && /^\d+$/.test(bestId)) {
-            const tracks = await this.fetchPlaylistTracksById(bestId, best.title);
+            const tracks = await this.fetchPlaylistTracksById(bestId, best.title, artistName);
             if (tracks !== null) return tracks;
           }
         }

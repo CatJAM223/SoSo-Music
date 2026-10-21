@@ -17,6 +17,8 @@ import { Playlist } from '../../../shared/types';
 import { ConfirmDeleteModal } from './modals/ConfirmDeleteModal';
 import { PlaylistCover } from '../../../shared/components/PlaylistCover';
 import appLogo from '../../../renderer/assets/icon.png';
+import { useAudioState } from '../../../shared/context/AudioContext';
+import { platformBridge } from '../../../shared/bridge/platformBridge';
 
 interface SidebarProps {
   currentView: string;
@@ -34,6 +36,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   refreshPlaylistsTrigger,
 }) => {
   useLocale();
+  const { likedTrackIds } = useAudioState();
+  const [libraryTrackCount, setLibraryTrackCount] = useState<number | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [playlistToDelete, setPlaylistToDelete] = useState<Playlist | null>(null);
 
@@ -52,6 +56,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
     loadPlaylists();
     return subscribePlaylistUpdates(loadPlaylists);
   }, [loadPlaylists, refreshPlaylistsTrigger]);
+
+  useEffect(() => {
+    let active = true;
+    let generation = 0;
+    const refreshCount = () => {
+      const request = ++generation;
+      void platformBridge.getLibraryStats().then(
+        (stats) => {
+          if (active && request === generation) setLibraryTrackCount(stats.tracks);
+        },
+        (error) => console.error('Error loading library track count:', error),
+      );
+    };
+    refreshCount();
+    const unsubscribe = subscribePlaylistUpdates(refreshCount);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [likedTrackIds, refreshPlaylistsTrigger]);
 
   const confirmDelete = async () => {
     if (!playlistToDelete) return;
@@ -123,7 +147,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
                 size={18}
               />
-              <span className="flex-1 text-left">{item.label}</span>
+              <span className="flex flex-1 min-w-0 items-baseline gap-2 text-left">
+                <span className="truncate">{item.label}</span>
+                {item.id === 'liked' && libraryTrackCount !== null && (
+                  <span className="shrink-0 text-[11px] font-medium tabular-nums text-slate-400 dark:text-zinc-500">
+                    {libraryTrackCount}
+                  </span>
+                )}
+              </span>
             </button>
           );
         })}
@@ -132,9 +163,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Playlists Section */}
       <div className="flex-1 flex flex-col min-h-0 px-2 py-2">
         <div className="flex items-center justify-between px-2 py-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
-            {t('Плейлисты (')}
-            {playlists.length})
+          <span className="flex items-baseline gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
+            {t('Плейлисты')}
+            <span className="text-[10px] font-medium tracking-normal tabular-nums opacity-70">
+              {playlists.length}
+            </span>
           </span>
           <button
             onClick={onOpenCreatePlaylist}
@@ -177,8 +210,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ) : (
                       <PlaylistCover size="md" className="!rounded-lg" />
                     )}
-                    <span className="truncate" title={pl.name}>
-                      {pl.name}
+                    <span className="flex min-w-0 items-baseline gap-2">
+                      <span className="truncate" title={pl.name}>
+                        {pl.name}
+                      </span>
+                      <span className="shrink-0 text-xs font-medium tabular-nums text-slate-400 dark:text-zinc-500">
+                        {pl.track_count ?? 0}
+                      </span>
                     </span>
                   </div>
 

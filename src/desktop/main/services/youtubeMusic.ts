@@ -1249,6 +1249,7 @@ export class YouTubeMusicService {
    * Fast official artist search on YouTube Music using PARAMS.ARTISTS
    */
   public static async searchArtists(query: string, limit: number = 6): Promise<{ data: Artist[] }> {
+    assertStreamResolveActive();
     if (!query || !query.trim()) return { data: [] };
     const cleanQ = query.trim();
 
@@ -1310,6 +1311,7 @@ export class YouTubeMusicService {
       return { data: artists };
     } catch (e) {
       console.warn('[YouTubeMusicService] searchArtists error:', e);
+      assertStreamResolveActive();
       return { data: [] };
     }
   }

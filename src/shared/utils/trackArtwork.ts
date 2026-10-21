@@ -10,7 +10,10 @@ function artworkUrl(value: unknown): string {
 }
 
 /** Keep real recording artwork ahead of artist portraits and local placeholders. */
-export function trackArtworkCandidates(track?: any): string[] {
+export function trackArtworkCandidates(
+  track?: any,
+  size: 'default' | 'thumbnail' = 'default',
+): string[] {
   if (!track) return [];
   const album = track.album,
     artist = typeof track.artist === 'object' ? track.artist : undefined;
@@ -45,14 +48,35 @@ export function trackArtworkCandidates(track?: any): string[] {
       .map(artworkUrl)
       .filter(Boolean),
   );
-  return [...new Set(urls)].slice(0, MAX_ARTWORK_CANDIDATES);
+  const sized =
+    size === 'thumbnail'
+      ? urls.map((url) => {
+          try {
+            const host = new URL(url).hostname;
+            if (host.endsWith('.sndcdn.com'))
+              return url.replace(/-(?:t\d+x\d+|large|crop|small|badge)\./, '-large.');
+            if (host.endsWith('.googleusercontent.com'))
+              return url.replace(/=w\d+-h\d+[^?&]*/, '=w120-h120-l90-rj');
+            if (host === 'i.ytimg.com')
+              return url.replace(/\/(?:hqdefault|mqdefault|maxresdefault)\.jpg/, '/default.jpg');
+          } catch {
+            /* Local artwork and placeholders keep their original URL. */
+          }
+          return url;
+        })
+      : urls;
+  return [...new Set(sized)].slice(0, MAX_ARTWORK_CANDIDATES);
 }
 
 /** Each failure advances once; exhausting the list ends at an offline placeholder. */
-export function advanceTrackArtwork(image: HTMLImageElement, track: unknown): void {
+export function advanceTrackArtwork(
+  image: HTMLImageElement,
+  track: unknown,
+  size: 'default' | 'thumbnail' = 'default',
+): void {
   const current = image.getAttribute('src') || image.src;
   if (current === DEFAULT_COVER_SVG_DATA_URI) return;
-  const urls = trackArtworkCandidates(track),
+  const urls = trackArtworkCandidates(track, size),
     index = urls.indexOf(current);
   image.src =
     index >= 0 ? urls[index + 1] || DEFAULT_COVER_SVG_DATA_URI : DEFAULT_COVER_SVG_DATA_URI;

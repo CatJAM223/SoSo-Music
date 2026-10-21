@@ -224,6 +224,18 @@ app
     return {status:response.status,bytes:(await response.arrayBuffer()).byteLength,head:head.status,denied:denied.status};
   })()`);
     assert.deepEqual(transfer, { status: 206, bytes: 8, head: 200, denied: 404 });
+    const overlaySession = session.fromPartition('soso-player-overlay');
+    const overlayMedia = await overlaySession.fetch(url, { headers: { Range: 'bytes=0-7' } });
+    assert.equal(
+      overlayMedia.status,
+      206,
+      'Isolated overlay retains authorized local artwork access',
+    );
+    assert.equal((await overlayMedia.arrayBuffer()).byteLength, 8);
+    const overlayDenied = await overlaySession.fetch(
+      'media://local/?path=' + encodeURIComponent(videoPath),
+    );
+    assert.equal(overlayDenied.status, 404, 'Overlay cannot open arbitrary local paths');
     await main.webContents.executeJavaScript(
       "(()=>{const video=document.querySelector('video');video.loop=false;video.currentTime=1.2;})()",
     );
@@ -289,6 +301,7 @@ app
           seek: true,
           restartPermission: phase === 'restart',
           foreignWindowRejected: true,
+          overlayMediaIsolated: true,
           cspBlockedScripts: true,
           rendererRecovered: phase === 'renderer-crash',
         }),

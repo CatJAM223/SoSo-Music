@@ -41,6 +41,7 @@ import { MusicAggregatorService } from './services/musicAggregator';
 import { StreamRequestRegistry } from './services/streamRequestRegistry.ts';
 import { sharedStreamResolver } from './services/sharedStreamResolver.ts';
 const streamRequestRegistry = new StreamRequestRegistry();
+import { registerSearchHandlers } from './ipc/searchHandlers';
 import { LocalListenServer } from './services/localListenServer';
 import { configureListenProtocol } from './services/listenProtocol';
 import { clearYouTubeSessionCache } from './services/youtubeSessionCache';
@@ -94,7 +95,7 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.sosomusic.app');
 }
 process.title = 'SoSo Music';
-startRuntimeDiagnostics(app, crashReporter);
+startRuntimeDiagnostics(app, crashReporter, () => BrowserWindow.getAllWindows());
 
 // Disable autoplay gesture requirement so audio can play immediately on click
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -459,6 +460,7 @@ function registerIpcHandlers() {
     if (language !== 'ru' && language !== 'en')
       throw new TypeError('Unsupported interface language');
     setUiLocale(language);
+    playerOverlay?.setLanguage(language);
     updateTrayLanguage();
   });
   registerWaveHandlers(ipcMain, dbManager);
@@ -570,24 +572,7 @@ function registerIpcHandlers() {
   });
 
   // Multi-Source Music API handlers (SoundCloud + YouTube Music / Source-filtered)
-  ipcMain.handle(
-    'music:search',
-    async (_event: any, query: string, limit?: number, source?: any) => {
-      if (!query || typeof query !== 'string' || !query.trim()) return { data: [], total: 0 };
-      const safeLimit = typeof limit === 'number' && limit > 0 && limit <= 100 ? limit : 20;
-      return await MusicAggregatorService.search(query.trim(), safeLimit, source);
-    },
-  );
-
-  ipcMain.handle(
-    'music:searchArtists',
-    async (_event: any, query: string, limit?: number, source?: any) => {
-      if (!query || typeof query !== 'string' || !query.trim()) return { data: [] };
-      const safeLimit = typeof limit === 'number' && limit > 0 && limit <= 50 ? limit : 10;
-      return await MusicAggregatorService.searchArtists(query.trim(), safeLimit, source);
-    },
-  );
-
+  registerSearchHandlers(ipcMain, MusicAggregatorService);
   ipcMain.handle('music:getCharts', async (_event: any, source?: any) => {
     return await MusicAggregatorService.getCharts(source);
   });
@@ -949,6 +934,7 @@ app.whenReady().then(async () => {
     path.join(__dirname, 'preload.js'),
     path.join(__dirname, '../dist/index.html'),
     process.env.VITE_DEV_SERVER_URL,
+    () => desktopControls!.getLayout(),
   );
   desktopControls = new DesktopControls(app.getPath('userData'), globalShortcut, (action) => {
     if (action === 'overlay') {
@@ -1032,6 +1018,10 @@ app.whenReady().then(async () => {
     await youtubeAccount?.resetCache();
   });
   protocol.handle('media', createMediaHandler(mediaFileAccess, process.env.VITE_DEV_SERVER_URL));
+  // Local artwork uses the same capability checks in the overlay's isolated session.
+  session
+    .fromPartition('soso-player-overlay')
+    .protocol.handle('media', createMediaHandler(mediaFileAccess, process.env.VITE_DEV_SERVER_URL));
 
   // Network-level Ad Blocker for Songsterr tabs and YouTube background streaming
   try {

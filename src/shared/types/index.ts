@@ -448,6 +448,8 @@ export interface ElectronAPI {
   saveOverlayLayout?: (layout: OverlayLayout) => Promise<OverlayLayout>;
   editPlayerOverlay?: () => Promise<boolean>;
   getOverlayEditing?: () => Promise<boolean>;
+  getOverlayLanguage?: () => Promise<'ru' | 'en'>;
+  onOverlayLanguageChanged?: (callback: (language: 'ru' | 'en') => void) => () => void;
   finishOverlayEditing?: () => Promise<boolean>;
   onOverlayEditingChanged?: (callback: (editing: boolean) => void) => () => void;
   getLastFmApiKeyStatus?: () => Promise<{ configured: boolean }>;
@@ -496,12 +498,15 @@ export interface ElectronAPI {
     query: string,
     limit?: number,
     source?: MusicSource,
+    requestId?: string,
   ) => Promise<{ data: Track[]; total: number }>;
   searchArtists?: (
     query: string,
     limit?: number,
     source?: MusicSource,
+    requestId?: string,
   ) => Promise<{ data: Artist[] }>;
+  cancelSearch?: (requestId: string) => Promise<void>;
   getCharts: (source?: MusicSource) => Promise<ChartData>;
   getGenres: () => Promise<{ data: Genre[] }>;
   getGenreTracks: (genreId: number | string, source?: MusicSource) => Promise<{ data: Track[] }>;
@@ -752,6 +757,7 @@ export interface ZapretCheckResult {
   path?: string;
   hasSoundcloud: boolean;
   hasSndcdn: boolean;
+  hasSoundcloudCloud?: boolean;
   error?: string;
 }
 

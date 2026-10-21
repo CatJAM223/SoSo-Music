@@ -2,6 +2,23 @@ export const SHORTCUT_ACTIONS = ['overlay', 'next', 'prev', 'togglePlay'] as con
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number];
 export type PlaybackShortcuts = Record<ShortcutAction, string>;
 export type OverlayLayout = Record<'track' | 'controls', { x: number; y: number }>;
+
+/** Normal viewing needs only the card surface; the display-sized surface is reserved for editing. */
+export function overlayWindowBounds(
+  display: { x: number; y: number; width: number; height: number },
+  layout: OverlayLayout,
+  editing: boolean,
+) {
+  if (editing) return { ...display };
+  const width = Math.min(340, display.width);
+  const height = Math.min(80, display.height);
+  return {
+    x: display.x + Math.round((display.width - width) * layout.track.x),
+    y: display.y + Math.round((display.height - height) * layout.track.y),
+    width,
+    height,
+  };
+}
 export type DesktopControlsStatus = {
   shortcuts: PlaybackShortcuts;
   unavailable: ShortcutAction[];

@@ -37,6 +37,7 @@ const checks = [
   ['UI rendering bounds', 'scripts/testing/testUiResponsiveness.mjs'],
   ['Background resource lifecycle', 'scripts/testing/testBackgroundMemory.mjs'],
   ['Widget resource isolation', 'scripts/testing/testWidgetResources.mjs'],
+  ['Compact overlay resources', 'scripts/testing/testOverlayResources.mjs'],
   ['Rust in Chromium', 'scripts/testing/testRustComputeBrowser.mjs'],
   ['Integration test sensitivity', 'scripts/testing/testIntegrationSensitivity.mjs'],
 ];

@@ -1,7 +1,7 @@
 {
   "name": "soso-music",
   "productName": "SoSo Music",
-  "version": "3.2.0",
+  "version": "3.2.3",
   "description": "Desktop Music Player with SoundCloud, YouTube Music and SQLite",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -13,6 +13,7 @@
     "lint": "tsc --noEmit",
     "test": "node --experimental-strip-types tests/runAllTests.mjs",
     "package:zip": "node scripts/release/packageDesktop.cjs",
+    "package:7z": "node scripts/release/packageDesktop.cjs --7z",
     "test:desktop-ui": "node scripts/testing/testDesktopUi.mjs",
     "test:all": "node scripts/testing/runAllChecks.mjs",
     "test:youtube-login": "node scripts/testing/testYouTubeLogin.mjs",

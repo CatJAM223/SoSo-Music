@@ -1,5 +1,10 @@
 // Russian source phrases are stable translation keys. Never translate catalog or user data.
 export const english: Record<string, string> = {
+  'Не удалось получить все результаты. Источники: ': 'Some results could not be loaded. Sources: ',
+  'Повторить поиск': 'Retry search',
+  'Все домены SoundCloud уже добавлены.': 'All SoundCloud domains have been added.',
+  'Нужны soundcloud.com, sndcdn.com и soundcloud.cloud.':
+    'Requires soundcloud.com, sndcdn.com and soundcloud.cloud.',
   'Вход сохранён, но плеер не смог подготовить воспроизведение YouTube. Откройте трек в окне YouTube и повторите попытку.':
     'You are still signed in, but the player could not prepare YouTube playback. Open the track in the YouTube window and try again.',
   'Настройки вкуса': 'Taste settings',

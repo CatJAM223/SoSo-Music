@@ -44,18 +44,31 @@ export const SearchView: React.FC<SearchViewProps> = ({
   const [completed, setCompleted] = useState(initialState?.completed || false);
   const [selectedSource, setSelectedSource] = useState<MusicSource>(initialState?.source || 'all');
   const [recentQueries, setRecentQueries] = useState<SearchHistoryItem[]>([]);
+  const [failedSources, setFailedSources] = useState<MusicSource[]>(
+    initialState?.failedSources || [],
+  );
+  const searchController = useRef<AbortController | null>(null);
   const albums = useArtistSearchAlbums(query, artists, results, true, selectedSource);
 
   const searchReqIdRef = useRef<number>(0);
   useEffect(
     () => () => {
       searchReqIdRef.current += 1;
+      searchController.current?.abort();
     },
     [],
   );
   useEffect(() => {
-    onStateChange?.({ query, draft, results, artists, source: selectedSource, completed });
-  }, [query, draft, results, artists, selectedSource, completed, onStateChange]);
+    onStateChange?.({
+      query,
+      draft,
+      results,
+      artists,
+      source: selectedSource,
+      completed,
+      failedSources,
+    });
+  }, [query, draft, results, artists, selectedSource, completed, failedSources, onStateChange]);
 
   const loadRecentQueries = useCallback(async () => {
     try {
@@ -74,19 +87,31 @@ export const SearchView: React.FC<SearchViewProps> = ({
     async (searchQuery: string, sourceToUse: MusicSource) => {
       if (!searchQuery.trim()) return;
       const currentReqId = ++searchReqIdRef.current;
+      searchController.current?.abort();
+      const controller = new AbortController();
+      searchController.current = controller;
+      setFailedSources([]);
       setLoading(true);
       setCompleted(false);
       setResults([]);
       setArtists([]);
       try {
         if (window.electronAPI) {
-          await runProgressiveSearch(searchQuery, sourceToUse, window.electronAPI, (snapshot) => {
-            if (currentReqId !== searchReqIdRef.current) return;
-            setResults(snapshot.tracks);
-            setArtists(snapshot.artists);
-            if (snapshot.tracks.length || snapshot.artists.length || !snapshot.pending)
-              setLoading(false);
-          });
+          await runProgressiveSearch(
+            searchQuery,
+            sourceToUse,
+            window.electronAPI,
+            (snapshot) => {
+              if (currentReqId !== searchReqIdRef.current) return;
+              setResults(snapshot.tracks);
+              setArtists(snapshot.artists);
+              setFailedSources(snapshot.failedSources);
+              if (snapshot.tracks.length || snapshot.artists.length || !snapshot.pending)
+                setLoading(false);
+            },
+            15000,
+            controller.signal,
+          );
           if (currentReqId === searchReqIdRef.current) {
             await loadRecentQueries();
           }
@@ -118,6 +143,8 @@ export const SearchView: React.FC<SearchViewProps> = ({
     setDraft(newQuery);
     if (!newQuery.trim()) {
       searchReqIdRef.current += 1;
+      searchController.current?.abort();
+      setFailedSources([]);
       setResults([]);
       setArtists([]);
       setLoading(false);
@@ -193,6 +220,26 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
       {/* Search Results */}
       <div>
+        {failedSources.length > 0 && (
+          <div
+            role="status"
+            className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 p-3 text-sm"
+          >
+            <span>
+              {t('Не удалось получить все результаты. Источники: ')}
+              {failedSources
+                .map((source) => (source === 'soundcloud' ? 'SoundCloud' : 'YouTube Music'))
+                .join(', ')}
+            </span>
+            <button
+              type="button"
+              className="font-semibold text-soso-brand"
+              onClick={() => void performSearch(query, selectedSource)}
+            >
+              {t('Повторить поиск')}
+            </button>
+          </div>
+        )}
         {loading ? (
           <CatLoader message={t('Ищем исполнителей и треки во всех источниках...')} />
         ) : hasResults ? (
@@ -300,15 +347,17 @@ export const SearchView: React.FC<SearchViewProps> = ({
             )}
           </div>
         ) : query.trim() ? (
-          <div className="py-20 text-center text-slate-500 dark:text-zinc-400 space-y-2">
-            <Music className="w-10 h-10 mx-auto opacity-30" />
-            <p className="text-base font-semibold text-slate-800 dark:text-zinc-200">
-              {t('Ничего не найдено')}
-            </p>
-            <p className="text-xs text-slate-500 dark:text-zinc-500">
-              {t('Попробуйте переключить источник поиска или изменить запрос')}
-            </p>
-          </div>
+          failedSources.length === 0 && (
+            <div className="py-20 text-center text-slate-500 dark:text-zinc-400 space-y-2">
+              <Music className="w-10 h-10 mx-auto opacity-30" />
+              <p className="text-base font-semibold text-slate-800 dark:text-zinc-200">
+                {t('Ничего не найдено')}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-zinc-500">
+                {t('Попробуйте переключить источник поиска или изменить запрос')}
+              </p>
+            </div>
+          )
         ) : (
           <div className="space-y-4 py-3 animate-fade-in">
             {recentQueries.length > 0 && (

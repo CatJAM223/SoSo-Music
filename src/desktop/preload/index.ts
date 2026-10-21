@@ -22,6 +22,13 @@ const api: ElectronAPI = {
   saveOverlayLayout: (layout) => ipcRenderer.invoke('overlay:saveLayout', layout),
   editPlayerOverlay: () => ipcRenderer.invoke('overlay:edit'),
   getOverlayEditing: () => ipcRenderer.invoke('overlay:isEditing'),
+  getOverlayLanguage: () => ipcRenderer.invoke('overlay:getLanguage'),
+  onOverlayLanguageChanged: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, language: 'ru' | 'en') =>
+      callback(language);
+    ipcRenderer.on('overlay:languageChanged', handler);
+    return () => ipcRenderer.removeListener('overlay:languageChanged', handler);
+  },
   finishOverlayEditing: () => ipcRenderer.invoke('overlay:finishEditing'),
   onOverlayEditingChanged: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, editing: boolean) => callback(editing);
@@ -110,10 +117,11 @@ const api: ElectronAPI = {
   },
 
   // Music API & Stream
-  search: (query: string, limit?: number, source?: any) =>
-    ipcRenderer.invoke('music:search', query, limit, source),
-  searchArtists: (query: string, limit?: number, source?: any) =>
-    ipcRenderer.invoke('music:searchArtists', query, limit, source),
+  search: (query, limit, source, requestId) =>
+    ipcRenderer.invoke('music:search', query, limit, source, requestId),
+  searchArtists: (query, limit, source, requestId) =>
+    ipcRenderer.invoke('music:searchArtists', query, limit, source, requestId),
+  cancelSearch: (requestId) => ipcRenderer.invoke('music:cancelSearch', requestId),
   getCharts: (source?: any) => ipcRenderer.invoke('music:getCharts', source),
   getGenres: () => ipcRenderer.invoke('music:getGenres'),
   getGenreTracks: (genreId: number | string, source?: any) =>

@@ -145,12 +145,14 @@ export class ZapretService {
       const content = fs.readFileSync(filePath, 'utf8');
       const hasSoundcloud = /(^|\r?\n)\s*soundcloud\.com\s*(\r?\n|$)/i.test(content);
       const hasSndcdn = /(^|\r?\n)\s*sndcdn\.com\s*(\r?\n|$)/i.test(content);
+      const hasSoundcloudCloud = /(^|\r?\n)\s*soundcloud\.cloud\s*(\r?\n|$)/i.test(content);
 
       return {
         found: true,
         path: filePath,
         hasSoundcloud,
         hasSndcdn,
+        hasSoundcloudCloud,
       };
     } catch (e: any) {
       return {
@@ -195,12 +197,13 @@ export class ZapretService {
       const content = fs.readFileSync(targetPath, 'utf8');
       const hasSoundcloud = /(^|\r?\n)\s*soundcloud\.com\s*(\r?\n|$)/i.test(content);
       const hasSndcdn = /(^|\r?\n)\s*sndcdn\.com\s*(\r?\n|$)/i.test(content);
+      const hasSoundcloudCloud = /(^|\r?\n)\s*soundcloud\.cloud\s*(\r?\n|$)/i.test(content);
 
-      if (hasSoundcloud && hasSndcdn) {
+      if (hasSoundcloud && hasSndcdn && hasSoundcloudCloud) {
         return {
           success: true,
           path: targetPath,
-          message: 'Домены soundcloud.com и sndcdn.com уже добавлены в этот список.',
+          message: 'Домены SoundCloud уже добавлены в этот список.',
         };
       }
 
@@ -218,6 +221,7 @@ export class ZapretService {
       const additions: string[] = [];
       if (!hasSoundcloud) additions.push('soundcloud.com');
       if (!hasSndcdn) additions.push('sndcdn.com');
+      if (!hasSoundcloudCloud) additions.push('soundcloud.cloud');
 
       let updatedContent = content;
       if (!updatedContent.endsWith('\n') && !updatedContent.endsWith('\r')) {

@@ -3,7 +3,7 @@
   <h1>SoSo Music</h1>
   <p>Любимая музыка, новые открытия и тексты песен. Вместе в плеере для Windows.</p>
   <p><a href="https://github.com/CatJAM223/SoSo-Music/releases">Скачать</a> · <a href="README.md">English</a> · <a href="https://github.com/CatJAM223/SoSo-Music/issues">Сообщить об ошибке</a></p>
-  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-3.2.0-eab308" alt="Версия 3.2.0"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="Лицензия MIT"></a></p>
+  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-3.2.3-eab308" alt="Версия 3.2.3"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="Лицензия MIT"></a></p>
 </div>
 
 Ищите музыку в SoundCloud и YouTube Music, собирайте медиатеку и находите следующий трек в **«Моей волне»**. Переключайтесь между прослушиванием, караоке и игрой на гитаре в одном приложении.
@@ -23,7 +23,7 @@
 
 ## Установка
 
-1. Откройте [GitHub Releases](https://github.com/CatJAM223/SoSo-Music/releases) и выберите ZIP для Windows x64.
+1. Откройте [GitHub Releases](https://github.com/CatJAM223/SoSo-Music/releases) и выберите ZIP или 7z для Windows x64.
 2. Распакуйте **весь архив** в папку с правом записи.
 3. Запустите **SoSo Music.exe** внутри папки приложения — обычно `win-unpacked`. Сохраните рядом ресурсы и DLL.
 
@@ -111,7 +111,7 @@ npm run package:zip
 
 GitHub Actions запускает полный набор `test:all`: форматирование, типы, архитектуру, Node, Electron UI и проверки чувствительности к намеренным поломкам. После сборки отдельно проверяются собранные main/preload и production-адаптер YouTube. Логи этапов сохраняются в `scratch/check-logs` и прикладываются к неудачному запуску CI. Пустые push и изменения только документации не запускают CI; устаревшие запуски отменяются.
 
-Workflow **Windows release** можно запустить вручную, чтобы скачать артефакт сборки. Тег, совпадающий с версией пакета, например v3.2.0, запускает сборку и публикацию GitHub Release с ZIP и контрольной суммой SHA-256. Настольное приложение не пересобирается после каждого коммита.
+Workflow **Windows release** можно запустить вручную, чтобы скачать артефакт сборки. Тег, совпадающий с версией пакета, например v3.2.3, запускает сборку и публикацию GitHub Release с архивами ZIP и 7z и контрольными суммами SHA-256. Настольное приложение не пересобирается после каждого коммита.
 
 ### Структура проекта
 

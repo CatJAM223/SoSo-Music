@@ -382,7 +382,10 @@ test('SoundCloud search does not cache a transport failure as an empty library f
         }
       : null;
   });
-  assert.deepEqual(await SoundCloudService.search('temporary-drop', 5), { data: [], total: 0 });
+  await assert.rejects(
+    SoundCloudService.search('temporary-drop', 5),
+    /STREAM_PROVIDER_UNAVAILABLE/,
+  );
   available = true;
   const recovered = await SoundCloudService.search('temporary-drop', 5);
   assert.equal(recovered.data.length, 1);

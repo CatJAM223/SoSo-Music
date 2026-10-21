@@ -83,14 +83,14 @@ test('AudioCacheService: HLS vs Progressive stream classification', () => {
   assert.equal(AudioCacheService.isHlsUrl(null), false);
 });
 
-test('Desktop transient cache retains upcoming tracks within a 32 MB budget and preserves playing audio', () => {
+test('Desktop transient cache retains upcoming tracks within a 16 MB budget and preserves playing audio', () => {
   const cache = new AudioCacheService(),
     mb = 1024 * 1024;
-  assert.equal(cache.MAX_CACHE_BYTES, 32 * mb);
+  assert.equal(cache.MAX_CACHE_BYTES, 16 * mb);
   cache.setCache('playing', 'blob:playing-budget', 8 * mb);
   cache.setPinnedUrl('blob:playing-budget');
   for (let i = 0; i < 30; i++) cache.setCache('test' + i, 'blob:test' + i, 4 * mb);
-  assert.ok(cache.getCacheBytes() <= 32 * mb);
+  assert.ok(cache.getCacheBytes() <= 16 * mb);
   assert.equal(cache.isCached('playing'), true);
   assert.equal(cache.isCached('test29'), true);
   assert.equal(cache.isCached('test28'), true);

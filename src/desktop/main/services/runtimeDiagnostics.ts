@@ -12,7 +12,11 @@ type RuntimeSession = {
 };
 
 /** Local diagnostics also cover native failures, which JS error handlers cannot catch. */
-export function startRuntimeDiagnostics(app: App, reporter: CrashReporter): void {
+export function startRuntimeDiagnostics(
+  app: App,
+  reporter: CrashReporter,
+  readWindows: () => BrowserWindow[] = () => [],
+): void {
   const log = (level: 'info' | 'warn' | 'error', message: string, meta?: unknown) => {
     try {
       PlaybackLogger[level]('[Runtime] ' + message, meta);
@@ -66,6 +70,22 @@ export function startRuntimeDiagnostics(app: App, reporter: CrashReporter): void
   const snapshot = () => {
     try {
       const memory = process.memoryUsage();
+      const windows = new Map(
+        readWindows()
+          .filter((window) => !window.isDestroyed() && !window.webContents.isDestroyed())
+          .map((window) => {
+            const url = new URL(window.webContents.getURL() || 'about:blank');
+            const page =
+              url.hash === '#/overlay'
+                ? 'overlay'
+                : url.hash === '#/widget'
+                  ? 'widget'
+                  : url.protocol === 'file:'
+                    ? 'player'
+                    : 'auxiliary';
+            return [window.webContents.getOSProcessId(), page];
+          }),
+      );
       log('info', 'Process memory', {
         main: { rss: memory.rss, heapUsed: memory.heapUsed, external: memory.external },
         processes: app
@@ -76,6 +96,8 @@ export function startRuntimeDiagnostics(app: App, reporter: CrashReporter): void
             type: metric.type,
             serviceName: metric.serviceName,
             workingSetKB: metric.memory.workingSetSize,
+            privateBytesKB: metric.memory.privateBytes,
+            window: windows.get(metric.pid),
           })),
       });
     } catch (error) {

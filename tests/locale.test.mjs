@@ -33,6 +33,21 @@ test('Language changes persist, notify mounted consumers, and update document la
   unsubscribe();
   assert.equal(storageListeners.size, 0);
 });
+test('An isolated overlay does not publish its local default language back to the main application', () => {
+  const sent = [];
+  window.location = { hash: '#/overlay' };
+  window.electronAPI = { setInterfaceLanguage: async (language) => sent.push(language) };
+  setLocale('en');
+  setLocale('ru');
+  assert.deepEqual(sent, []);
+  window.location.hash = '';
+  setLocale('en');
+  assert.deepEqual(sent, ['en']);
+  setLocale('ru');
+  delete window.location;
+  delete window.electronAPI;
+});
+
 test('Interpolation leaves music metadata untouched and preserves sentence spacing', () => {
   setLocale('en');
   assert.equal(t('Ошибка: {0}', 'Русское название'), 'Error: Русское название');
@@ -65,6 +80,7 @@ test('Native language IPC validates its input and rebuilds translated tray comma
   const source = readFileSync(new URL('../src/desktop/main/index.ts', import.meta.url), 'utf8');
   let changeLanguage,
     rebuilds = 0;
+  const overlayLanguages = [];
   vm.runInNewContext(
     stripTypeScriptTypes(extractEventRegistration(source, 'app:setInterfaceLanguage')),
     {
@@ -74,6 +90,7 @@ test('Native language IPC validates its input and rebuilds translated tray comma
         },
       },
       setUiLocale: setLocale,
+      playerOverlay: { setLanguage: (language) => overlayLanguages.push(language) },
       updateTrayLanguage: () => rebuilds++,
       TypeError,
     },
@@ -82,6 +99,7 @@ test('Native language IPC validates its input and rebuilds translated tray comma
   assert.equal(rebuilds, 0);
   changeLanguage(null, 'en');
   assert.equal(rebuilds, 1);
+  assert.deepEqual(overlayLanguages, ['en']);
   let tooltip, menu;
   vm.runInNewContext(
     stripTypeScriptTypes(

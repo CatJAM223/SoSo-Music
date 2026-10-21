@@ -49,8 +49,9 @@ export function getCoverUrl(cover?: string, fallback = DEFAULT_COVER_SVG_DATA_UR
 export function resolveTrackCover(
   track?: any,
   fallback: string = DEFAULT_COVER_SVG_DATA_URI,
+  size: 'default' | 'thumbnail' = 'default',
 ): string {
-  return trackArtworkCandidates(track)[0] || fallback;
+  return trackArtworkCandidates(track, size)[0] || fallback;
 }
 
 /**

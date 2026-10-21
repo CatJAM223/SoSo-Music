@@ -403,7 +403,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setZapretFeedback(res.message);
       setZapretFeedbackType(res.success ? 'success' : 'error');
       if (res.success && zapretStatus) {
-        setZapretStatus({ ...zapretStatus, hasSoundcloud: true, hasSndcdn: true });
+        setZapretStatus({
+          ...zapretStatus,
+          hasSoundcloud: true,
+          hasSndcdn: true,
+          hasSoundcloudCloud: true,
+        });
       }
     } catch (e: any) {
       setZapretFeedback(t('Ошибка записи: {0}', e?.message || 'Сбой доступа'));
@@ -1084,17 +1089,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </p>
                   ) : zapretStatus ? (
                     <p
-                      className={`settings-zapret-status ${zapretStatus.found && zapretStatus.hasSoundcloud && zapretStatus.hasSndcdn ? 'success' : 'error'}`}
+                      className={`settings-zapret-status ${zapretStatus.found && zapretStatus.hasSoundcloud && zapretStatus.hasSndcdn && zapretStatus.hasSoundcloudCloud ? 'success' : 'error'}`}
                       role="status"
                     >
                       {zapretStatus.found
-                        ? zapretStatus.hasSoundcloud && zapretStatus.hasSndcdn
+                        ? zapretStatus.hasSoundcloud &&
+                          zapretStatus.hasSndcdn &&
+                          zapretStatus.hasSoundcloudCloud
                           ? t('SoundCloud: домены добавлены')
                           : t(
                               'Не добавлены: {0}',
                               [
                                 !zapretStatus.hasSoundcloud && 'soundcloud.com',
                                 !zapretStatus.hasSndcdn && 'sndcdn.com',
+                                !zapretStatus.hasSoundcloudCloud && 'soundcloud.cloud',
                               ]
                                 .filter(Boolean)
                                 .join(', '),
@@ -1104,7 +1112,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ) : (
                     <p className="settings-zapret-status checking">{t('Проверка не выполнена')}</p>
                   )}
-                  {!(zapretStatus?.hasSoundcloud && zapretStatus?.hasSndcdn) && (
+                  {!(
+                    zapretStatus?.hasSoundcloud &&
+                    zapretStatus?.hasSndcdn &&
+                    zapretStatus?.hasSoundcloudCloud
+                  ) && (
                     <div className="settings-inline-actions">
                       {zapretStatus?.found && (
                         <button

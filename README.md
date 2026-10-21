@@ -3,7 +3,7 @@
   <h1>SoSo Music</h1>
   <p>Your favorites, new discoveries and lyrics. Together in a Windows music player.</p>
   <p><a href="https://github.com/CatJAM223/SoSo-Music/releases">Download</a> · <a href="README.ru.md">Русский</a> · <a href="https://github.com/CatJAM223/SoSo-Music/issues">Report an issue</a></p>
-  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-3.2.0-eab308" alt="Version 3.2.0"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
+  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-3.2.3-eab308" alt="Version 3.2.3"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
 </div>
 
 Search SoundCloud and YouTube Music, build a personal library, and let **My Wave** find your next track. Switch between listening, karaoke and guitar practice without leaving the player.
@@ -23,7 +23,7 @@ Search SoundCloud and YouTube Music, build a personal library, and let **My Wave
 
 ## Install
 
-1. Open [GitHub Releases](https://github.com/CatJAM223/SoSo-Music/releases) and choose a Windows x64 ZIP.
+1. Open [GitHub Releases](https://github.com/CatJAM223/SoSo-Music/releases) and choose a Windows x64 ZIP or 7z archive.
 2. Extract the **entire archive** into a writable folder.
 3. Run **SoSo Music.exe** inside the extracted application folder (usually `win-unpacked`). Keep its resources and DLLs alongside it.
 
@@ -109,7 +109,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Some checks la
 
 GitHub Actions runs `test:all`, including formatting, types, architecture, Node, Electron UI and deliberate regression sensitivity checks. Built main/preload and the production YouTube adapter are checked after building. Per-step logs are written to `scratch/check-logs` and uploaded on CI failures. Documentation-only and empty pushes do not start CI; newer runs cancel outdated ones.
 
-Use the **Windows release** workflow manually to download a build artifact, or push a tag matching the package version (for example, v3.2.0) to build and publish a GitHub Release with its ZIP and SHA-256 checksum. Desktop builds are not produced for every commit.
+Use the **Windows release** workflow manually to download a build artifact, or push a tag matching the package version (for example, v3.2.3) to build and publish a GitHub Release with ZIP and 7z archives and their SHA-256 checksums. Desktop builds are not produced for every commit.
 
 ### Project layout
 
