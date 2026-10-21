@@ -2,6 +2,8 @@ const { app, BrowserWindow, session } = require('electron');
 const fs = require('node:fs'),
   path = require('node:path'),
   assert = require('node:assert/strict');
+// Use a reduced-motion baseline to catch accidental resets of explicit media emulation.
+app.commandLine.appendSwitch('force-prefers-reduced-motion', 'reduce');
 const output = path.resolve(process.argv[2]);
 app.setPath('userData', path.join(output, 'profile'));
 app.setPath('sessionData', path.join(output, 'profile'));
@@ -70,6 +72,17 @@ app.whenReady().then(async () => {
   });
   try {
     await win.loadFile(path.join(output, 'index.html'));
+    win.webContents.debugger.attach('1.3');
+    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+    });
+    assert.equal(
+      await win.webContents.executeJavaScript(
+        'matchMedia("(prefers-reduced-motion: reduce)").matches',
+      ),
+      false,
+      'Animation checks require the explicitly selected no-preference mode',
+    );
     await win.webContents.executeJavaScript(
       'document.documentElement.classList.add("dark");document.documentElement.dataset.theme="default";document.documentElement.style.setProperty("--theme-accent","#eab308");document.documentElement.style.setProperty("--theme-accent-rgb","234, 179, 8");',
     );
@@ -218,7 +231,6 @@ app.whenReady().then(async () => {
         ).toPNG(),
       );
     }
-    win.webContents.debugger.attach('1.3');
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
       enabled: true,
     });
@@ -575,7 +587,9 @@ app.whenReady().then(async () => {
         ')()',
     );
     console.log('WAVE_RADIAL_LAYOUT_OK ' + JSON.stringify(layoutChecks));
-    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
+    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+    });
 
     // Keep original hit area active through the morph, even near the circle's centre.
     const innerPoint = await win.webContents.executeJavaScript(
@@ -603,7 +617,9 @@ app.whenReady().then(async () => {
       'window.showFixture("desktop");window.updateFixture({currentTrack:window.tracks[0]});new Promise(r=>setTimeout(r,300))',
     );
 
-    win.webContents.debugger.detach();
+    await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+      enabled: false,
+    });
     const rect = await win.webContents.executeJavaScript(
       '(()=>{const b=document.querySelector("#press-target"),r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2,duration:getComputedStyle(b).transitionDuration};})()',
     );
@@ -631,7 +647,6 @@ app.whenReady().then(async () => {
       button: 'left',
       clickCount: 1,
     });
-    win.webContents.debugger.attach('1.3');
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
     });
@@ -639,7 +654,9 @@ app.whenReady().then(async () => {
       'getComputedStyle(document.querySelector(".soso-track-enter")).animationDuration',
     );
     assert.ok(parseFloat(reduced) <= 0.001, reduced);
-    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
+    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+    });
     win.webContents.debugger.detach();
     assert.deepEqual(errors, []);
     assert.deepEqual(external, []);
