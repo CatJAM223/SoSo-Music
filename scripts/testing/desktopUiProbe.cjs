@@ -80,22 +80,23 @@ app
             window.webContents.invalidate();
             framePump = setInterval(() => window.webContents.invalidate(), 16);
           }
+          let paintedImage;
           if (method === 'capturePage') {
-            args[1] = { ...args[1], stayHidden: true, stayAwake: true };
-            // After resizing, Chromium 152 may retire the previous surface before
-            // the replacement is painted. Capture a real frame of the current size.
-            await new Promise((resolve, reject) => {
+            // An offscreen window already supplies the composited NativeImage.
+            // Read that frame directly: a second surface-copy request can fail
+            // with UnknownVizError after a resize on headless Windows runners.
+            paintedImage = await new Promise((resolve, reject) => {
               const [width, height] = window.getContentSize();
-              const finish = (error) => {
+              const finish = (error, image) => {
                 clearTimeout(deadline);
                 clearInterval(pump);
                 window.webContents.off('paint', painted);
                 if (error) reject(error);
-                else resolve();
+                else resolve(image);
               };
               const painted = (_event, _dirty, image) => {
                 const size = image.getSize();
-                if (size.width === width && size.height === height) finish();
+                if (size.width === width && size.height === height) finish(null, image);
               };
               const deadline = setTimeout(
                 () => finish(Error('Current-size capture frame did not paint')),
@@ -105,9 +106,11 @@ app
               window.webContents.on('paint', painted);
               window.webContents.invalidate();
             });
+            if (args[0]) paintedImage = paintedImage.crop(args[0]);
+            assert.ok(!paintedImage.isEmpty(), 'Captured offscreen frame must contain pixels');
           }
           const result = await Promise.race([
-            invoke(...args),
+            paintedImage ? Promise.resolve(paintedImage) : invoke(...args),
             new Promise((_, reject) => {
               timer = setTimeout(
                 () =>
