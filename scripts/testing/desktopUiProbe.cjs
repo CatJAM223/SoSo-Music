@@ -153,6 +153,13 @@ app
     });
     try {
       await window.loadFile(path.join(output, 'index.html'));
+      // Exercise animation explicitly even when the Windows runner disables motion.
+      // Keep this session attached so restoring an emulated feature cannot fall
+      // back to the host's preference before later animation assertions.
+      window.webContents.debugger.attach('1.3');
+      await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+      });
       const fonts = await window.webContents.executeJavaScript(`(async()=>{
       const poppins=await document.fonts.load('400 16px Poppins','Music');
       const bold=await document.fonts.load('900 16px Poppins','Music');
@@ -274,7 +281,6 @@ app
             await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })
           ).toPNG(),
         );
-        window.webContents.debugger.attach('1.3');
         await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
           features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
         });
@@ -283,9 +289,8 @@ app
         );
         assert.deepEqual(reduced, { svg: 'none', still: 'block', text: '2' });
         await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
-          features: [],
+          features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
         });
-        window.webContents.debugger.detach();
         await window.webContents.executeJavaScript('window.setKaraokeClock(0,false)');
       }
 
