@@ -251,5 +251,12 @@
     "performed": false,
     "trigger": "Pushing v3.3.4 starts the Windows release workflow",
     "notes": "docs/releases/v3.3.4.md"
+  },
+  "ciEqualizerCorrection": {
+    "controlledAnimationFrames": true,
+    "explicitMotionPreferences": true,
+    "instantSnapRegressionDetected": true,
+    "applicationCodeChanged": false,
+    "reason": "Animation verification uses exact frame times instead of wall-clock timer delays and explicitly tests motion preferences."
   }
 }

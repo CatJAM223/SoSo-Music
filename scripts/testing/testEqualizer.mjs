@@ -29,7 +29,9 @@ app.whenReady().then(async()=>{
  const window=new BrowserWindow({width:1060,height:780,show:false,webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true,backgroundThrottling:false,offscreen:true}});
  window.webContents.setAudioMuted(true);
  await window.loadFile(path.join(directory,'index.html'));
- const result=await window.webContents.executeJavaScript('globalThis.equalizerResult');
+ window.webContents.debugger.attach('1.3');
+ await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+ const result=await window.webContents.executeJavaScript('globalThis.runEqualizerChecks()');
  if(result.ok){
   const slider=await window.webContents.executeJavaScript('(()=>{const svg=document.querySelector(".equalizer-graph"),p=svg.createSVGPoint(),c=document.querySelectorAll("[role=slider]")[4];p.x=Number(c.getAttribute("cx"));p.y=Number(c.getAttribute("cy"));const q=p.matrixTransform(svg.getScreenCTM());return {x:Math.round(q.x),y:Math.round(q.y)};})()');
   window.webContents.sendInputEvent({type:'mouseMove',...slider});
@@ -45,13 +47,12 @@ app.whenReady().then(async()=>{
   const precise=await window.webContents.executeJavaScript('Number(document.querySelectorAll("[role=slider]")[4].getAttribute("aria-valuenow"))');
   if(precise!==-6){result.ok=false;result.error='Negative gain keyboard entry failed: '+precise;}else result.results.push({preciseGain:precise});
   await window.webContents.executeJavaScript('document.querySelector(".equalizer-precise input").blur()');
-  window.webContents.debugger.attach('1.3');
   await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
   await window.webContents.executeJavaScript('document.querySelectorAll(".equalizer-presets button")[0].click()');
   await new Promise(resolve=>setTimeout(resolve,60));
   const reducedMotionY=await window.webContents.executeJavaScript('Number(document.querySelector(".equalizer-handle").getAttribute("cy"))');
   if(Math.abs(reducedMotionY-118)>0.1){result.ok=false;result.error='Reduced motion should snap to neutral';}else result.results.push({reducedMotion:'respected'});
-  await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[]});
+  await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
   window.webContents.debugger.detach();
   await window.webContents.capturePage();await new Promise(resolve=>setTimeout(resolve,200));
   const image=await window.webContents.capturePage();fs.writeFileSync(path.join(directory,'preview.png'),image.toPNG());
