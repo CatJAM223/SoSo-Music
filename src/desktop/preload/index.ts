@@ -1,3 +1,4 @@
+import type { ChartRegion } from '../../shared/utils/chartRegions';
 import { contextBridge, ipcRenderer } from 'electron';
 import { ElectronAPI } from '../../shared/types';
 
@@ -122,7 +123,7 @@ const api: ElectronAPI = {
   searchArtists: (query, limit, source, requestId) =>
     ipcRenderer.invoke('music:searchArtists', query, limit, source, requestId),
   cancelSearch: (requestId) => ipcRenderer.invoke('music:cancelSearch', requestId),
-  getCharts: (source?: any) => ipcRenderer.invoke('music:getCharts', source),
+  getCharts: (region?: ChartRegion) => ipcRenderer.invoke('music:getCharts', region),
   getGenres: () => ipcRenderer.invoke('music:getGenres'),
   getGenreTracks: (genreId: number | string, source?: any) =>
     ipcRenderer.invoke('music:getGenreTracks', genreId, source),

@@ -1,14 +1,15 @@
 import type { MusicSource, Track } from '../types/index.ts';
 import { scoreImportCandidate } from './playlistImport.ts';
 import {
-  areSameWaveSong,
   buildWaveSongIdentity,
   getWaveArtistKeys,
-  isWaveNonMusic,
-  matchesWaveArtist,
-  type WaveSongIdentity,
+  getWaveArtistNames,
+  normalizeWaveArtist,
 } from '../utils/waveIdentity.ts';
-import { isWaveMixOrPodcast, isWaveTempoEdit } from '../utils/waveQueue.ts';
+import { createSongDeduplicator } from '../compute/waveSongMatrix.ts';
+import { withWaveTextCache } from '../compute/waveTextCache.ts';
+import { isDiscoverySong } from '../utils/discoveryTracks.ts';
+import { trackHasGenreTag } from '../utils/genreSearch.ts';
 
 // Exact recordings keep a genre query from matching unrelated titles or DJ mixes.
 const SEEDS: Record<string, [string, string][]> = {
@@ -188,19 +189,6 @@ export function getGenreArtists(genreId: number | string): string[] {
   ];
 }
 
-function isUsableGenreTrack(track: Track): boolean {
-  const duration = Number(track.duration) || 0;
-  return (
-    !!track.id &&
-    !!track.title &&
-    (duration === 0 || (duration >= 40 && duration <= 900)) &&
-    !isWaveNonMusic(track) &&
-    !isWaveMixOrPodcast(track) &&
-    !isWaveTempoEdit(track) &&
-    !/\b(?:cover|fan[\s-]*made|fan[\s-]*remake)\b|кавер/i.test(track.title)
-  );
-}
-
 type Providers = {
   soundcloud: (genreId: number | string) => Promise<{ data: Track[] }>;
   youtube: (query: string) => Promise<{ data: Track[] }>;
@@ -237,8 +225,10 @@ export async function loadGenreCatalog(
               .filter((track) => {
                 if (
                   track.source !== 'youtube' ||
-                  !isUsableGenreTrack(track) ||
-                  !matchesWaveArtist(track, artist)
+                  !isDiscoverySong(track) ||
+                  !getWaveArtistNames(track).some(
+                    (name) => normalizeWaveArtist(name) === normalizeWaveArtist(artist),
+                  )
                 )
                   return false;
                 return (
@@ -263,25 +253,33 @@ export async function loadGenreCatalog(
   };
   const yt = source === 'soundcloud' ? Promise.resolve([] as Track[]) : loadYouTube();
   const [soundcloud, youtube] = await Promise.all([sc, yt]);
-  const result: Track[] = [];
-  const seen = new Set<string>();
-  const songs: WaveSongIdentity[] = [];
-  const artistCounts = new Map<string, number>();
-  // Keep both services visible; preserve each provider's order.
-  for (let i = 0; i < Math.max(soundcloud.data.length, youtube.length); i++) {
-    for (const track of [youtube[i], soundcloud.data[i]]) {
-      if (!track || !isUsableGenreTrack(track)) continue;
+  return withWaveTextCache(() => {
+    const result: Track[] = [];
+    const seen = new Set<string>();
+    const artistCounts = new Map<string, number>();
+    const candidates: Track[] = [];
+    // Preserve provider interleaving before preparing one bounded Rust comparison batch.
+    for (let i = 0; i < Math.max(soundcloud.data.length, youtube.length); i++) {
+      for (const track of [youtube[i], soundcloud.data[i]]) {
+        if (!track || !isDiscoverySong(track)) continue;
+        if (track.source === 'soundcloud' && !trackHasGenreTag(track, genreId)) continue;
+        candidates.push(track);
+      }
+    }
+    const songs = createSongDeduplicator(candidates, (track) =>
+      buildWaveSongIdentity(track, artists),
+    );
+    for (let index = 0; index < candidates.length; index++) {
+      const track = candidates[index];
       const key = `${track.source}:${track.id}`;
-      if (seen.has(key)) continue;
-      const song = buildWaveSongIdentity(track, artists);
-      if (songs.some((old) => areSameWaveSong(old, song))) continue;
+      if (seen.has(key) || songs.hasDuplicate(index)) continue;
       const keys = getWaveArtistKeys(track, artists);
       if (keys.some((artist) => (artistCounts.get(artist) || 0) >= 6)) continue;
       seen.add(key);
-      songs.push(song);
+      songs.accept(index);
       keys.forEach((artist) => artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1));
       result.push(track);
     }
-  }
-  return { data: result };
+    return { data: result };
+  });
 }

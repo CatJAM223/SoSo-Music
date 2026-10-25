@@ -1,7 +1,7 @@
 import { useEffect, useRef, type RefObject } from 'react';
 
 /** Contain keyboard focus and restore it without triggering shortcuts in the player below. */
-export function useDialogFocus(panel: RefObject<HTMLElement>, onClose: () => void) {
+export function useDialogFocus(panel: RefObject<HTMLElement | null>, onClose: () => void) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {

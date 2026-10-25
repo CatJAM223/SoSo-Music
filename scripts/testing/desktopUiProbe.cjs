@@ -913,15 +913,16 @@ app
 
       await window.webContents.executeJavaScript(`(async()=>{
         let step=0;const wait=async(fn)=>{step++;for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Hotkey settings timed out step '+step+' '+document.querySelector('.settings-shortcuts')?.textContent);};
+        const afterPaint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
         window.fixtureSetupShortcuts();window.renderSettingsFixture();await wait(()=>document.querySelector('[role="tab"]'));
         [...document.querySelectorAll('[role="tab"]')].find(el=>el.textContent==='Горячие клавиши').click();
         const binding=()=>document.querySelector('[data-shortcut-action="overlay"]');
         await wait(()=>binding()?.querySelectorAll('kbd').length===3);
         if(document.querySelectorAll('.shortcuts-group').length!==2||document.querySelectorAll('.shortcut-keys kbd').length!==12)throw Error('Missing grouped keycaps');
-        binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));
+        binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));await afterPaint();
         window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyO',ctrlKey:true,shiftKey:true,bubbles:true}));await wait(()=>binding().textContent==='CtrlShiftO');
         if(window.fixtureShortcutCalls[0].key!=='Control+Shift+O')throw Error('Hotkey not saved');
-        binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape',bubbles:true}));await wait(()=>!window.fixtureShortcutCapture);
+        binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));await afterPaint();window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape',bubbles:true}));await wait(()=>!window.fixtureShortcutCapture);
         if(window.fixtureShortcutCalls.length!==1)throw Error('Cancel overwrote shortcut');
         const captureOriginal=window.electronAPI.captureDesktopShortcut;let finishCapture;
         window.electronAPI.captureDesktopShortcut=value=>value?new Promise(resolve=>{window.fixtureShortcutCapture=true;finishCapture=resolve;}):captureOriginal(false);
@@ -933,7 +934,7 @@ app
         menuButton().click();await wait(()=>document.querySelector('.shortcut-menu'));document.querySelector('.shortcut-menu button').click();await wait(()=>binding().textContent==='CtrlShiftПробел');
         if(window.fixtureShortcutCalls.at(-1).key!=='Control+Shift+Space')throw Error('Reset menu failed');
         for (const sample of [{code:'F8',key:'F8',expected:'F8'},{code:'F8',key:'F8',shiftKey:true,expected:'Shift+F8'},{code:'Space',key:' ',ctrlKey:true,expected:'Control+Space'}]) {
-          binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));
+          binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));await afterPaint();
           window.dispatchEvent(new KeyboardEvent('keydown',{...sample,bubbles:true}));await wait(()=>window.fixtureShortcutCalls.at(-1)?.key===sample.expected&&!window.fixtureShortcutCapture);
           await wait(()=>!binding().disabled);
         }

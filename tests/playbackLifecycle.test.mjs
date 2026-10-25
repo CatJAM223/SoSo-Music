@@ -188,6 +188,7 @@ function fixture({
       ? { source: new URL('../src/shared/utils/streamResolveDeadline.ts', import.meta.url) }
       : { StreamResolveTimeoutError, withStreamResolveDeadline: (promise) => promise },
     'hls.js': {
+      __esModule: true,
       default: class {
         static isSupported() {
           return false;

@@ -121,7 +121,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
             />
             {isDuplicate && (
               <p className="flex items-center gap-1.5 text-xs text-rose-500 font-semibold mt-1.5 animate-fade-in">
-                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{t('Плейлист с таким названием уже существует')}</span>
               </p>
             )}
@@ -136,7 +136,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t('Добавьте описание или настроение...')}
-              className="w-full px-4 py-2 bg-slate-50 dark:bg-zinc-800/90 border border-slate-200 dark:border-zinc-700 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-soso-brand resize-none"
+              className="w-full px-4 py-2 bg-slate-50 dark:bg-zinc-800/90 border border-slate-200 dark:border-zinc-700 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 focus:ring-soso-brand resize-none"
             />
           </div>
 

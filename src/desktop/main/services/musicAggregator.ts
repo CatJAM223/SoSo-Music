@@ -27,6 +27,8 @@ import {
 } from '../../../shared/utils/artistParser.ts';
 import { isYouTubeAudioStreamUrl } from '../../../shared/utils/audioUrlValidator.ts';
 import { rankSearchTracks } from '../../../shared/utils/searchRanking.ts';
+import { cleanDiscoveryTracks } from '../../../shared/utils/discoveryTracks.ts';
+import type { ChartRegion } from '../../../shared/utils/chartRegions.ts';
 import { loadGenreCatalog } from '../../../shared/services/genreCatalog.ts';
 
 export { cleanTitleForMatching, isArtistMatch, isTitleMatch };
@@ -228,54 +230,17 @@ export class MusicAggregatorService {
     return { data: uniqueArtists.slice(0, limit) };
   }
 
-  /**
-   * Get Charts (Official Global Billboard Top 50 / Filtered SoundCloud Trends)
-   */
-  public static async getCharts(source: MusicSource = 'all'): Promise<ChartData> {
-    if (source === 'soundcloud') {
-      return await SoundCloudService.getCharts(50);
-    }
-    if (source === 'youtube') {
-      const ytCharts = await YouTubeMusicService.getCharts(50);
-      return { tracks: { data: ytCharts.data } };
-    }
-
-    // Default 'all': Query official YouTube Music top charts and SoundCloud top charts in parallel
-    try {
-      const [ytChart, scChart] = await Promise.allSettled([
-        YouTubeMusicService.getCharts(40),
-        SoundCloudService.getCharts(30),
-      ]);
-
-      const ytTracks = ytChart.status === 'fulfilled' ? ytChart.value?.data || [] : [];
-      const scTracks = scChart.status === 'fulfilled' ? scChart.value?.tracks?.data || [] : [];
-
-      if (ytTracks.length > 0 && scTracks.length > 0) {
-        // Prioritize official YouTube Music chart hits first, then blend in clean SoundCloud tracks
-        const topYt = ytTracks.slice(0, 30);
-        const remainingYt = ytTracks.slice(30);
-        const combined = [...topYt, ...this.interleaveTracks(remainingYt, scTracks)];
-        return { tracks: { data: combined.slice(0, 50) } };
-      }
-      if (ytTracks.length > 0) {
-        return { tracks: { data: ytTracks.slice(0, 50) } };
-      }
-      if (scTracks.length > 0) {
-        return { tracks: { data: scTracks.slice(0, 50) } };
-      }
-    } catch (e) {
-      console.debug('[MusicAggregatorService] Chart aggregation notice:', e);
-    }
-
-    // Fallback: YouTube Music charts then SoundCloud Top 50
-    try {
-      const ytFallback = await YouTubeMusicService.getCharts(50);
-      if (ytFallback.data.length > 0) {
-        return { tracks: { data: ytFallback.data } };
-      }
-    } catch {}
-
-    return await SoundCloudService.getCharts(50);
+  /** The charts section exclusively uses the official YouTube Music ranking for the selected region. */
+  public static async getCharts(region: ChartRegion = 'GLOBAL'): Promise<ChartData> {
+    const chart = await YouTubeMusicService.getCharts(100, region);
+    return {
+      tracks: {
+        data: cleanDiscoveryTracks(
+          chart.data.filter((track) => track.source === 'youtube'),
+          50,
+        ),
+      },
+    };
   }
 
   /**
@@ -294,7 +259,7 @@ export class MusicAggregatorService {
   ): Promise<{ data: Track[] }> {
     return loadGenreCatalog(genreId, source, {
       soundcloud: (id) => SoundCloudService.getGenreTracks(id, 30),
-      youtube: (query) => YouTubeMusicService.search(query, 12),
+      youtube: (query) => YouTubeMusicService.searchSongs(query, 20),
     });
   }
 
@@ -624,6 +589,7 @@ export class MusicAggregatorService {
         }
         return ytDetails;
       }
+      return null;
     }
 
     // 2. Explicit SoundCloud Artist ID or source - resolve immediately without stalling on secondary sources
@@ -775,7 +741,11 @@ export class MusicAggregatorService {
       .trim();
 
     // 1. If explicit YouTube artist ID or source, strictly return YouTube tracks only:
-    if (artistSource === 'youtube' || idStr.startsWith('yt_')) {
+    if (
+      artistSource === 'youtube' ||
+      idStr.startsWith('yt_') ||
+      (idStr.startsWith('UC') && idStr.length >= 20)
+    ) {
       return await YouTubeMusicService.getArtistAllTracks(idStr, cleanName);
     }
 

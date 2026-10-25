@@ -1,0 +1,255 @@
+{
+  "preparedOn": "2026-10-25",
+  "timezone": "Europe/Moscow",
+  "version": "3.3.4",
+  "branch": "release/3.3.4",
+  "tag": "v3.3.4",
+  "remote": "https://github.com/CatJAM223/SoSo-Music.git",
+  "sourceChecks": {
+    "groups": 25,
+    "allPassed": true,
+    "node": {
+      "tests": "1232",
+      "pass": "1232",
+      "fail": "0",
+      "skipped": "0",
+      "duration_ms": "35524.1695"
+    },
+    "checks": [
+      {
+        "label": "Code style",
+        "entry": "node_modules/prettier/bin/prettier.cjs",
+        "status": 0,
+        "signal": null,
+        "log": "code-style.log"
+      },
+      {
+        "label": "TypeScript",
+        "entry": "node_modules/@typescript/native/bin/tsc",
+        "status": 0,
+        "signal": null,
+        "log": "typescript.log"
+      },
+      {
+        "label": "Architecture",
+        "entry": "scripts/architecture/checkBoundaries.cjs",
+        "status": 0,
+        "signal": null,
+        "log": "architecture.log"
+      },
+      {
+        "label": "Release metadata",
+        "entry": "scripts/release/checkRelease.cjs",
+        "status": 0,
+        "signal": null,
+        "log": "release-metadata.log"
+      },
+      {
+        "label": "Node behavior",
+        "entry": "tests/runAllTests.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "node-behavior.log"
+      },
+      {
+        "label": "Test sensitivity",
+        "entry": "scripts/testing/testTestSensitivity.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "test-sensitivity.log"
+      },
+      {
+        "label": "Playback startup sensitivity",
+        "entry": "scripts/testing/testPlaybackStartupSensitivity.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "playback-startup-sensitivity.log"
+      },
+      {
+        "label": "React player state",
+        "entry": "scripts/testing/testPlayerState.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "react-player-state.log"
+      },
+      {
+        "label": "Production main and preload wiring",
+        "entry": "scripts/testing/testDesktopBootstrap.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "production-main-and-preload-wiring.log"
+      },
+      {
+        "label": "Native crash recovery and local reports",
+        "entry": "scripts/testing/testDesktopBootstrap.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "native-crash-recovery-and-local-reports.log"
+      },
+      {
+        "label": "Selected media file access",
+        "entry": "scripts/testing/testMediaFileAccess.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "selected-media-file-access.log"
+      },
+      {
+        "label": "Desktop UI",
+        "entry": "scripts/testing/testDesktopUi.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "desktop-ui.log"
+      },
+      {
+        "label": "YouTube local login fixture",
+        "entry": "scripts/testing/testYouTubeLogin.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "youtube-local-login-fixture.log"
+      },
+      {
+        "label": "Audio transitions",
+        "entry": "scripts/testing/testAudioTransitions.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "audio-transitions.log"
+      },
+      {
+        "label": "Playback normalization and shared audio graph",
+        "entry": "scripts/testing/testPlaybackQuality.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "playback-normalization-and-shared-audio-graph.log"
+      },
+      {
+        "label": "Startup screen",
+        "entry": "scripts/testing/testStartupScreen.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "startup-screen.log"
+      },
+      {
+        "label": "Equalizer",
+        "entry": "scripts/testing/testEqualizer.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "equalizer.log"
+      },
+      {
+        "label": "UI interactions",
+        "entry": "scripts/testing/testUiInteractions.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "ui-interactions.log"
+      },
+      {
+        "label": "Settings lifecycle",
+        "entry": "scripts/testing/testSettingsLifecycle.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "settings-lifecycle.log"
+      },
+      {
+        "label": "UI rendering bounds",
+        "entry": "scripts/testing/testUiResponsiveness.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "ui-rendering-bounds.log"
+      },
+      {
+        "label": "Background resource lifecycle",
+        "entry": "scripts/testing/testBackgroundMemory.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "background-resource-lifecycle.log"
+      },
+      {
+        "label": "Widget resource isolation",
+        "entry": "scripts/testing/testWidgetResources.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "widget-resource-isolation.log"
+      },
+      {
+        "label": "Compact overlay resources",
+        "entry": "scripts/testing/testOverlayResources.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "compact-overlay-resources.log"
+      },
+      {
+        "label": "Rust in Chromium",
+        "entry": "scripts/testing/testRustComputeBrowser.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "rust-in-chromium.log"
+      },
+      {
+        "label": "Integration test sensitivity",
+        "entry": "scripts/testing/testIntegrationSensitivity.mjs",
+        "status": 0,
+        "signal": null,
+        "log": "integration-test-sensitivity.log"
+      }
+    ]
+  },
+  "productionChecks": {
+    "youTubeAdapter": true,
+    "initialStartup": true,
+    "rendererRecovery": true,
+    "mainCrashRecovery": true,
+    "isolatedProfile": true
+  },
+  "packagedApplication": {
+    "version": "3.3.4",
+    "files": {
+      "dist/index.html": {
+        "bytes": 2528,
+        "sha256": "fe3a59f45ab8692068ebbf8eb3d42531a5bba067d2f45a7e4fa0bcf836198a0a"
+      },
+      "dist/startup.css": {
+        "bytes": 2064,
+        "sha256": "2984011800716f13ef692a42a66e74483264313d58360b13e725a6558a0bd732"
+      },
+      "dist/compute/soso-core.wasm": {
+        "bytes": 136788,
+        "sha256": "f2d32d143a1070a0dce3318a29ac619a0dc5f62a0c2b59cc383c3ce65096a89d"
+      },
+      "dist/compute/soso-normalization.js": {
+        "bytes": 4508,
+        "sha256": "17af9399ac0b2ffa2110e078fe1184666464b5f08209617aca73331fd2d521f6"
+      },
+      "public/compute/soso-core.wasm": {
+        "bytes": 136788,
+        "sha256": "f2d32d143a1070a0dce3318a29ac619a0dc5f62a0c2b59cc383c3ce65096a89d"
+      }
+    },
+    "compute": {
+      "abi": 4,
+      "workletSha256": "17af9399ac0b2ffa2110e078fe1184666464b5f08209617aca73331fd2d521f6",
+      "sourceSha256": "1dd6b0f6d507f330acd96fa5f7e2ad35b4e29dd58527f8138c6cbeeb17ea1dc3",
+      "wasmSha256": "f2d32d143a1070a0dce3318a29ac619a0dc5f62a0c2b59cc383c3ce65096a89d"
+    }
+  },
+  "assets": [
+    {
+      "file": "SoSo-Music-3.3.4-windows-x64.zip",
+      "bytes": 191687618,
+      "sha256": "e701127eb2c8ed0ec8f4c09f5a06d1cebe8eebd9375ae7dc75cfc6107032be48",
+      "checksumFile": "SoSo-Music-3.3.4-windows-x64.zip.sha256",
+      "archiveIntegrityChecked": true
+    },
+    {
+      "file": "SoSo-Music-3.3.4-windows-x64.7z",
+      "bytes": 124333257,
+      "sha256": "6c399004d93d373889e579f6c2e930369e03b26e786394271202bb1ab2951193",
+      "checksumFile": "SoSo-Music-3.3.4-windows-x64.7z.sha256",
+      "archiveIntegrityChecked": true
+    }
+  ],
+  "publication": {
+    "performed": false,
+    "trigger": "Pushing v3.3.4 starts the Windows release workflow",
+    "notes": "docs/releases/v3.3.4.md"
+  }
+}

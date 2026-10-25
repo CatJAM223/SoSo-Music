@@ -42,6 +42,7 @@ function waveHarness(
   storage,
   now = Date.now,
   loadPolicy = async () => ({ revision: 0, exclusions: [] }),
+  calculate = async (...args) => queue.resequenceWaveQueue(...args),
 ) {
   const calls = [],
     plays = [],
@@ -67,6 +68,9 @@ function waveHarness(
     Set,
     Object,
     AbortController,
+    DOMException,
+    resequenceWaveQueueInWorker: calculate,
+    disposeWaveWorker: () => {},
     isTasteEligible,
     useTastePolicy: () => ({ revision: 0, exclusions: [] }),
     readTastePolicy: () => ({ revision: 0, exclusions: [] }),
@@ -583,6 +587,7 @@ test('A quick skip adapts later music without replacing the announced next track
   ];
   h.queueIndexRef.current = 0;
   h.api.recordWavePlayback(current, 5, 200);
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(h.queueRef.current[0].id, current.id);
   assert.equal(h.queueRef.current[1].id, moreJazz.id);
   assert.equal(h.queueRef.current[2].id, rock.id);
@@ -606,6 +611,7 @@ test('Successful listening adapts later music while keeping the current and anno
   ];
   h.queueIndexRef.current = 0;
   h.api.recordWavePlayback(current, 185, 200);
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(h.queueRef.current[0].id, current.id);
   assert.equal(h.queueRef.current[1].id, rock.id);
   assert.equal(h.queueRef.current[2].id, jazz.id);
@@ -920,4 +926,70 @@ test('Batch merging lets version ranking choose a regular recording even when it
   await h.api.fetchMoreWaveTracks();
   assert.ok(h.queueRef.current.some((track) => track.id === regular.id));
   assert.ok(!h.queueRef.current.some((track) => track.id === slow.id));
+});
+
+test('Delayed worker results rebase on navigation and preserve the newly announced prefix', async () => {
+  const current = song('worker-current', 'Artist A', 'Opening'),
+    next = song('worker-next', 'Artist B', 'Next'),
+    announced = song('worker-announced', 'Artist C', 'Announced'),
+    tail = song('worker-tail', 'Artist D', 'Tail');
+  let delay = false;
+  const jobs = [];
+  const calculate = async (...args) => {
+    const result = queue.resequenceWaveQueue(...args);
+    if (delay) await new Promise((resolve) => jobs.push(resolve));
+    return result;
+  };
+  const h = waveHarness(
+    [[current, next, announced, tail]],
+    [],
+    undefined,
+    Date.now,
+    undefined,
+    calculate,
+  );
+  await h.api.startWave();
+  h.queueRef.current = [current, next, announced, tail];
+  h.queueIndexRef.current = 0;
+  delay = true;
+  h.api.recordWavePlayback(current, 5, 200);
+  assert.equal(jobs.length, 1);
+  h.queueIndexRef.current = 1;
+  jobs.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(jobs.length, 1, 'stale calculation must rerun against the new position');
+  assert.equal(h.queueRef.current[2], announced, 'must not apply the stale result');
+  jobs.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(Array.from(h.queueRef.current.slice(0, 3)), [current, next, announced]);
+  assert.equal(h.calls.length, 1, 'navigation rebase must not fetch another provider batch');
+  h.unmount();
+});
+test('A delayed worker response cannot overwrite a queue after wave stop', async () => {
+  const current = song('worker-stop', 'Artist A', 'Opening');
+  let delay = false,
+    finish;
+  const calculate = async (...args) => {
+    const result = queue.resequenceWaveQueue(...args);
+    if (delay) await new Promise((resolve) => (finish = resolve));
+    return result;
+  };
+  const h = waveHarness(
+    [[current, song('worker-other', 'Artist B', 'Other')]],
+    [],
+    undefined,
+    Date.now,
+    undefined,
+    calculate,
+  );
+  await h.api.startWave();
+  delay = true;
+  h.api.recordWavePlayback(current, 5, 200);
+  h.api.stopWave();
+  const replacement = [song('manual', 'Manual Artist', 'Manual track')];
+  h.queueRef.current = replacement;
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.queueRef.current, replacement);
+  h.unmount();
 });

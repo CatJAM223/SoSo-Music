@@ -1,3 +1,4 @@
+import type { ChartRegion } from '../utils/chartRegions';
 import { invokeStreamRequest } from '../utils/streamRequest.ts';
 import { waveAbortError } from '../services/waveRequestScheduler.ts';
 
@@ -109,9 +110,9 @@ export const platformBridge = {
     throw new Error('Desktop preload API is unavailable');
   },
 
-  getCharts: async (source?: MusicSource): Promise<ChartData> => {
+  getCharts: async (region?: ChartRegion): Promise<ChartData> => {
     if (nativeElectron?.getCharts) {
-      return nativeElectron.getCharts(source);
+      return nativeElectron.getCharts(region);
     }
     throw new Error('Desktop preload API is unavailable');
   },

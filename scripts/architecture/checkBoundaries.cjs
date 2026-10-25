@@ -11,7 +11,7 @@ function walk(folder) {
     const file = path.join(folder, entry.name);
     if (entry.isSymbolicLink()) return [];
     if (entry.isDirectory()) return walk(file);
-    return /\.(?:ts|tsx|js|mjs|cjs)$/.test(entry.name) && !entry.name.endsWith('.d.ts')
+    return /\.(?:ts|tsx|mts|js|mjs|cjs)$/.test(entry.name) && !entry.name.endsWith('.d.ts')
       ? [file]
       : [];
   });
@@ -75,7 +75,9 @@ function targetFor(root, file, specifier) {
 }
 function violation(from, target, specifier) {
   // Assets may be shared; implementation modules may not cross the following boundaries.
-  if (target && !/\.(?:ts|tsx|js|mjs|cjs)$/.test(target)) return null;
+  if (from.startsWith('src/') && target?.startsWith('tests/'))
+    return 'production cannot import historical test algorithms';
+  if (target && !/\.(?:ts|tsx|mts|js|mjs|cjs)$/.test(target)) return null;
   if (
     from.startsWith('src/desktop/main/') &&
     (target?.startsWith('src/mobile/') ||

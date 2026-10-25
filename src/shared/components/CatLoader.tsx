@@ -24,11 +24,14 @@ export const CatLoader: React.FC<CatLoaderProps> = ({ size = 'md', message, clas
 
   const containerClasses =
     size === 'fullscreen'
-      ? 'min-h-[60vh] flex flex-col items-center justify-center p-8'
+      ? 'fixed inset-0 z-50 bg-[var(--bg-app)] flex flex-col items-center justify-center p-8'
       : 'py-16 flex flex-col items-center justify-center';
 
   return (
-    <div className={`${containerClasses} select-none ${className} animate-fade-in`}>
+    <div
+      data-fullscreen-loader={size === 'fullscreen' || undefined}
+      className={`${containerClasses} select-none ${className} ${size === 'fullscreen' ? '' : 'animate-fade-in'}`}
+    >
       <div className="relative flex items-center justify-center">
         {/* Soft Ambient Brand Glow */}
         <div className="absolute inset-0 rounded-full bg-soso-brand/15 dark:bg-soso-brand/20 filter blur-xl animate-pulse-slow" />
@@ -41,7 +44,7 @@ export const CatLoader: React.FC<CatLoaderProps> = ({ size = 'md', message, clas
 
         {/* Clean Central Logo */}
         <div
-          className={`${logoSizes[size]} absolute rounded-xl overflow-hidden shadow-sm flex items-center justify-center ring-1 ring-black/5 dark:ring-white/10`}
+          className={`${logoSizes[size]} absolute rounded-xl overflow-hidden shadow-xs flex items-center justify-center ring-1 ring-black/5 dark:ring-white/10`}
         >
           <img
             src={appLogo}

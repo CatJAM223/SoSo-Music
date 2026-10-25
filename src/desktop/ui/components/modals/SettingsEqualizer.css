@@ -1,0 +1,217 @@
+.settings-equalizer {
+  --eq-accent: var(--settings-accent);
+}
+.equalizer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.equalizer-heading h3 {
+  margin-bottom: 0;
+}
+.equalizer-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 20px 0 16px;
+}
+.equalizer-presets button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 1px solid var(--settings-line);
+  border-radius: 8px;
+  color: var(--settings-muted);
+  font-size: 12px;
+  font-weight: 550;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+.equalizer-presets button:hover {
+  color: var(--settings-text);
+  background: var(--settings-hover);
+}
+.equalizer-presets button[aria-pressed='true'] {
+  color: var(--settings-text);
+  border-color: var(--eq-accent);
+  background: color-mix(in srgb, var(--eq-accent) 10%, transparent);
+}
+.equalizer-panel {
+  border: 1px solid var(--settings-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--settings-hover) 30%, var(--settings-bg));
+  overflow: hidden;
+}
+.equalizer-panel-top,
+.equalizer-panel-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+}
+.equalizer-panel-top {
+  justify-content: flex-end;
+  padding-bottom: 0;
+}
+.equalizer-panel-top > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--settings-muted);
+  padding: 4px;
+}
+.equalizer-panel-top > button:hover {
+  color: var(--settings-text);
+}
+.equalizer-graph {
+  display: block;
+  width: 100%;
+  color: var(--eq-accent);
+  touch-action: none;
+  user-select: none;
+  overflow: visible;
+}
+.equalizer-grid line {
+  stroke: var(--settings-line);
+  stroke-width: 0.7;
+  stroke-dasharray: 2 5;
+}
+.equalizer-zero line {
+  stroke: var(--settings-muted);
+  stroke-width: 0.8;
+  opacity: 0.5;
+}
+.equalizer-grid text,
+.equalizer-zero text,
+.equalizer-axis-label {
+  fill: var(--settings-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.equalizer-axis-label {
+  font-size: 10px;
+}
+.equalizer-curve {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.equalizer-hit {
+  fill: transparent;
+  stroke: transparent;
+  cursor: ns-resize;
+  outline: none;
+}
+.equalizer-handle {
+  pointer-events: none;
+  fill: var(--settings-bg);
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.equalizer-band.selected .equalizer-handle,
+.equalizer-band:focus-within .equalizer-handle {
+  fill: currentColor;
+}
+.equalizer-hit:focus-visible {
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.equalizer-band:hover .equalizer-handle {
+  stroke-width: 3;
+}
+.equalizer-disabled .equalizer-graph {
+  opacity: 0.4;
+}
+.equalizer-disabled .equalizer-dot {
+  background: var(--settings-muted);
+}
+.equalizer-disabled .equalizer-hit {
+  cursor: default;
+}
+.equalizer-panel-bottom {
+  border-top: 1px solid var(--settings-line);
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.equalizer-precise {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--settings-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.equalizer-precise > span:first-child {
+  min-width: 55px;
+  color: var(--settings-text);
+  font-weight: 550;
+}
+.equalizer-precise input {
+  width: 65px;
+  padding: 5px 6px;
+  background: var(--settings-bg);
+  color: var(--settings-text);
+  border: 1px solid var(--settings-line);
+  border-radius: 5px;
+  font-size: 12px;
+}
+.equalizer-precise input:disabled {
+  opacity: 0.5;
+}
+.equalizer-headroom {
+  color: var(--settings-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.equalizer-error {
+  margin-top: 10px;
+  color: var(--settings-text);
+  font-size: 12px;
+}
+.settings-equalizer button:focus-visible,
+.equalizer-precise input:focus-visible {
+  outline: 2px solid var(--eq-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .equalizer-panel-top,
+  .equalizer-panel-bottom {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .equalizer-panel-bottom {
+    flex-wrap: wrap;
+  }
+  .equalizer-presets {
+    gap: 6px;
+  }
+  .equalizer-presets button {
+    padding: 8px 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .equalizer-presets button {
+    transition: none;
+  }
+}
+
+.equalizer-presets button {
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.equalizer-panel-top > button {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}

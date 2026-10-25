@@ -30,13 +30,13 @@ export const SearchSuggestionsList: React.FC<SearchSuggestionsListProps> = ({
           <img
             src={item.picture}
             alt={item.title}
-            className="w-5 h-5 rounded-full object-cover flex-shrink-0 ring-1 ring-black/20 dark:ring-white/15"
+            className="w-5 h-5 rounded-full object-cover shrink-0 ring-1 ring-black/20 dark:ring-white/15"
             onError={(event) => {
               event.currentTarget.style.display = 'none';
             }}
           />
         ) : (
-          <Users className="w-4 h-4 text-slate-400 dark:text-zinc-500 group-hover:text-soso-brand flex-shrink-0" />
+          <Users className="w-4 h-4 text-slate-400 dark:text-zinc-500 group-hover:text-soso-brand shrink-0" />
         )}
         <div className="flex-1 truncate">
           <span className="font-semibold text-slate-900 dark:text-white">{item.title}</span>
@@ -69,13 +69,13 @@ export const SearchSuggestionsList: React.FC<SearchSuggestionsListProps> = ({
             <img
               src={cover}
               alt=""
-              className="w-7 h-7 rounded-md object-cover flex-shrink-0"
+              className="w-7 h-7 rounded-md object-cover shrink-0"
               onError={(event) => {
                 event.currentTarget.style.display = 'none';
               }}
             />
           ) : (
-            <Disc3 className="w-5 h-5 text-slate-400 dark:text-zinc-500 flex-shrink-0" />
+            <Disc3 className="w-5 h-5 text-slate-400 dark:text-zinc-500 shrink-0" />
           )}
           <span className="flex-1 min-w-0 truncate">
             <span className="font-semibold text-slate-900 dark:text-white">{album.title}</span>
@@ -104,13 +104,13 @@ export const SearchSuggestionsList: React.FC<SearchSuggestionsListProps> = ({
             <img
               src={item.picture}
               alt={item.title}
-              className="w-5 h-5 rounded-md object-cover flex-shrink-0 ring-1 ring-black/20 dark:ring-white/15"
+              className="w-5 h-5 rounded-md object-cover shrink-0 ring-1 ring-black/20 dark:ring-white/15"
               onError={(event) => {
                 event.currentTarget.style.display = 'none';
               }}
             />
           ) : (
-            <Music className="w-4 h-4 text-slate-400 dark:text-zinc-500 group-hover:text-soso-brand flex-shrink-0" />
+            <Music className="w-4 h-4 text-slate-400 dark:text-zinc-500 group-hover:text-soso-brand shrink-0" />
           )}
           <div className="flex-1 truncate">
             <span className="font-semibold text-slate-900 dark:text-white">{item.title}</span>

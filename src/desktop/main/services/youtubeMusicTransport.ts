@@ -1,3 +1,4 @@
+import type { ChartRegion } from '../../../shared/utils/chartRegions.ts';
 import { requestSignal } from '../../../shared/utils/requestSignal.ts';
 import { desktopFetch } from './desktopFetch.ts';
 
@@ -17,6 +18,31 @@ export class YouTubeMusicTransport {
       body: JSON.stringify(payload),
       cache: 'no-store',
       signal: AbortSignal.timeout(timeoutMs),
+    });
+  }
+
+  static postCharts(region: ChartRegion): Promise<Response> {
+    const query = new URLSearchParams({
+      perspective: 'CHART_DETAILS',
+      chart_params_country_code: region.toLowerCase(),
+      chart_params_chart_type: 'TRACKS',
+      chart_params_period_type: 'WEEKLY',
+    }).toString();
+    return this.fetch('https://charts.youtube.com/youtubei/v1/browse?alt=json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-YouTube-Client-Name': '31',
+        'X-YouTube-Client-Version': '2.0',
+      },
+      body: JSON.stringify({
+        context: {
+          client: { clientName: 'WEB_MUSIC_ANALYTICS', clientVersion: '2.0', hl: 'en', gl: 'US' },
+        },
+        browseId: 'FEmusic_analytics_charts_home',
+        query,
+      }),
+      signal: AbortSignal.timeout(10000),
     });
   }
 

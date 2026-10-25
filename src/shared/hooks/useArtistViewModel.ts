@@ -55,7 +55,13 @@ export function useArtistViewModel({
     let isMounted = true;
 
     const fetchArtistData = async () => {
-      if (!artistQuery) return;
+      setArtistDetails(null);
+      setLoadingAllTracks(false);
+      if (!artistQuery) {
+        setLoading(false);
+        setAllTracks([]);
+        return;
+      }
       setLoading(true);
       setSelectedAlbum(null);
       setAllTracks([]);
@@ -64,16 +70,20 @@ export function useArtistViewModel({
       try {
         const res = await platformBridge.getArtist(artistQuery, artistName, artistSource);
         if (isMounted && res) {
-          setArtistDetails(normalizeArtistDetails(res));
+          const details = normalizeArtistDetails(res);
+          setArtistDetails(details);
+          setAllTracks(details.catalogTracks || details.topTracks);
 
           // Fetch all tracks in parallel
           if (res.artist) {
             setLoadingAllTracks(true);
             platformBridge
-              .getArtistAllTracks(res.artist.id, res.artist.name, artistSource)
+              .getArtistAllTracks(res.artist.id, res.artist.name, res.artist.source || artistSource)
               .then((tracks) => {
                 if (isMounted) {
-                  setAllTracks(tracks || []);
+                  setAllTracks(
+                    tracks?.length ? tracks : details.catalogTracks || details.topTracks,
+                  );
                   setLoadingAllTracks(false);
                 }
               })
@@ -161,10 +171,13 @@ export function useArtistViewModel({
     const albumGroups = new Map<string, { albumInfo: any; tracks: Track[] }>();
     const singles: Track[] = [];
 
-    const albumMetaMap = new Map<string, any>();
+    const albumMetaMap = new Map<string, any[]>();
+    const albumsById = new Map<string, any>();
     for (const alb of artistDetails?.albums || []) {
       if (alb.title) {
-        albumMetaMap.set(alb.title.toLowerCase().trim(), alb);
+        const key = alb.title.toLowerCase().trim();
+        albumMetaMap.set(key, [...(albumMetaMap.get(key) || []), alb]);
+        albumsById.set(String(alb.id), alb);
       }
     }
 
@@ -173,15 +186,20 @@ export function useArtistViewModel({
       if (!albTitle || albTitle === 'Single' || albTitle === 'Unknown Album') {
         singles.push(track);
       } else {
-        const key = albTitle.toLowerCase();
+        const candidates = albumMetaMap.get(albTitle.toLowerCase()) || [];
+        const albumId = track.album?.id;
+        const meta =
+          (albumId != null ? albumsById.get(String(albumId)) : undefined) ||
+          (candidates.length === 1 ? candidates[0] : undefined);
+        const key = `${track.source || ''}:${meta?.id ?? albumId ?? albTitle.toLowerCase()}`;
         if (!albumGroups.has(key)) {
-          const meta = albumMetaMap.get(key) || {
+          const info = meta || {
             id: track.album?.id || `alb_${encodeURIComponent(albTitle)}`,
             title: albTitle,
             cover: track.album?.cover_big || track.album?.cover_medium || track.album?.cover,
             artist: track.artist,
           };
-          albumGroups.set(key, { albumInfo: meta, tracks: [] });
+          albumGroups.set(key, { albumInfo: info, tracks: [] });
         }
         albumGroups.get(key)!.tracks.push(track);
       }

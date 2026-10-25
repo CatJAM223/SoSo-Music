@@ -7,7 +7,9 @@ import {
   initializeRustCompute,
   createWaveSongMatrix,
 } from '../src/shared/compute/waveSongMatrix.ts';
-import { areSameWaveSong, buildWaveSongIdentity } from '../src/shared/utils/waveIdentity.ts';
+import { buildWaveSongIdentity } from '../src/shared/utils/waveIdentity.ts';
+import { areSameWaveSong } from './fixtures/waveBeforeFullRust.mjs';
+import { waveComputeFixture } from './helpers/waveComputeFixture.mjs';
 import { sequenceWaveTracks } from '../src/shared/utils/waveQueue.ts';
 import { sequenceWaveTracks as referenceSequence } from './fixtures/waveSequenceReference.mjs';
 
@@ -145,7 +147,7 @@ test('All six wave modes preserve complete track ordering with the Rust kernel e
     }
   }
 });
-test('Rust results remain owned by their batch and oversized work uses JavaScript', () => {
+test('Rust matrices remain owned by their batch and dense batching stays bounded', () => {
   const songs = Array.from({ length: 90 }, (_, i) =>
     buildWaveSongIdentity(track(i, 'Golden horizon ' + i, 'Artist ' + (i % 4))),
   );
@@ -159,11 +161,11 @@ test('Rust results remain owned by their batch and oversized work uses JavaScrip
     before,
     'A later WASM allocation must not overwrite an earlier result',
   );
-  assert.equal(createWaveSongMatrix(Array(1001).fill(songs[0]), [], []), null);
+  assert.equal(createWaveSongMatrix(Array(4097).fill(songs[0]), [], []), null);
   assert.equal(
     createWaveSongMatrix(songs.slice(0, 2), [], []),
     null,
-    'Tiny batches avoid Rust transfer overhead',
+    'Tiny batches avoid a dense matrix; individual comparisons still use Rust',
   );
 });
 test('Actual Rust ABI rejects malformed input and has no imported host capabilities', async () => {
@@ -171,34 +173,54 @@ test('Actual Rust ABI rejects malformed input and has no imported host capabilit
   assert.deepEqual(WebAssembly.Module.imports(module), []);
   const instance = await WebAssembly.instantiate(module),
     e = instance.exports;
-  assert.equal(e.abi_version(), 2);
-  assert.throws(() => e.memory.grow(257), RangeError, 'WASM memory is capped at 16 MiB');
-  assert.equal(e.reserve(2 * 1024 * 1024 + 1), 0);
-  assert.equal(e.calculate(2 * 1024 * 1024 + 1), -1);
+  assert.equal(e.abi_version(), 4);
+  assert.throws(() => e.memory.grow(1025), RangeError, 'WASM memory is capped at 64 MiB');
+  assert.equal(e.reserve(8 * 1024 * 1024 + 1), 0);
+  assert.equal(e.calculate(8 * 1024 * 1024 + 1), -1);
   const pointer = e.reserve(2);
   new Uint8Array(e.memory.buffer, pointer, 2).set([255, 255]);
   assert.equal(e.calculate(2), -1);
 });
-test('A missing or corrupt Rust artifact leaves the full JavaScript path available', async () => {
-  const fresh = await import('../src/shared/compute/waveSongMatrix.ts?unavailable');
-  assert.equal(await fresh.initializeRustCompute(new Uint8Array([0, 1, 2, 3])), false);
-  const songs = Array.from({ length: 90 }, (_, i) =>
-    buildWaveSongIdentity(track(i, 'Song ' + i, 'Artist')),
-  );
-  assert.equal(fresh.createWaveSongMatrix(songs, [], []), null);
+test('A missing or corrupt required Rust artifact never activates a JS scorer', async () => {
+  const api = await waveComputeFixture();
+  assert.equal(await api.initializeRustCompute(new Uint8Array([0, 1, 2, 3])), false);
+  assert.throws(() => api.sequenceWaveTracks([track(1, 'Song', 'Artist')], 'default', []), /Rust/);
 });
 
 test('Generated Rust artifact matches the current source and build settings', () => {
   const hash = crypto.createHash('sha256');
-  for (const file of ['Cargo.toml', 'Cargo.lock', 'src/lib.rs'])
+  for (const file of [
+    'Cargo.toml',
+    'Cargo.lock',
+    'src/lib.rs',
+    'src/ranking.rs',
+    'src/sequence.rs',
+    'src/import_match.rs',
+    'src/loudness.rs',
+    'src/demux.rs',
+  ])
     hash.update(fs.readFileSync(new URL('../native/compute-core/' + file, import.meta.url)));
   hash.update(fs.readFileSync(new URL('../scripts/native/buildComputeCore.mjs', import.meta.url)));
+  for (const file of [
+    'src/shared/compute/rustCore.ts',
+    'src/shared/compute/audioCore.ts',
+    'src/shared/compute/normalizationWorklet.ts',
+    'src/shared/utils/logger.ts',
+  ])
+    hash.update(fs.readFileSync(new URL('../' + file, import.meta.url)));
   const metadata = JSON.parse(
     fs.readFileSync(new URL('../public/compute/soso-core.json', import.meta.url)),
   );
   assert.equal(metadata.sourceSha256, hash.digest('hex'));
   assert.equal(metadata.wasmSha256, crypto.createHash('sha256').update(bytes).digest('hex'));
-  assert.equal(metadata.abi, 2);
+  assert.equal(metadata.abi, 4);
+  assert.equal(
+    metadata.workletSha256,
+    crypto
+      .createHash('sha256')
+      .update(fs.readFileSync(new URL('../public/compute/soso-normalization.js', import.meta.url)))
+      .digest('hex'),
+  );
 });
 test('Text memo is bounded, nested and released after errors and between batches', () => {
   let calls = 0;
@@ -229,13 +251,13 @@ test('Text memo is bounded, nested and released after errors and between batches
 
 test('Packing stops at its token budget and does not disable later valid Rust work', () => {
   const oversized = Array.from({ length: 200 }, (_, i) => {
-    const tokens = Array.from({ length: 64 }, (_, j) => 'unique' + i + 'token' + j);
+    const tokens = Array.from({ length: 129 }, (_, j) => 'unique' + i + 'token' + j);
     return {
       artists: ['artist'],
       print: { tokens, set: new Set(tokens), variants: new Set(), dur: 0 },
     };
   });
-  assert.equal(createWaveSongMatrix(oversized, [], []), null);
+  assert.throws(() => createWaveSongMatrix(oversized, [], []), /identity|limit/);
   const valid = Array.from({ length: 90 }, (_, i) =>
     buildWaveSongIdentity(track(i, 'Golden horizon ' + i, 'Artist')),
   );

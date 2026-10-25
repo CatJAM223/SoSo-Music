@@ -26,7 +26,7 @@ export const PlaylistCover: React.FC<PlaylistCoverProps> = ({
   if (validCovers.length >= 4) {
     return (
       <div
-        className={`grid grid-cols-2 grid-rows-2 overflow-hidden flex-shrink-0 bg-zinc-900 ring-1 ring-white/10 ${sizeClass} ${className}`}
+        className={`grid grid-cols-2 grid-rows-2 overflow-hidden shrink-0 bg-zinc-900 ring-1 ring-white/10 ${sizeClass} ${className}`}
       >
         {validCovers.slice(0, 4).map((c, i) => (
           <img
@@ -48,7 +48,7 @@ export const PlaylistCover: React.FC<PlaylistCoverProps> = ({
   if (validCovers.length > 0) {
     return (
       <div
-        className={`overflow-hidden flex-shrink-0 bg-zinc-900 ring-1 ring-white/10 ${sizeClass} ${className}`}
+        className={`overflow-hidden shrink-0 bg-zinc-900 ring-1 ring-white/10 ${sizeClass} ${className}`}
       >
         <img
           src={validCovers[0]}
@@ -66,7 +66,7 @@ export const PlaylistCover: React.FC<PlaylistCoverProps> = ({
   // 3. Fallback: Artistic Gradient Capsule
   return (
     <div
-      className={`flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-soso-brand/20 via-zinc-900 to-zinc-950 text-soso-brand ring-1 ring-white/10 shadow-md ${sizeClass} ${className}`}
+      className={`flex items-center justify-center shrink-0 bg-linear-to-br from-soso-brand/20 via-zinc-900 to-zinc-950 text-soso-brand ring-1 ring-white/10 shadow-md ${sizeClass} ${className}`}
     >
       <ListMusic className="w-1/2 h-1/2 opacity-80" />
     </div>

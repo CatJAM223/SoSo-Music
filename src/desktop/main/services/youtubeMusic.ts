@@ -5,6 +5,8 @@ import {
   streamShared,
 } from './streamResolveContext.ts';
 import { sharedStreamResolver } from './sharedStreamResolver.ts';
+import type { ChartRegion } from '../../../shared/utils/chartRegions.ts';
+import { loadYouTubeCharts } from './youtubeCharts.ts';
 import { BoundedMap } from '../../../shared/utils/boundedCache.ts';
 import {
   createStreamResolveError,
@@ -19,7 +21,11 @@ import type {
   StreamResolveOptions,
   Track,
 } from '../../../shared/types/index.ts';
-import { isArtistMatch, isTitleMatch } from '../../../shared/utils/artistParser.ts';
+import { cleanDiscoveryTracks } from '../../../shared/utils/discoveryTracks.ts';
+import { readYouTubeCatalogPage } from '../../../shared/services/parsers/youtubeCatalog.ts';
+import { isValidTrackForArtist } from '../../../shared/services/parsers/soundCloudParser.ts';
+import { matchesImportedRecording } from '../../../shared/utils/recordingIdentity.ts';
+import { isTitleMatch } from '../../../shared/utils/artistParser.ts';
 
 import { PlaybackLogger } from './playbackLogger.ts';
 import { YouTubeMusicTransport } from './youtubeMusicTransport.ts';
@@ -69,6 +75,20 @@ function containsAnyPhrase(value: string, phrases: string[]): boolean {
 
 export class YouTubeMusicService {
   private static searchCache = new Map<string, { data: Track[]; total: number }>();
+  private static discoverySongsCache = new BoundedMap<string, { data: Track[]; expiresAt: number }>(
+    64,
+    (value) => value.expiresAt,
+  );
+  private static unavailableRecordings = new BoundedMap<string, number>(128, (value) => value);
+  private static replacementRecordings = new BoundedMap<
+    string,
+    { track: Track; expiresAt: number }
+  >(128, (value) => value.expiresAt);
+  private static artistCatalogCache = new BoundedMap<
+    string,
+    { details: ArtistDetails; expiresAt: number }
+  >(32, (value) => value.expiresAt);
+  private static artistCatalogRequests = new Map<string, Promise<ArtistDetails | null>>();
   private static streamCache = new BoundedMap<
     string,
     { url: string; expiresAt: number; via?: 'account' | 'anonymous' }
@@ -80,7 +100,11 @@ export class YouTubeMusicService {
   );
   private static recordingGain = new Map<string, number>();
   public static getRecordingGain(videoId: string): number | undefined {
-    return this.recordingGain.get(this.cleanVideoId(videoId));
+    const id = this.cleanVideoId(videoId);
+    const replacement = this.replacementRecordings.get(id);
+    return this.recordingGain.get(
+      replacement ? this.cleanVideoId(String(replacement.track.id)) : id,
+    );
   }
   private static videoDurationCache = new BoundedMap<string, number>(1000);
   private static STREAM_CACHE_TTL = 7 * 60 * 1000;
@@ -111,7 +135,11 @@ export class YouTubeMusicService {
   public static getStreamRoute(
     videoId: string,
   ): { via: 'account' | 'anonymous'; client: 'WEB' | 'VISIONOS' } | undefined {
-    const stream = this.streamCache.get(this.cleanVideoId(videoId));
+    const id = this.cleanVideoId(videoId);
+    const replacement = this.replacementRecordings.get(id);
+    const stream = this.streamCache.get(
+      replacement ? this.cleanVideoId(String(replacement.track.id)) : id,
+    );
     if (!stream?.via || Date.now() >= stream.expiresAt) return undefined;
     return { via: stream.via, client: stream.via === 'account' ? 'WEB' : 'VISIONOS' };
   }
@@ -146,7 +174,11 @@ export class YouTubeMusicService {
     this.videoStreamCache.clear();
     this.videoStreamRequests.clear();
     this.audioAccessFailures.clear();
+    this.unavailableRecordings.clear();
+    this.replacementRecordings.clear();
+    this.artistCatalogCache.clear();
     this.searchCache.clear();
+    this.discoverySongsCache.clear();
     this.videoDurationCache.clear();
   }
 
@@ -574,6 +606,8 @@ export class YouTubeMusicService {
             this.audioAccessFailures.delete(this.audioAccessFailures.keys().next().value!);
           throw new Error(accessCode);
         }
+        if (status === 'UNPLAYABLE' && !/premium|payment|purchase|paid|подписк|оплат/i.test(reason))
+          this.unavailableRecordings.set(cleanVid, Date.now() + 2 * 60 * 1000);
         if (!isRetry && !reason.includes('Music Premium') && status === 'UNPLAYABLE') {
           return await streamWait(
             this.requestDirectAudioStream(cleanVid, true, forceRefresh, formatOptions),
@@ -970,6 +1004,33 @@ export class YouTubeMusicService {
     return parseInnerTubeShelfItem(r);
   }
 
+  /** Genre discovery uses Songs only: no generic video/card fallback or estimated durations. */
+  public static async searchSongs(query: string, limit = 25): Promise<{ data: Track[] }> {
+    const cleanQuery = query.trim();
+    if (!cleanQuery) return { data: [] };
+    const cacheKey = `songs:${cleanQuery.toLocaleLowerCase()}:${limit}`;
+    const cached = this.discoverySongsCache.get(cacheKey);
+    if (cached) return cached;
+    const response = await this.postInnertube('/youtubei/v1/search', {
+      context: this.getClientContext(),
+      query: cleanQuery,
+      params: this.PARAMS.SONGS,
+    });
+    if (!response?.contents) throw new Error('YouTube Music songs are unavailable');
+    const data = cleanDiscoveryTracks(
+      readYouTubeCatalogPage(response)
+        .items.map((row) => parseInnerTubeShelfItem(row, undefined, { requireDuration: true }))
+        .filter((track): track is Track => !!track),
+      limit,
+    );
+    if (data.length)
+      this.discoverySongsCache.set(cacheKey, {
+        data,
+        expiresAt: Date.now() + 5 * 60 * 1000,
+      });
+    return { data };
+  }
+
   /**
    * Search official tracks on YouTube Music (WEB_REMIX protocol)
    */
@@ -997,6 +1058,7 @@ export class YouTubeMusicService {
       let receivedSearchResponse = false;
       let failedSearchResponse = false;
       const seenIds = new Set<string>();
+      const officialIds = new Set<string>();
 
       const parseShelfItems = (shelf: any) => {
         if (!shelf?.contents) return;
@@ -1013,11 +1075,8 @@ export class YouTubeMusicService {
           const videoType =
             r.navigationEndpoint?.watchEndpoint?.watchEndpointMusicSupportedConfigs
               ?.watchEndpointMusicConfig?.musicVideoType;
-          if (videoType === 'MUSIC_VIDEO_TYPE_ATV') {
-            tracks.unshift(track);
-          } else {
-            tracks.push(track);
-          }
+          if (videoType === 'MUSIC_VIDEO_TYPE_ATV') officialIds.add(String(track.id));
+          tracks.push(track);
           if (tracks.length >= limit) break;
         }
       };
@@ -1190,6 +1249,9 @@ export class YouTubeMusicService {
         }
       }
 
+      tracks.sort(
+        (a, b) => Number(officialIds.has(String(b.id))) - Number(officialIds.has(String(a.id))),
+      );
       const result = { data: tracks.slice(0, limit), total: tracks.length };
       if (this.searchCache.size >= 300) {
         const oldest = this.searchCache.keys().next().value;
@@ -1229,11 +1291,27 @@ export class YouTubeMusicService {
       if (match) videoId = match[1];
     }
 
+    const cachedReplacement = this.replacementRecordings.get(videoId);
+    if (
+      cachedReplacement &&
+      !options.forceRefresh &&
+      !(track as any).forDownload &&
+      matchesImportedRecording(track, cachedReplacement.track)
+    ) {
+      const replacementId = this.cleanVideoId(String(cachedReplacement.track.id));
+      const url = await streamWait(
+        this.resolveDirectAudioStream(replacementId, false, false, options),
+      );
+      if (url) return url;
+      this.replacementRecordings.delete(videoId);
+    }
     if (videoId) {
       const stream = await streamWait(
         this.resolveDirectAudioStream(videoId, false, options.forceRefresh, options),
       );
       if (stream) {
+        this.unavailableRecordings.delete(videoId);
+        this.replacementRecordings.delete(videoId);
         const cachedDur = this.videoDurationCache.get(videoId);
         if (cachedDur && (!track.duration || track.duration === 180)) {
           track.duration = cachedDur;
@@ -1242,6 +1320,64 @@ export class YouTubeMusicService {
       }
     }
 
+    if (videoId && this.unavailableRecordings.get(videoId) && !(track as any).forDownload)
+      return this.recoverUnavailableRecording(track, videoId, options);
+
+    return '';
+  }
+
+  /** Resolve another public upload of the same recording, keeping saved library IDs intact. */
+  private static async recoverUnavailableRecording(
+    track: Track,
+    originalId: string,
+    options: StreamResolveOptions,
+  ): Promise<string> {
+    const artist = typeof track.artist === 'string' ? track.artist : track.artist?.name;
+    if (!artist || !track.title) return '';
+    const query = `${artist} ${track.title}`;
+    const songs = await streamWait(this.search(query, 12));
+    // The Songs filter can fill its page with unrelated songs when a label upload
+    // disappeared. Check the Videos filter independently, then validate identity.
+    const videos = await streamWait(
+      this.postInnertube('/youtubei/v1/search', {
+        context: this.getClientContext(),
+        query,
+        params: this.PARAMS.VIDEOS,
+      }),
+    );
+    const candidates = [
+      ...songs.data,
+      ...readYouTubeCatalogPage(videos)
+        .items.map((item) => parseInnerTubeShelfItem(item))
+        .filter((item): item is Track => !!item),
+    ];
+    const seen = new Set([originalId]);
+    let attempts = 0;
+    for (const candidate of candidates) {
+      const id = this.cleanVideoId(String(candidate.id));
+      if (!isValidYouTubeVideoId(id) || seen.has(id) || !matchesImportedRecording(track, candidate))
+        continue;
+      seen.add(id);
+      if (++attempts > 3) break;
+      try {
+        const url = await streamWait(
+          this.resolveDirectAudioStream(id, false, options.forceRefresh, options),
+        );
+        if (!url) continue;
+        this.replacementRecordings.set(originalId, {
+          track: candidate,
+          expiresAt: Date.now() + 5 * 60 * 1000,
+        });
+        PlaybackLogger.info(
+          '[YouTubeMusic:RecordingRecovery] Available upload matched by title, artist and duration',
+          { originalId, resolvedId: id },
+        );
+        return url;
+      } catch (error) {
+        assertStreamResolveActive();
+        if (getStreamResolveFailure(error)) throw error;
+      }
+    }
     return '';
   }
 
@@ -1337,7 +1473,44 @@ export class YouTubeMusicService {
   /**
    * Get artist details, top tracks, and full official albums from YouTube Music
    */
+  private static async catalogItems(body: Record<string, unknown>, initial?: any): Promise<any[]> {
+    const items: any[] = [],
+      seen = new Set<string>();
+    let request: Record<string, unknown> = { context: this.getClientContext(), ...body };
+    for (let page = 0; page < 100 && items.length < 10000; page++) {
+      const response =
+        page === 0 && initial ? initial : await this.postInnertube('/youtubei/v1/browse', request);
+      if (!response) break;
+      const parsed = readYouTubeCatalogPage(response);
+      items.push(...parsed.items);
+      if (!parsed.continuation || seen.has(parsed.continuation)) break;
+      seen.add(parsed.continuation);
+      request = { context: this.getClientContext(), continuation: parsed.continuation };
+    }
+    return items;
+  }
+
   public static async getArtist(
+    idOrName: string | number,
+    expectedArtistName?: string,
+  ): Promise<ArtistDetails | null> {
+    const key = JSON.stringify([String(idOrName), expectedArtistName || '']);
+    const cached = this.artistCatalogCache.get(key);
+    if (cached) return cached.details;
+    const pending = this.artistCatalogRequests.get(key);
+    if (pending) return pending;
+    const request = this.fetchArtist(idOrName, expectedArtistName);
+    this.artistCatalogRequests.set(key, request);
+    try {
+      const details = await request;
+      if (details) this.artistCatalogCache.set(key, { details, expiresAt: Date.now() + 60000 });
+      return details;
+    } finally {
+      if (this.artistCatalogRequests.get(key) === request) this.artistCatalogRequests.delete(key);
+    }
+  }
+
+  private static async fetchArtist(
     idOrName: string | number,
     expectedArtistName?: string,
   ): Promise<ArtistDetails | null> {
@@ -1378,10 +1551,11 @@ export class YouTubeMusicService {
         const foundArtists = await this.searchArtists(cleanName, 3);
         if (foundArtists?.data && foundArtists.data.length > 0) {
           const cleanLower = cleanName.toLowerCase();
-          const exact =
-            foundArtists.data.find(
-              (a) => a.name.toLowerCase() === cleanLower || isArtistMatch({ artist: a }, cleanName),
-            ) || foundArtists.data[0];
+          const exact = foundArtists.data.find(
+            (a) =>
+              a.name.toLowerCase() === cleanLower ||
+              isValidTrackForArtist({ title: '', artist: a } as Track, cleanName),
+          );
           if (exact?.id) {
             const bId = String(exact.id)
               .replace(/^yt_art_/, '')
@@ -1444,6 +1618,7 @@ export class YouTubeMusicService {
         const artistPicture = headerThumbs.slice(-1)[0]?.url || fallbackCover;
 
         const albums: any[] = [];
+        const catalogTracks: Track[] = [];
         const seenAlbumIds = new Set<string>();
 
         const tabs =
@@ -1457,10 +1632,16 @@ export class YouTubeMusicService {
           const shelfTitle = (
             shelf.header?.musicCarouselShelfBasicHeaderRenderer?.title?.runs?.[0]?.text ||
             shelf.header?.musicShelfBasicHeaderRenderer?.title?.runs?.[0]?.text ||
+            shelf.title?.runs?.[0]?.text ||
             ''
           ).toLowerCase();
 
-          const items = shelf.contents || [];
+          let items = shelf.contents || [];
+          const header = shelf.header?.musicCarouselShelfBasicHeaderRenderer;
+          const more =
+            header?.moreContentButton?.buttonRenderer?.navigationEndpoint?.browseEndpoint ||
+            header?.title?.runs?.find((run: any) => run.navigationEndpoint?.browseEndpoint)
+              ?.navigationEndpoint?.browseEndpoint;
 
           const isAlbumOrRelease =
             shelfTitle.includes('альбом') ||
@@ -1479,9 +1660,18 @@ export class YouTubeMusicService {
             shelfTitle.includes('popular') ||
             shelfTitle.includes('лучш');
 
-          // Top Songs shelf (ensure album shelves are never misclassified as songs)
+          const isVideoShelf = shelfTitle.includes('video') || shelfTitle.includes('видео');
+          if ((isAlbumOrRelease || isVideoShelf) && more?.browseId) {
+            const expanded = await this.catalogItems({
+              browseId: more.browseId,
+              ...(more.params ? { params: more.params } : {}),
+            });
+            if (expanded.length) items = expanded;
+          }
+          // Top songs and official videos belong to this artist; recommendations do not.
           if (
             isSongShelf ||
+            isVideoShelf ||
             (!isAlbumOrRelease &&
               topTracks.length === 0 &&
               !shelfTitle.includes('похож') &&
@@ -1490,34 +1680,16 @@ export class YouTubeMusicService {
           ) {
             let songItems = items;
 
-            // If a "View All" playlist exists for top songs (VL... or OLAK5uy_...), fetch it
-            // InnerTube includes exact fixedColumns duration in the full playlist view for all artists
-            const bottomBrowseId = shelf.bottomEndpoint?.browseEndpoint?.browseId;
-            const bottomParams = shelf.bottomEndpoint?.browseEndpoint?.params;
+            const bottom = shelf.bottomEndpoint?.browseEndpoint;
             if (
-              bottomBrowseId &&
-              (bottomBrowseId.startsWith('VL') || bottomBrowseId.startsWith('OLAK5uy_'))
+              bottom?.browseId &&
+              (bottom.browseId.startsWith('VL') || bottom.browseId.startsWith('OLAK5uy_'))
             ) {
-              try {
-                const plJson = await this.postInnertube('/youtubei/v1/browse', {
-                  context: clientContext,
-                  browseId: bottomBrowseId,
-                  ...(bottomParams ? { params: bottomParams } : {}),
-                });
-                const plShelf =
-                  plJson?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer
-                    ?.content?.sectionListRenderer?.contents?.[0]?.musicPlaylistShelfRenderer ||
-                  plJson?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents
-                    ?.sectionListRenderer?.contents?.[0]?.musicPlaylistShelfRenderer;
-                if (plShelf?.contents && plShelf.contents.length > 0) {
-                  songItems = plShelf.contents;
-                }
-              } catch (err) {
-                console.warn(
-                  '[YouTubeMusicService] Failed to fetch artist top tracks playlist:',
-                  err,
-                );
-              }
+              const expanded = await this.catalogItems({
+                browseId: bottom.browseId,
+                ...(bottom.params ? { params: bottom.params } : {}),
+              });
+              if (expanded.length) songItems = expanded;
             }
 
             for (const it of songItems) {
@@ -1634,7 +1806,7 @@ export class YouTubeMusicService {
                 }
               }
 
-              topTracks.push({
+              const track: Track = {
                 id: `yt_${videoId}`,
                 title,
                 title_short: title,
@@ -1658,7 +1830,14 @@ export class YouTubeMusicService {
                 cover_url: hdCover,
                 resolvedStreamUrl: '',
                 source: 'youtube',
-              });
+              };
+              const credited = artistRuns.some(
+                (run: any) => run.navigationEndpoint?.browseEndpoint?.browseId === artistBrowseId,
+              );
+              if (credited || isValidTrackForArtist(track, resolvedArtistName)) {
+                catalogTracks.push(track);
+                if (!isVideoShelf) topTracks.push(track);
+              }
             }
           }
 
@@ -1741,14 +1920,19 @@ export class YouTubeMusicService {
             nb_fan: 0,
             source: 'youtube',
           },
-          topTracks: topTracks.slice(0, 30),
+          topTracks: (topTracks.length ? topTracks : catalogTracks).slice(0, 30),
+          catalogTracks: [
+            ...new Map(catalogTracks.map((track) => [String(track.id), track])).values(),
+          ],
           albums,
         };
       }
 
       // 3. Fallback to search results if browse endpoint was not reachable
       const searchRes = await this.search(cleanName, 30);
-      const tracks = searchRes.data || [];
+      const tracks = (searchRes.data || []).filter((track) =>
+        isValidTrackForArtist(track, cleanName),
+      );
       if (tracks.length === 0) return null;
 
       const firstTrack = tracks[0];
@@ -1886,12 +2070,7 @@ export class YouTubeMusicService {
       const rawThumb = headerThumbs.slice(-1)[0]?.url || '';
       const hdCover = rawThumb ? rawThumb.replace(/=w\d+-h\d+[^?&]*/, '=w544-h544-l90-rj') : '';
 
-      const contents =
-        twoCol?.secondaryContents?.sectionListRenderer?.contents?.[0]?.musicShelfRenderer
-          ?.contents ||
-        albumPage?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content
-          ?.sectionListRenderer?.contents?.[0]?.musicShelfRenderer?.contents ||
-        [];
+      const contents = await this.catalogItems({ browseId: rawId }, albumPage);
 
       const tracks: Track[] = [];
 
@@ -2009,13 +2188,15 @@ export class YouTubeMusicService {
       .trim();
 
     try {
-      const details = await this.getArtist(idOrName);
+      const details = await this.getArtist(idOrName, artistName);
       if (!details) {
         const searchRes = await this.search(cleanName, 50);
-        return (searchRes.data || []).map((t) => ({ ...t, source: 'youtube' }));
+        return (searchRes.data || [])
+          .filter((track) => isValidTrackForArtist(track, cleanName))
+          .map((t) => ({ ...t, source: 'youtube' }));
       }
 
-      const allTracks: Track[] = [...(details.topTracks || [])];
+      const allTracks: Track[] = [...(details.catalogTracks || details.topTracks || [])];
       const seenVideoIds = new Set<string>();
 
       allTracks.forEach((t) => {
@@ -2023,9 +2204,9 @@ export class YouTubeMusicService {
         seenVideoIds.add(vid);
       });
 
-      // Fetch tracks from discovered albums in small batches (capped to top 10 albums to avoid rate limits)
+      // Fetch every discovered release in batches of three; retain provider order.
       if (details.albums && details.albums.length > 0) {
-        const targetAlbums = details.albums.slice(0, 10);
+        const targetAlbums = details.albums;
         for (let i = 0; i < targetAlbums.length; i += 3) {
           const batch = targetAlbums.slice(i, i + 3);
           const albumResults = await Promise.allSettled(
@@ -2508,62 +2689,31 @@ export class YouTubeMusicService {
     return null;
   }
 
-  /**
-   * Get Official YouTube Music Top Charts
-   * Uses official YouTube Music Top 100 chart playlist browse endpoint
-   */
-  public static async getCharts(limit: number = 50): Promise<{ data: Track[]; total: number }> {
-    try {
-      const clientContext = this.getClientContext();
-      // VLPL4fGSI1pDJn6cLcPmcc9b_l8oM0aJtsqL is official YouTube Music Top 100 Hits
-      const chartJson = await this.postInnertube('/youtubei/v1/browse', {
-        context: clientContext,
-        browseId: 'VLPL4fGSI1pDJn6cLcPmcc9b_l8oM0aJtsqL',
+  /** Official weekly song ranking for the selected region; never a keyword search. */
+  public static async getCharts(
+    limit = 50,
+    region: ChartRegion = 'GLOBAL',
+  ): Promise<{ data: Track[]; total: number }> {
+    // Keep the established official global song playlist; regional rankings come from Charts.
+    if (region === 'GLOBAL') {
+      const response = await this.postInnertube('/youtubei/v1/browse', {
+        context: this.getClientContext(),
+        browseId: 'VLPL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i',
       });
-
-      const shelf =
-        chartJson?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content
-          ?.sectionListRenderer?.contents?.[0]?.musicPlaylistShelfRenderer ||
-        chartJson?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer
-          ?.contents?.[0]?.musicPlaylistShelfRenderer;
-
-      const items = shelf?.contents || [];
-      const seen = new Set<string>();
-      const tracks: Track[] = [];
-
-      const nonMusicKeywords = [
-        'скандал',
-        'выборы',
-        'дед архимед',
-        'политика',
-        'новости',
-        'дебаты',
-        'митинг',
-        '10 hours',
-        '10 часов',
-      ];
-      for (const it of items) {
-        const t = parseInnerTubeShelfItem(it, seen);
-        if (t) {
-          const lower =
-            `${t.title} ${typeof t.artist === 'object' ? t.artist.name : t.artist}`.toLowerCase();
-          if (nonMusicKeywords.some((kw) => lower.includes(kw))) continue;
-          tracks.push(t);
-        }
-        if (tracks.length >= limit) break;
-      }
-
-      if (tracks.length > 0) {
-        return { data: tracks, total: tracks.length };
-      }
-    } catch (err) {
-      console.warn(
-        '[YouTubeMusicService] Failed to fetch official top charts via browse, fallback to search:',
-        err,
-      );
+      if (!response?.contents) throw new Error('YouTube Music chart is unavailable');
+      const tracks = readYouTubeCatalogPage(response)
+        .items.map((row, index): Track | null => {
+          const track = parseInnerTubeShelfItem(row, undefined, { requireDuration: true });
+          return track ? { ...track, chartRank: index + 1 } : null;
+        })
+        .filter((track): track is Track => !!track);
+      return { data: cleanDiscoveryTracks(tracks, limit), total: tracks.length };
     }
-
-    // Fallback: search for top hits
-    return await this.search('Top Hits 2025 2026', limit);
+    return loadYouTubeCharts(region, limit, (videoIds) =>
+      this.postInnertube('/youtubei/v1/music/get_queue', {
+        context: this.getClientContext(),
+        videoIds,
+      }),
+    );
   }
 }

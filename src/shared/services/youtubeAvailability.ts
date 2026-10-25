@@ -41,7 +41,7 @@ export function isYouTubeItemDisabled(
 /** Inert removes every nested action from mouse and keyboard navigation. */
 export function youtubeDisabledProps(item: unknown, blocked: boolean) {
   return isYouTubeItemDisabled(item, blocked)
-    ? { 'data-youtube-disabled': 'true', 'aria-disabled': true as const, inert: '' }
+    ? { 'data-youtube-disabled': 'true', 'aria-disabled': true as const, inert: true }
     : {};
 }
 /** Bounded navigation keeps blocked items in the queue without attempting playback. */

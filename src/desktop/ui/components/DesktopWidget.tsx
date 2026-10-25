@@ -106,7 +106,7 @@ const WidgetContents: React.FC = () => {
       {/* Top Track Info Row */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <div className="relative w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 bg-white/10 shadow-md ring-1 ring-white/20">
+          <div className="relative w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-white/10 shadow-md ring-1 ring-white/20">
             <img
               src={coverUrl}
               alt={track?.title || 'Cover'}
@@ -135,7 +135,7 @@ const WidgetContents: React.FC = () => {
 
         {/* Action Controls in Header */}
         <div
-          className="flex items-center gap-0.5 flex-shrink-0"
+          className="flex items-center gap-0.5 shrink-0"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           {/* Volume Button / Slider Toggle */}
@@ -251,7 +251,7 @@ const WidgetContents: React.FC = () => {
         </div>
 
         {/* Time Readout */}
-        <div className="text-[9px] font-mono text-zinc-400 font-semibold flex-shrink-0">
+        <div className="text-[9px] font-mono text-zinc-400 font-semibold shrink-0">
           {Math.floor(state.currentTime / 60)}:
           {String(Math.floor(state.currentTime % 60)).padStart(2, '0')}
         </div>

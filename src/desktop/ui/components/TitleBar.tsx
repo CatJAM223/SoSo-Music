@@ -61,7 +61,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
   return (
     <header
-      className="h-11 w-full flex items-center justify-between px-6 md:px-8 select-none z-30 transition-colors duration-200 border-b border-slate-200/70 dark:border-white/[0.05] bg-transparent flex-shrink-0"
+      className="h-11 w-full flex items-center justify-between px-6 md:px-8 select-none z-30 transition-colors duration-200 border-b border-slate-200/70 dark:border-white/[0.05] bg-transparent shrink-0"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       {/* Left Navigation Arrows (Aligned with main content left margin) */}

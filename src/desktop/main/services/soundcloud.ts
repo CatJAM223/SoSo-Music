@@ -23,10 +23,11 @@ import type {
   StreamResolveOptions,
   Track,
 } from '../../../shared/types/index.ts';
-import { isArtistMatch, normalizeText } from '../../../shared/utils/artistParser.ts';
+import { normalizeText } from '../../../shared/utils/artistParser.ts';
 import { fixMojibake } from '../../../shared/utils/formatters.ts';
 import { withSoundCloudClientId } from '../../../shared/utils/soundcloudUrl.ts';
 import { SoundCloudTransport } from './soundcloudTransport.ts';
+import { cleanDiscoveryTracks } from '../../../shared/utils/discoveryTracks.ts';
 import { getGenreSearchConfig, trackHasGenreTag } from '../../../shared/utils/genreSearch.ts';
 import { isYouTubeAudioStreamUrl } from '../../../shared/utils/audioUrlValidator.ts';
 import { PlaybackLogger } from './playbackLogger.ts';
@@ -37,10 +38,12 @@ import {
   fetchSoundCloudPlaylistTrackDetails,
   hydrateSoundCloudPlaylistTracks,
   transformSCTrack,
+  isValidTrackForArtist,
 } from '../../../shared/services/parsers/soundCloudParser.ts';
 
 export class SoundCloudService {
   private static keyRequest: Promise<string> | null = null;
+  private static genreChartRequests = new Map<string, Promise<Track[]>>();
   private static pendingStreams = new Map<string, Promise<string>>();
   private static unavailableStreams = new Map<string, number>();
   // Cache with TTL: Map<key, { value: any, expiresAt: number }>
@@ -260,91 +263,51 @@ export class SoundCloudService {
     }
   }
 
-  /**
-   * Get Top Global Trending / Hit tracks
-   */
-  public static async getCharts(limit: number = 50): Promise<{ tracks: { data: Track[] } }> {
-    const cacheKey = `charts:${limit}`;
+  /** Read published genre playlists for SoundCloud genre browsing. */
+  private static async getPublishedGenreChart(playlistSlug: string): Promise<Track[]> {
+    const allowed = new Set(['hip-hop', 'electronic', 'pop', 'rock', 'r-b', 'folk']);
+    if (!allowed.has(playlistSlug)) throw new Error('Unknown SoundCloud chart');
+    const cacheKey = `published-chart:us:${playlistSlug}`;
     const cached = this.cache.get(cacheKey);
-    if (cached && Date.now() < cached.expiresAt) {
-      return cached.value;
-    }
-
-    try {
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const pending = this.genreChartRequests.get(playlistSlug);
+    if (pending) return pending;
+    const request = (async () => {
       const clientId = await this.getSoundCloudKey();
-      const chartsUrl = `https://api-v2.soundcloud.com/charts?kind=top&genre=soundcloud%3Agenres%3Aall-music&client_id=${clientId}&limit=${limit}`;
-      const json = await this.fetchWithRelay(chartsUrl);
-
-      const items: any[] = json?.collection || [];
-      const tracks: Track[] = [];
-
-      for (const item of items) {
-        const rawTrack = item?.track || item;
-        const transformed = this.transformSCTrack(rawTrack);
-        if (transformed) {
-          const dur = transformed.duration || 0;
-          if (dur > 720 || dur < 40) continue;
-          const titleLower = transformed.title.toLowerCase();
-          const artistLower = (
-            typeof transformed.artist === 'object'
-              ? transformed.artist?.name
-              : transformed.artist || ''
-          )
-            .toLowerCase()
-            .trim();
-          if (
-            titleLower.includes('10 hours') ||
-            titleLower.includes('1 hour') ||
-            titleLower.includes('podcast') ||
-            titleLower.includes('type beat') ||
-            titleLower.includes('karaoke') ||
-            titleLower.includes('*billboard') ||
-            titleLower.includes('rave hit*') ||
-            artistLower === titleLower
-          ) {
-            continue;
-          }
-          tracks.push(transformed);
-        }
+      const permalink = `https://soundcloud.com/music-charts-us/sets/${playlistSlug}`;
+      const playlist = await this.fetchWithRelay(
+        `https://api-v2.soundcloud.com/resolve?url=${encodeURIComponent(permalink)}&client_id=${clientId}`,
+      );
+      // A matching title alone cannot establish the provenance of a chart.
+      const owner = playlist?.user;
+      if (
+        playlist?.kind !== 'playlist' ||
+        String(owner?.id) !== '1319568996' ||
+        owner?.permalink !== 'music-charts-us' ||
+        !(owner?.verified || owner?.badges?.verified) ||
+        playlist?.permalink !== playlistSlug ||
+        !Array.isArray(playlist?.tracks)
+      )
+        throw new Error('SoundCloud chart is unavailable');
+      const details = await fetchSoundCloudPlaylistTrackDetails(playlist.tracks, (ids) =>
+        this.fetchWithRelay(
+          `https://api-v2.soundcloud.com/tracks?ids=${ids.join('%2C')}&client_id=${clientId}`,
+        ),
+      );
+      // Hydrate in playlist order. A chart is not an album: preserve each song's own release.
+      const tracks = hydrateSoundCloudPlaylistTracks(playlist.tracks, details);
+      if (tracks.length) {
+        this.setCache(cacheKey, tracks);
+        this.cache.set(cacheKey, { value: tracks, expiresAt: Date.now() + 5 * 60 * 1000 });
       }
-
-      // Fallback: If charts returned empty, use clean popular hits
-      if (tracks.length === 0) {
-        const fallbackUrl = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent('Top Hits Popular')}&client_id=${clientId}&limit=${limit * 2}`;
-        const fbJson = await this.fetchWithRelay(fallbackUrl);
-        const fbItems: any[] = fbJson?.collection || [];
-        for (const item of fbItems) {
-          const transformed = this.transformSCTrack(item);
-          if (transformed) {
-            const dur = transformed.duration || 0;
-            const tLower = transformed.title.toLowerCase();
-            const aLower = (
-              typeof transformed.artist === 'object'
-                ? transformed.artist?.name
-                : transformed.artist || ''
-            )
-              .toLowerCase()
-              .trim();
-            if (
-              dur >= 60 &&
-              dur <= 600 &&
-              aLower !== tLower &&
-              !tLower.includes('*billboard') &&
-              !tLower.includes('10 hours')
-            ) {
-              tracks.push(transformed);
-            }
-          }
-          if (tracks.length >= limit) break;
-        }
-      }
-
-      const result = { tracks: { data: tracks } };
-      this.setCache(cacheKey, result);
-      return result;
-    } catch (e) {
-      console.error('[SoundCloudService] getCharts error:', e);
-      return { tracks: { data: [] } };
+      return tracks;
+    })();
+    this.genreChartRequests.set(playlistSlug, request);
+    try {
+      return await request;
+    } finally {
+      if (this.genreChartRequests.get(playlistSlug) === request)
+        this.genreChartRequests.delete(playlistSlug);
     }
   }
 
@@ -559,73 +522,26 @@ export class SoundCloudService {
     const config = getGenreSearchConfig(genreId);
     if (!config) return { data: [] };
 
-    const scSlug = config.soundCloudSlug;
     const chartTracks: Track[] = [];
-    if (scSlug) {
+    if (config.soundCloudChart) {
       try {
-        const clientId = await this.getSoundCloudKey();
-        if (clientId) {
-          const chartsUrl = `https://api-v2.soundcloud.com/charts?kind=top&genre=soundcloud%3Agenres%3A${scSlug}&client_id=${clientId}&limit=${limit * 2}`;
-          const json = await this.fetchWithRelay(chartsUrl);
-          const items: any[] = json?.collection || [];
-          for (const item of items) {
-            const rawTrack = item?.track || item;
-            const transformed = this.transformSCTrack(rawTrack);
-            if (transformed) {
-              const dur = Number(transformed.duration) || 0;
-              if (dur > 600 || (dur > 0 && dur < 40)) continue;
-              const titleLower = (transformed.title || '').toLowerCase();
-              if (
-                /(\b\d+\s*hours?\b|\bloop\b|\bcontinuous mix\b|\bdj set\b|\blive set\b|\bmegamix\b|\bfull album\b|\bсборник\b|\b1 час\b)/i.test(
-                  titleLower,
-                )
-              ) {
-                continue;
-              }
-              chartTracks.push(transformed);
-            }
-          }
-
-          if (chartTracks.length >= limit) {
-            return { data: chartTracks.slice(0, limit) };
-          }
-        }
-      } catch (err) {
-        console.debug('[SoundCloudService] Genre chart fetch failed, falling back to search:', err);
+        const tracks = await this.getPublishedGenreChart(config.soundCloudChart);
+        chartTracks.push(...tracks.filter((track) => trackHasGenreTag(track, genreId)));
+      } catch (error) {
+        console.debug('[SoundCloudService] Published genre chart unavailable:', error);
       }
     }
-
+    const cleanChart = cleanDiscoveryTracks(chartTracks, limit);
+    if (cleanChart.length >= limit) return { data: cleanChart };
     const searches = await Promise.allSettled(
-      config.queries.map((query) => this.search(query, limit * 2)),
+      config.queries.map((query) => this.search(query, Math.min(200, limit * 4))),
     );
-    const seen = new Set<string>(chartTracks.map((track) => `${track.source}:${track.id}`));
-    const matchingTracks = [...chartTracks];
+    const candidates = [...cleanChart];
     for (const search of searches) {
       if (search.status !== 'fulfilled') continue;
-      for (const track of search.value.data || []) {
-        if (!trackHasGenreTag(track, genreId)) continue;
-        const key = `${track.source}:${track.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        matchingTracks.push(track);
-      }
+      candidates.push(...search.value.data.filter((track) => trackHasGenreTag(track, genreId)));
     }
-
-    const cleanTracks = matchingTracks.filter((t: Track) => {
-      const dur = Number(t.duration) || 0;
-      if (dur > 600 || (dur > 0 && dur < 40)) return false;
-      const titleLower = (t.title || '').toLowerCase();
-      if (
-        /(\b\d+\s*hours?\b|\bloop\b|\bcontinuous mix\b|\bdj set\b|\blive set\b|\bmegamix\b|\bfull album\b|\bсборник\b|\b1 час\b)/i.test(
-          titleLower,
-        )
-      ) {
-        return false;
-      }
-      return true;
-    });
-
-    return { data: cleanTracks.slice(0, limit) };
+    return { data: cleanDiscoveryTracks(candidates, limit) };
   }
 
   /**
@@ -1308,8 +1224,8 @@ export class SoundCloudService {
           const normExpected = normalizeText(expectedArtistName);
           if (
             normFetched !== normExpected &&
-            !isArtistMatch(
-              { user: { username: fetchedUsername }, artist: fetchedUsername },
+            !isValidTrackForArtist(
+              { title: '', artist: { name: fetchedUsername } } as Track,
               expectedArtistName,
             )
           ) {
@@ -1326,7 +1242,12 @@ export class SoundCloudService {
         const searchJson = await this.fetchWithRelay(
           `https://api-v2.soundcloud.com/search/users?q=${encodeURIComponent(searchQuery)}&client_id=${clientId}&limit=10`,
         );
-        const users: any[] = searchJson?.collection || [];
+        const users: any[] = (searchJson?.collection || []).filter((user: any) =>
+          isValidTrackForArtist(
+            { title: '', artist: { name: fixMojibake(user.username || '') } } as Track,
+            searchQuery,
+          ),
+        );
         if (users.length > 0) {
           const cleanLower = searchQuery.toLowerCase().trim();
           users.sort((a, b) => {
@@ -1369,13 +1290,13 @@ export class SoundCloudService {
           this.fetchWithRelay(
             `https://api-v2.soundcloud.com/users/${userData.id}/toptracks?client_id=${clientId}&limit=50`,
           ),
-          this.fetchWithRelay(
+          this.fetchCollectionPages(
             `https://api-v2.soundcloud.com/users/${userData.id}/albums?client_id=${clientId}&limit=50`,
           ),
-          this.fetchWithRelay(
+          this.fetchCollectionPages(
             `https://api-v2.soundcloud.com/users/${userData.id}/playlists?client_id=${clientId}&limit=50`,
           ),
-          this.fetchWithRelay(
+          this.fetchCollectionPages(
             `https://api-v2.soundcloud.com/users/${userData.id}/playlists_without_albums?client_id=${clientId}&limit=50`,
           ),
           this.fetchWithRelay(
@@ -1402,10 +1323,6 @@ export class SoundCloudService {
       const albums: Album[] = [];
       const trackIdToAlbumMap = new Map<
         string | number,
-        { id: number | string; title: string; cover: string }
-      >();
-      const trackTitleToAlbumMap = new Map<
-        string,
         { id: number | string; title: string; cover: string }
       >();
 
@@ -1456,15 +1373,6 @@ export class SoundCloudService {
             trackIdToAlbumMap.set(trk.id, { id: p.id, title: albumTitle, cover });
             trackIdToAlbumMap.set(String(trk.id), { id: p.id, title: albumTitle, cover });
           }
-          if (trk?.title) {
-            const norm = fixMojibake(trk.title)
-              .toLowerCase()
-              .replace(/[^a-z0-9а-яё]/g, '')
-              .trim();
-            if (norm) {
-              trackTitleToAlbumMap.set(norm, { id: p.id, title: albumTitle, cover });
-            }
-          }
         }
       }
 
@@ -1482,14 +1390,8 @@ export class SoundCloudService {
           // If track doesn't have an album or has default 'Single', resolve it from the artist's albums!
           if (!transformed.album?.title || transformed.album.title === 'Single') {
             const rawId = Number(String(transformed.id).replace(/^sc_/i, ''));
-            const normTitle = transformed.title
-              .toLowerCase()
-              .replace(/[^a-z0-9а-яё]/g, '')
-              .trim();
             const matchedAlb =
-              trackIdToAlbumMap.get(transformed.id) ||
-              trackIdToAlbumMap.get(rawId) ||
-              trackTitleToAlbumMap.get(normTitle);
+              trackIdToAlbumMap.get(transformed.id) || trackIdToAlbumMap.get(rawId);
 
             if (matchedAlb) {
               transformed.album = {
@@ -1601,29 +1503,25 @@ export class SoundCloudService {
         string | number,
         { id: number | string; title: string; cover: string }
       >();
-      const trackTitleToAlbumMap = new Map<
-        string,
-        { id: number | string; title: string; cover: string }
-      >();
 
+      const releaseTracks: any[] = [];
       // First extract album/playlist track associations
       for (const res of results) {
         if (res.status === 'fulfilled' && Array.isArray(res.value?.collection)) {
           for (const item of res.value.collection) {
-            if (Array.isArray(item.tracks) && item.tracks.length > 0 && item.title) {
+            if (
+              Array.isArray(item.tracks) &&
+              item.tracks.length > 0 &&
+              item.title &&
+              (!item.user?.id || !numericUserId || String(item.user.id) === numericUserId)
+            ) {
+              releaseTracks.push(...item.tracks);
               const albumTitle = fixMojibake(item.title);
               const cover = this.extractPlaylistCover(item, item.user?.avatar_url);
               for (const trk of item.tracks) {
                 if (trk?.id) {
-                  trackIdToAlbumMap.set(trk.id, { id: item.id, title: albumTitle, cover });
-                }
-                if (trk?.title) {
-                  const norm = fixMojibake(trk.title)
-                    .toLowerCase()
-                    .replace(/[^a-z0-9а-яё]/g, '')
-                    .trim();
-                  if (norm)
-                    trackTitleToAlbumMap.set(norm, { id: item.id, title: albumTitle, cover });
+                  if (!trackIdToAlbumMap.has(trk.id))
+                    trackIdToAlbumMap.set(trk.id, { id: item.id, title: albumTitle, cover });
                 }
               }
             }
@@ -1631,23 +1529,35 @@ export class SoundCloudService {
         }
       }
 
+      // Album pages may contain recordings absent from the public user-track feed.
+      const full = await fetchSoundCloudPlaylistTrackDetails(releaseTracks, (ids) =>
+        this.fetchWithRelay(
+          `https://api-v2.soundcloud.com/tracks?ids=${ids.join(',')}&client_id=${clientId}`,
+        ),
+      );
+      const hydrated = releaseTracks
+        .map((item) => (item?.title ? item : full.get(String(item?.id))))
+        .filter(Boolean);
+      results.push({ status: 'fulfilled', value: { collection: hydrated } });
+
       // Now process all tracks and assign real albums
       for (const res of results) {
         if (res.status === 'fulfilled' && Array.isArray(res.value?.collection)) {
           for (const item of res.value.collection) {
             if (item.kind === 'playlist') continue;
             const transformed = this.transformSCTrack(item);
-            if (transformed && transformed.id && !tracksMap.has(String(transformed.id))) {
+            if (
+              transformed &&
+              transformed.id &&
+              !tracksMap.has(String(transformed.id)) &&
+              (!artistName ||
+                isValidTrackForArtist(transformed, artistName) ||
+                (!!numericUserId && String(item.user?.id ?? item.user_id ?? '') === numericUserId))
+            ) {
               if (!transformed.album?.title || transformed.album.title === 'Single') {
                 const rawId = Number(String(transformed.id).replace(/^sc_/i, ''));
-                const normTitle = transformed.title
-                  .toLowerCase()
-                  .replace(/[^a-z0-9а-яё]/g, '')
-                  .trim();
                 const matchedAlb =
-                  trackIdToAlbumMap.get(transformed.id) ||
-                  trackIdToAlbumMap.get(rawId) ||
-                  trackTitleToAlbumMap.get(normTitle);
+                  trackIdToAlbumMap.get(transformed.id) || trackIdToAlbumMap.get(rawId);
 
                 if (matchedAlb) {
                   transformed.album = {

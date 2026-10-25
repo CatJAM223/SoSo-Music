@@ -38,7 +38,7 @@ export const SearchAlbumResults: React.FC<SearchAlbumResultsProps> = ({ albums, 
               {...youtubeDisabledProps(album, youtubeDisabled)}
               key={`${album.source || 'album'}:${album.id}`}
               onClick={() => onOpenAlbum?.(album)}
-              className="group min-w-0 rounded-2xl p-2.5 text-left bg-white/70 dark:bg-zinc-900/70 hover:bg-slate-100 dark:hover:bg-zinc-800/90 border border-slate-200/80 dark:border-zinc-800/80 hover:border-soso-brand/40 transition-all shadow-sm hover:shadow-md"
+              className="group min-w-0 rounded-2xl p-2.5 text-left bg-white/70 dark:bg-zinc-900/70 hover:bg-slate-100 dark:hover:bg-zinc-800/90 border border-slate-200/80 dark:border-zinc-800/80 hover:border-soso-brand/40 transition-all shadow-xs hover:shadow-md"
             >
               <div className="aspect-square rounded-xl overflow-hidden mb-2 bg-slate-200 dark:bg-zinc-800">
                 {cover ? (

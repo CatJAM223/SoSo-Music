@@ -1,21 +1,9 @@
-import { libraryGenreAffinity, boundedLibraryGenreScore } from './libraryTaste.ts';
+import { sequenceWaveIndices } from '../compute/waveSequence.ts';
 import type { LibraryTasteGenre } from '../types/libraryTaste.ts';
-import { scoreWaveCandidate, type WaveRankingContext } from './waveCandidateRanking.ts';
-import { waveDiscoveryTarget } from './waveFeedback.ts';
-import { createWaveMusicScorer, waveMusicProfile } from './waveMusicProfile.ts';
-import { withWaveTextCache } from '../compute/waveTextCache.ts';
-import { createWaveSongMatrix } from '../compute/waveSongMatrix.ts';
 import type { Track, WaveMood } from '../types/index.ts';
 import { WAVE_HISTORY_LIMIT } from './waveHistoryLimits.ts';
 import { areTracksDuplicates, buildTrackPrintFromTrack } from './trackFingerprint.ts';
-import {
-  areSameWaveSong,
-  buildWaveSongIdentity,
-  getWaveArtistKeys,
-  getWaveArtistNames,
-  isWaveNonMusic,
-  normalizeWaveArtist,
-} from './waveIdentity.ts';
+import { getWaveArtistKeys, getWaveArtistNames, normalizeWaveArtist } from './waveIdentity.ts';
 
 export const CURATED_WAVE_FALLBACK_QUERIES = [
   'zxcursed phonk',
@@ -113,27 +101,7 @@ const artistKey = (track: Track): string =>
     .trim()
     .toLocaleLowerCase();
 
-const TEMPO_EDIT_TITLE =
-  /\b(?:slowed|sped[\s-]*up|speed[\s-]*up|speedup|nightcore|daycore|bass[\s-]*boost(?:ed)?)\b/i;
-
-/** Mark common speed-edit uploads so regular versions can rank ahead of them. */
-export function isWaveTempoEdit(track: Pick<Track, 'title'>): boolean {
-  return TEMPO_EDIT_TITLE.test(track.title || '');
-}
-
-/** Explicitly relaxed versions do not fit the energetic station. */
-export function isWaveMoodMismatch(track: Pick<Track, 'title'>, mood: WaveMood): boolean {
-  return (
-    mood === 'energy' && /\b(?:slowed|daycore|acoustic)\b|акустик|замедлен/i.test(track.title || '')
-  );
-}
-
-function waveVersionPenalty(track: Pick<Track, 'title'>): number {
-  if (isWaveTempoEdit(track)) return 18;
-  if (/\b(?:live|acoustic|cover)\b|кавер|акустик/i.test(track.title || '')) return 8;
-  if (/\b(?:remix|bootleg|mashup)\b/i.test(track.title || '')) return 3;
-  return /\bremaster(?:ed)?\b/i.test(track.title || '') ? 1 : 0;
-}
+export { isWaveTempoEdit, isWaveMoodMismatch } from './waveTrackMetadata.ts';
 
 export interface DislikedWaveTrack {
   id: string | number;
@@ -221,193 +189,9 @@ export function sequenceWaveTracks(
   limit = 25,
   options: WaveQueueOptions = {},
 ): Track[] {
-  return withWaveTextCache(() =>
-    sequenceWaveTracksUncached(tracks, mood, familiarArtists, limit, options),
+  return sequenceWaveIndices(tracks, mood, familiarArtists, limit, options).map(
+    (index) => tracks[index],
   );
-}
-
-/** Put familiar music near the front, while spacing artists and sources across the queue. */
-function sequenceWaveTracksUncached(
-  tracks: Track[],
-  mood: WaveMood,
-  familiarArtists: string[],
-  limit = 25,
-  options: WaveQueueOptions = {},
-): Track[] {
-  const familiar = new Set(familiarArtists.flatMap(getWaveArtistNames).map(normalizeWaveArtist));
-  const knownArtists = [
-    ...new Set([
-      ...familiarArtists,
-      ...tracks.flatMap(getWaveArtistNames),
-      ...(options.recentTracks || []).flatMap(getWaveArtistNames),
-    ]),
-  ];
-  const recentSongs = (options.recentTracks || []).map((track) =>
-    buildWaveSongIdentity(track, knownArtists),
-  );
-  const offeredSongs = (options.offeredTracks || []).map((track) =>
-    buildWaveSongIdentity(track, knownArtists),
-  );
-  const offeredArtists = (options.offeredTracks || [])
-    .slice(-25)
-    .map((track) => getWaveArtistKeys(track, knownArtists));
-  const scoreMusic = createWaveMusicScorer(
-    options.tasteTracks,
-    options.positiveTracks,
-    options.skippedTracks,
-    options.learnedTracks,
-  );
-  // Library rows often have no genre tags. Identity still gives a like concrete influence.
-  const likedSeeds = (options.tasteTracks || []).filter((track) => track.waveSeedWeight === 2);
-  const likedArtists = new Set(
-    likedSeeds.flatMap((track) => getWaveArtistKeys(track, knownArtists)),
-  );
-  const likedSongs = likedSeeds.map((track) => buildWaveSongIdentity(track, knownArtists));
-  const likedIds = new Set(likedSeeds.map((track) => String(track.id)));
-  const isLikedSong = (track: Track) =>
-    track.waveSeedWeight === 2 ||
-    likedIds.has(String(track.id)) ||
-    likedSongs.some((liked) => areSameWaveSong(liked, buildWaveSongIdentity(track, knownArtists)));
-  const skippedIds = new Set((options.skippedTracks || []).map((track) => String(track.id)));
-  const lastHeard = [...(options.recentTracks || [])]
-    .reverse()
-    .find((track) => !skippedIds.has(String(track.id)));
-  let previousMusic = lastHeard ? waveMusicProfile(lastHeard) : undefined;
-  const prepared = tracks
-    .filter(
-      (track) =>
-        !track.playbackUnavailable && !isWaveNonMusic(track) && !isWaveMoodMismatch(track, mood),
-    )
-    .map((track, matrixIndex) => {
-      const artists = getWaveArtistKeys(track, knownArtists);
-      const song = buildWaveSongIdentity(track, knownArtists);
-      const versionPenalty = waveVersionPenalty(track);
-      const versionPriority =
-        versionPenalty + (artists.some((artist) => familiar.has(artist)) ? 0 : 0.5);
-      const music = waveMusicProfile(track);
-      return {
-        track,
-        artists,
-        song,
-        liked: isLikedSong(track),
-        matrixIndex,
-        music,
-        musicScore:
-          scoreMusic(music, mood) +
-          (options.libraryGenres
-            ? libraryGenreAffinity(music.styles, options.libraryGenres)
-            : boundedLibraryGenreScore(track.waveGenreScore)),
-        likeScore: artists.some((artist) => likedArtists.has(artist))
-          ? likedSongs.some((liked) => areSameWaveSong(liked, song))
-            ? 2
-            : 1
-          : 0,
-        exposurePenalty: 0,
-        versionPenalty,
-        versionPriority,
-      };
-    });
-  const matrix = createWaveSongMatrix(
-    prepared.map((candidate) => candidate.song),
-    recentSongs,
-    offeredSongs,
-  );
-  for (const candidate of prepared) {
-    const exposed = matrix
-      ? matrix.wasOffered(candidate.matrixIndex)
-      : offeredSongs.some((offered) => areSameWaveSong(offered, candidate.song));
-    candidate.exposurePenalty =
-      (exposed ? 8 : 0) +
-      Math.min(
-        4,
-        offeredArtists.filter((keys) => keys.some((key) => candidate.artists.includes(key))).length,
-      );
-  }
-  const candidates = prepared.filter(
-    (candidate) =>
-      !(matrix
-        ? matrix.wasHeard(candidate.matrixIndex)
-        : recentSongs.some((recent) => areSameWaveSong(recent, candidate.song))),
-  );
-  const sameSong = (left: (typeof prepared)[number], right: (typeof prepared)[number]) =>
-    matrix
-      ? matrix.sameSong(left.matrixIndex, right.matrixIndex)
-      : areSameWaveSong(left.song, right.song);
-  // Choose the ordinary version before artist spacing can promote its cover.
-  const remaining = candidates.filter(
-    (candidate) =>
-      !candidates.some(
-        (other) => other.versionPriority < candidate.versionPriority && sameSong(candidate, other),
-      ),
-  );
-  const result: Track[] = [];
-  const artistCounts = new Map<string, number>();
-  const recent = (options.recentArtists || [])
-    .slice(-40)
-    .map((name) => getWaveArtistKeys({ artist: name }));
-  if (options.recentTracks?.length) {
-    recent.push(
-      ...options.recentTracks.slice(-40).map((track) => getWaveArtistKeys(track, knownArtists)),
-    );
-  }
-  for (const keys of recent.slice(-40))
-    for (const artist of keys) artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1);
-  const noveltyTarget = waveDiscoveryTarget(mood, options.discoveryAdjustment);
-  const phase = mood === 'discover' ? 0.75 : 0;
-  const offset = Number.isFinite(options.sequenceOffset)
-    ? Math.max(0, Math.floor(options.sequenceOffset!))
-    : 0;
-
-  let previousLiked = Boolean(
-    options.recentTracks?.length &&
-    isLikedSong(options.recentTracks[options.recentTracks.length - 1]),
-  );
-  while (remaining.length > 0 && result.length < limit) {
-    // Familiar artists can supply new songs. Separate actual likes from those discoveries.
-    // Keep a playable fallback when a provider yields only saved recordings.
-    const spaceLikes =
-      mood !== 'favorites' && previousLiked && remaining.some((candidate) => !candidate.liked);
-    const previousSource = result[result.length - 1]?.source;
-    const position = offset + result.length;
-    const wantsFamiliar =
-      Math.floor((position + 1) * noveltyTarget + phase + 1e-9) ===
-      Math.floor(position * noveltyTarget + phase + 1e-9);
-    let bestIndex = 0;
-    let bestScore = -Infinity;
-
-    const ranking: WaveRankingContext = {
-      familiar,
-      wantsFamiliar,
-      recent,
-      previousSource,
-      previousMusic,
-      mood,
-      artistCounts,
-      artistFeedback: options.artistFeedback,
-    };
-    for (let index = 0; index < remaining.length; index++) {
-      if (spaceLikes && remaining[index].liked) continue;
-      const score = scoreWaveCandidate(remaining[index], index, ranking);
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = index;
-      }
-    }
-
-    const [chosen] = remaining.splice(bestIndex, 1);
-    result.push(chosen.track);
-    previousLiked = chosen.liked;
-    previousMusic = chosen.music;
-    recent.push(chosen.artists);
-    for (const artist of chosen.artists)
-      artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1);
-    // Prefer the best version once; leave alternatives out of this batch entirely.
-    for (let index = remaining.length - 1; index >= 0; index--) {
-      if (sameSong(chosen, remaining[index])) remaining.splice(index, 1);
-    }
-  }
-
-  return result;
 }
 
 /** Reorder only the unplayed tail, retaining history and the current index. */

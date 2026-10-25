@@ -7,10 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { build } from 'esbuild';
+import ts from 'typescript';
 import postcss from 'postcss';
-import tailwind from 'tailwindcss';
-import autoprefixer from 'autoprefixer';
-import tailwindConfig from '../../tailwind.config.js';
+import tailwind from '@tailwindcss/postcss';
 
 const root = fileURLToPath(new URL('../../', import.meta.url)),
   require = createRequire(import.meta.url);
@@ -38,30 +37,16 @@ localStorage.setItem('soso_crossfade_duration','0');localStorage.setItem('soso_v
 const noop=()=>{};const root=createRoot(document.getElementById('root'));
 const song=(i,artwork)=>({id:'sc_'+(100000+i),title:'Measured song '+i,artist:{name:'Fixture artist '+i%30,...(artwork?{picture:artwork,picture_medium:artwork}:{})},album:{title:'Fixture album '+i%20,...(artwork?{cover:artwork,cover_small:artwork,cover_medium:artwork,cover_big:artwork,cover_xl:artwork}:{})},...(artwork?{cover_url:artwork}:{}),duration:240,preview:'',source:'soundcloud'});
 function Driver(){w.uiState=useAudioState();w.uiControls=useAudioControls();return <div id="current-track">{w.uiState.currentTrack?.id||''}</div>;}
-function LibraryModelProbe(){w.uiLibrary=useMyMusicViewModel();return null;}
-function ArtistModelProbe(){w.uiArtist=useArtistViewModel({artistQuery:'fixture',artistName:'Fixture'});return null;}
+function LibraryModelProbe(){w.uiProbe.renders.LibraryModelProbe=(w.uiProbe.renders.LibraryModelProbe||0)+1;w.uiLibrary=useMyMusicViewModel();return null;}
+function ArtistModelProbe(){w.uiProbe.renders.ArtistModelProbe=(w.uiProbe.renders.ArtistModelProbe||0)+1;w.uiArtist=useArtistViewModel({artistQuery:'fixture',artistName:'Fixture'});return null;}
 function Clock(){const value=useAudioProgress();return <output id="clock">{value.currentTime.toFixed(3)}</output>;}
-w.mountUi=(count,artwork=false)=>{w.uiLibrary=undefined;w.uiArtist=undefined;const cover=artwork?new URL('cover.svg',location.href).href:undefined;w.fixtureTracks=Array.from({length:count},(_,i)=>song(i,cover));root.render(<AudioProvider><Driver/><Clock/><LibraryModelProbe/><ArtistModelProbe/><main style={{height:640,overflow:'auto'}}><Profiler id="TrackTable" onRender={(...args)=>w.uiProbe.profiles.push({id:args[0],phase:args[1],actualDuration:args[2],baseDuration:args[3],startTime:args[4],commitTime:args[5]})}><TrackTable tracks={w.fixtureTracks} onOpenAddToPlaylist={noop}/></Profiler></main></AudioProvider>);};
+w.mountUi=(count,artwork=false)=>{w.uiLibrary=undefined;w.uiArtist=undefined;const cover=artwork?new URL('cover.svg',location.href).href:undefined;w.fixtureTracks=Array.from({length:count},(_,i)=>song(i,cover));root.render(<Profiler id="Application" onRender={(...args)=>w.uiProbe.rootProfiles.push({actualDuration:args[2]})}><AudioProvider><Driver/><Clock/><LibraryModelProbe/><ArtistModelProbe/><main style={{height:640,overflow:'auto'}}><Profiler id="TrackTable" onRender={(...args)=>w.uiProbe.profiles.push({id:args[0],phase:args[1],actualDuration:args[2],baseDuration:args[3],startTime:args[4],commitTime:args[5]})}><TrackTable tracks={w.fixtureTracks} onOpenAddToPlaylist={noop}/></Profiler></main></AudioProvider></Profiler>);};
 w.switchUiTrack=index=>{const start=performance.now();const result=w.uiControls.playTrack(w.fixtureTracks[index],w.fixtureTracks);w.uiProbe.syncCommands.push(performance.now()-start);return result;};
 w.tickUiClock=value=>{const audio=w.fixtureAudio;audio.currentTime=value;audio.dispatchEvent(new Event('timeupdate'));};
 `;
 const bootstrap = `
 window.uiLegacyArtworkValidation=${legacyArtworkValidation};
-window.uiProbe={renders:{},commits:[],renderPasses:[],profiles:[],persistence:[],syncCommands:[],passiveEffects:[],passiveStart:null,renderStart:null,commitStart:null};
-window.__REACT_DEVTOOLS_GLOBAL_HOOK__={supportsFiber:true,inject(renderer){
- if(!renderer.injectProfilingHooks)throw Error('React profiling renderer is required');
- renderer.injectProfilingHooks({
-  markRenderStarted(){window.uiProbe.renderStart=performance.now();},
-  markRenderStopped(){if(window.uiProbe.renderStart!==null){window.uiProbe.renderPasses.push(performance.now()-window.uiProbe.renderStart);window.uiProbe.renderStart=null;}},
-  markCommitStarted(){window.uiProbe.commitStart=performance.now();},
-  markCommitStopped(){if(window.uiProbe.commitStart!==null){window.uiProbe.commits.push(performance.now()-window.uiProbe.commitStart);window.uiProbe.commitStart=null;}},
-  markPassiveEffectsStarted(){window.uiProbe.passiveStart=performance.now();},
-  markPassiveEffectsStopped(){if(window.uiProbe.passiveStart!==null){window.uiProbe.passiveEffects.push(performance.now()-window.uiProbe.passiveStart);window.uiProbe.passiveStart=null;}},
-  markComponentRenderStarted(fiber){const props=fiber.pendingProps||fiber.memoizedProps||{};const type=fiber.type;
-   const name=props.track&&Number.isInteger(props.index)?'TrackRow':typeof type==='function'?(type.displayName||type.name):'';
-   if(name)window.uiProbe.renders[name]=(window.uiProbe.renders[name]||0)+1;
-  },
- });return 1;},onCommitFiberRoot(){},onCommitFiberUnmount(){}};
+window.uiProbe={renders:{},rootProfiles:[],profiles:[],persistence:[],syncCommands:[]};
 class FixtureAudio extends EventTarget{
  constructor(){super();this.src='';this.currentTime=0;this.duration=240;this.paused=true;this.seeking=false;this.readyState=4;this.networkState=1;this.buffered={length:0};this.volume=.8;this.playbackRate=1;this.error=null;window.fixtureAudio=this;}
  get currentSrc(){return this.src;}getAttribute(name){return name==='src'?this.src:null;}setAttribute(name,value){if(name==='src')this.src=value;}
@@ -85,6 +70,45 @@ try {
       {
         name: 'profiling-renderer-and-transport-fixtures',
         setup(builder) {
+          // Count actual production component invocations in this fixture only.
+          // React 19 no longer exposes the private injectProfilingHooks API.
+          builder.onLoad({ filter: /[\\/](TrackTable|TrackRow)\.tsx$/ }, (args) => {
+            const contents = fs.readFileSync(args.path, 'utf8');
+            const name = path.basename(args.path, '.tsx');
+            const tree = ts.createSourceFile(
+              args.path,
+              contents,
+              ts.ScriptTarget.Latest,
+              true,
+              ts.ScriptKind.TSX,
+            );
+            let body;
+            function visit(node) {
+              if (
+                ts.isVariableDeclaration(node) &&
+                node.name.getText(tree) === name &&
+                node.initializer
+              ) {
+                const value = ts.isCallExpression(node.initializer)
+                  ? node.initializer.arguments[0]
+                  : node.initializer;
+                if (
+                  (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) &&
+                  ts.isBlock(value.body)
+                )
+                  body = value.body;
+              }
+              ts.forEachChild(node, visit);
+            }
+            visit(tree);
+            if (!body) throw Error('Missing production render body: ' + name);
+            const at = body.getStart(tree) + 1;
+            const counter = `\n(window as any).uiProbe.renders[${JSON.stringify(name)}]=((window as any).uiProbe.renders[${JSON.stringify(name)}]||0)+1;\n`;
+            return {
+              contents: contents.slice(0, at) + counter + contents.slice(at),
+              loader: 'tsx',
+            };
+          });
           builder.onLoad({ filter: /[\\/]playbackSession\.ts$/ }, (args) => {
             if (!legacyArtworkValidation) return;
             let contents = fs.readFileSync(args.path, 'utf8');
@@ -99,7 +123,7 @@ try {
             }
             return { contents, loader: 'ts' };
           });
-          builder.onResolve({ filter: /^react-dom(?:\/client)?$/ }, () => ({
+          builder.onResolve({ filter: /^react-dom\/client$/ }, () => ({
             path: require.resolve('react-dom/profiling'),
           }));
           builder.onResolve(
@@ -138,12 +162,12 @@ try {
       },
     ],
   });
-  const css = await postcss([
-    tailwind({ ...tailwindConfig, content: [path.join(root, 'src/**/*.{ts,tsx}')] }),
-    autoprefixer,
-  ]).process(fs.readFileSync(path.join(root, 'src/renderer/index.css'), 'utf8'), {
-    from: path.join(root, 'src/renderer/index.css'),
-  });
+  const css = await postcss([tailwind({ base: root })]).process(
+    fs.readFileSync(path.join(root, 'src/renderer/index.css'), 'utf8'),
+    {
+      from: path.join(root, 'src/renderer/index.css'),
+    },
+  );
   fs.writeFileSync(path.join(output, 'fixture.css'), css.css);
   fs.writeFileSync(
     path.join(output, 'cover.svg'),

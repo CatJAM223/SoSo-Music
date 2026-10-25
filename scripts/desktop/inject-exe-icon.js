@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const ResEdit = require('resedit');
 
-function injectIcon() {
+async function injectIcon() {
+  const ResEdit = await require('resedit/cjs').load();
   const exePath = process.argv[2]
     ? path.resolve(process.argv[2])
     : path.join(__dirname, '../../release/win-unpacked/SoSo Music.exe');
@@ -74,4 +74,7 @@ function injectIcon() {
   console.log('Updated application icon and executable version: ' + packageInfo.version);
 }
 
-injectIcon();
+injectIcon().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

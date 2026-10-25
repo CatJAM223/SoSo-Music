@@ -182,7 +182,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
         <div className="flex items-center gap-1.5 md:gap-2 pt-0.5 overflow-x-auto scrollbar-none pb-0.5">
           <button
             onClick={() => handleSourceChange('all')}
-            className={`flex items-center gap-1 px-2.5 py-1 md:px-3.5 md:py-1.5 rounded-full text-[11px] md:text-xs font-bold transition-all shadow-sm flex-shrink-0 ${
+            className={`flex items-center gap-1 px-2.5 py-1 md:px-3.5 md:py-1.5 rounded-full text-[11px] md:text-xs font-bold transition-all shadow-xs shrink-0 ${
               selectedSource === 'all'
                 ? 'bg-soso-brand text-black shadow-md shadow-soso-brand/20 ring-1 ring-soso-brand'
                 : 'bg-white dark:bg-zinc-800/80 text-slate-700 dark:text-zinc-300 hover:text-slate-950 dark:hover:text-white border border-slate-200 dark:border-zinc-700/60'
@@ -194,7 +194,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
           <button
             onClick={() => handleSourceChange('youtube')}
-            className={`flex items-center gap-1 px-2.5 py-1 md:px-3.5 md:py-1.5 rounded-full text-[11px] md:text-xs font-bold transition-all shadow-sm flex-shrink-0 ${
+            className={`flex items-center gap-1 px-2.5 py-1 md:px-3.5 md:py-1.5 rounded-full text-[11px] md:text-xs font-bold transition-all shadow-xs shrink-0 ${
               selectedSource === 'youtube'
                 ? 'bg-rose-600 text-white shadow-md shadow-rose-600/25 ring-1 ring-rose-500'
                 : 'bg-white dark:bg-zinc-800/80 text-slate-700 dark:text-zinc-300 hover:text-rose-500 dark:hover:text-rose-400 border border-slate-200 dark:border-zinc-700/60'
@@ -206,7 +206,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
           <button
             onClick={() => handleSourceChange('soundcloud')}
-            className={`flex items-center gap-1 px-2.5 py-1 md:px-3.5 md:py-1.5 rounded-full text-[11px] md:text-xs font-bold transition-all shadow-sm flex-shrink-0 ${
+            className={`flex items-center gap-1 px-2.5 py-1 md:px-3.5 md:py-1.5 rounded-full text-[11px] md:text-xs font-bold transition-all shadow-xs shrink-0 ${
               selectedSource === 'soundcloud'
                 ? 'bg-amber-500 text-black shadow-md shadow-amber-500/25 ring-1 ring-amber-500'
                 : 'bg-white dark:bg-zinc-800/80 text-slate-700 dark:text-zinc-300 hover:text-amber-500 dark:hover:text-amber-400 border border-slate-200 dark:border-zinc-700/60'
@@ -275,7 +275,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
                           onNavigateToArtist &&
                           onNavigateToArtist({ id: artist.id, name: artist.name })
                         }
-                        className="group relative flex flex-col items-center p-3.5 rounded-2xl bg-white/70 dark:bg-zinc-900/70 hover:bg-slate-100 dark:hover:bg-zinc-800/90 border border-slate-200/80 dark:border-zinc-800/80 hover:border-soso-brand/40 dark:hover:border-soso-brand/40 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md text-center"
+                        className="group relative flex flex-col items-center p-3.5 rounded-2xl bg-white/70 dark:bg-zinc-900/70 hover:bg-slate-100 dark:hover:bg-zinc-800/90 border border-slate-200/80 dark:border-zinc-800/80 hover:border-soso-brand/40 dark:hover:border-soso-brand/40 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md text-center"
                       >
                         {/* Avatar */}
                         <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden mb-3 shadow-md group-hover:scale-105 transition-transform duration-200 bg-slate-200 dark:bg-zinc-800 ring-2 ring-transparent group-hover:ring-soso-brand/50">

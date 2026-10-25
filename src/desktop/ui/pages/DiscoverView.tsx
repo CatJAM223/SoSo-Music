@@ -80,7 +80,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
         if ((!likes || likes.length === 0) && window.electronAPI?.getCharts) {
           setLoadingTrending(true);
           window.electronAPI
-            .getCharts('all')
+            .getCharts()
             .then((chartsData: any) => {
               const tracks: Track[] = chartsData?.tracks?.data || [];
               setTrendingTracks(tracks.slice(0, 8));
@@ -344,7 +344,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
                       }}
                     />
                     {/* Gradient overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                    <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/20 to-transparent" />
 
                     {/* Play/Soundwave indicator */}
                     <div className="absolute top-2 right-2">
@@ -364,7 +364,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
                           />
                         </div>
                       ) : (
-                        <div className="w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="w-8 h-8 rounded-full bg-black/50 backdrop-blur-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                           <Play className="w-4 h-4 text-white fill-current ml-0.5" />
                         </div>
                       )}
@@ -409,7 +409,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
               {likedTracks.length > 0 && (
                 <button
                   onClick={() => onNavigate('liked', { tab: 'tracks' })}
-                  className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-slate-500 dark:text-zinc-400 hover:text-soso-brand transition-colors flex-shrink-0 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800/60"
+                  className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-slate-500 dark:text-zinc-400 hover:text-soso-brand transition-colors shrink-0 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800/60"
                 >
                   <span>{t('Все')}</span>
                   <ArrowRight className="w-4 h-4" />
@@ -437,7 +437,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
                       }`}
                     >
                       <div className="flex items-center gap-3.5 sm:gap-4 min-w-0 flex-1">
-                        <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden bg-slate-200 dark:bg-zinc-800 flex-shrink-0">
+                        <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden bg-slate-200 dark:bg-zinc-800 shrink-0">
                           <img
                             src={track.cover_url || DEFAULT_COVER_SVG_DATA_URI}
                             alt={track.title}
@@ -531,7 +531,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
               {savedAlbums.length > 0 && (
                 <button
                   onClick={() => onNavigate('liked', { tab: 'albums' })}
-                  className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-slate-500 dark:text-zinc-400 hover:text-soso-brand transition-colors flex-shrink-0 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800/60"
+                  className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-slate-500 dark:text-zinc-400 hover:text-soso-brand transition-colors shrink-0 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800/60"
                 >
                   <span>{t('Все')}</span>
                   <ArrowRight className="w-4 h-4" />

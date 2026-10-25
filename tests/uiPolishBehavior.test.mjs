@@ -134,6 +134,8 @@ test('Genre catalog survives either provider failing and preserves SoundCloud-on
     title: 'Genre track',
     artist: { name: 'Artist' },
     source: 'soundcloud',
+    duration: 200,
+    genre: 'alternative rock',
   };
   const providers = {
     soundcloud: async () => ({ data: [track] }),

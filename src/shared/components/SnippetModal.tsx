@@ -116,12 +116,12 @@ export const SnippetModal: React.FC<SnippetModalProps> = ({ onNavigateToArtist }
           />
           {/* Sound wave overlay */}
           {isSnippetPlaying && (
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end justify-center p-3">
+            <div className="absolute inset-0 bg-linear-to-t from-black/70 via-transparent to-transparent flex items-end justify-center p-3">
               <div className="flex items-end gap-1.5 h-7">
                 {[0.4, 0.9, 0.6, 1.0, 0.7, 0.3, 0.8, 0.5, 0.9, 0.4].map((h, i) => (
                   <div
                     key={i}
-                    className="w-1.5 bg-purple-400 rounded-full animate-pulse shadow-sm"
+                    className="w-1.5 bg-purple-400 rounded-full animate-pulse shadow-xs"
                     style={{
                       height: `${Math.round(h * 100)}%`,
                       animationDelay: `${i * 0.1}s`,
@@ -178,7 +178,7 @@ export const SnippetModal: React.FC<SnippetModalProps> = ({ onNavigateToArtist }
             {/* Background track */}
             <div className="w-full bg-slate-200 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-emerald-400 rounded-full smooth-progress"
+                className="h-full bg-linear-to-r from-purple-500 via-pink-500 to-emerald-400 rounded-full smooth-progress"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>

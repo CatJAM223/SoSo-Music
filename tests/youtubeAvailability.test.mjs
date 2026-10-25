@@ -59,7 +59,7 @@ test('YouTube opt-out persists, notifies only changes and leaves SoundCloud avai
   assert.equal(access.isYouTubeItemDisabled(yt), true);
   assert.equal(access.isYouTubeItemDisabled(sc), false);
   assert.equal(access.isYouTubeItemDisabled({ ...yt, source: 'soundcloud' }), true);
-  assert.equal(access.youtubeDisabledProps(yt, true).inert, '');
+  assert.equal(access.youtubeDisabledProps(yt, true).inert, true);
   assert.deepEqual(access.youtubeDisabledProps(sc, true), {});
   access.setYouTubePlaybackDisabled(false);
   assert.equal(notifications, 2);

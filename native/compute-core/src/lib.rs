@@ -1,8 +1,14 @@
 //! Batched song-family matching. No host imports, network, storage or account data.
 //! UTF-16 units intentionally preserve the reference JavaScript typo semantics.
 use std::cell::RefCell;
-const MAX_INPUT: usize = 2 * 1024 * 1024;
-const MAX_CANDIDATES: usize = 1000;
+mod demux;
+mod import_match;
+mod loudness;
+mod ranking;
+mod sequence;
+const MAX_INPUT: usize = 8 * 1024 * 1024;
+const MAX_CANDIDATES: usize = 4096;
+const MAX_SONGS: usize = 8192;
 thread_local! {
     static INPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
@@ -28,9 +34,9 @@ fn contains<T: PartialEq>(values: &[T], value: &T) -> bool {
     values.contains(value)
 }
 fn prepare(song: &mut Song, tokens: &[Token]) -> bool {
-    if song.tokens.len() > 64
-        || song.artists.len() > 32
-        || song.variants.len() > 32
+    if song.tokens.len() > 128
+        || song.artists.len() > 64
+        || song.variants.len() > 64
         || song.tokens.iter().any(|&index| index >= tokens.len())
         || !song.duration.is_finite()
     {
@@ -206,7 +212,7 @@ impl Cursor<'_> {
         let token_count = self.word()? as usize;
         let artist_count = self.word()? as usize;
         let variant_count = self.word()? as usize;
-        if token_count > 64 || artist_count > 32 || variant_count > 32 {
+        if token_count > 128 || artist_count > 64 || variant_count > 64 {
             return None;
         }
         let low = self.word()? as u64;
@@ -238,7 +244,11 @@ fn read_job(bytes: &[u8]) -> Option<Job> {
     let recent_count = cursor.word()? as usize;
     let offered_count = cursor.word()? as usize;
     let token_count = cursor.word()? as usize;
-    if count > MAX_CANDIDATES || recent_count > 300 || offered_count > 80 || token_count > 8192 {
+    if count > MAX_SONGS
+        || recent_count > MAX_CANDIDATES
+        || offered_count > MAX_CANDIDATES
+        || token_count > 65536
+    {
         return None;
     }
     let mut tokens = Vec::with_capacity(token_count);
@@ -247,7 +257,7 @@ fn read_job(bytes: &[u8]) -> Option<Job> {
         let length = cursor.word()? as usize;
         let numeric = cursor.word()?;
         total_units += length;
-        if length > 1024 || total_units > 262144 || numeric > 1 {
+        if length > 1024 || total_units > 1048576 || numeric > 1 {
             return None;
         }
         let units: Option<Vec<u16>> = (0..length)
@@ -275,16 +285,16 @@ fn read_job(bytes: &[u8]) -> Option<Job> {
 fn calculate_job(mut job: Job) -> Option<Vec<u8>> {
     let count = job.candidates.len();
     if count > MAX_CANDIDATES
-        || job.recent.len() > 300
-        || job.offered.len() > 80
-        || job.tokens.len() > 8192
+        || job.recent.len() > MAX_CANDIDATES
+        || job.offered.len() > MAX_CANDIDATES
+        || job.tokens.len() > 65536
         || job.tokens.iter().any(|token| token.units.len() > 1024)
         || job
             .tokens
             .iter()
             .map(|token| token.units.len())
             .sum::<usize>()
-            > 262144
+            > 1048576
     {
         return None;
     }
@@ -320,7 +330,7 @@ fn calculate_job(mut job: Job) -> Option<Vec<u8>> {
 }
 #[no_mangle]
 pub extern "C" fn abi_version() -> u32 {
-    2
+    4
 }
 #[no_mangle]
 pub extern "C" fn reserve(length: usize) -> usize {
@@ -358,4 +368,33 @@ pub extern "C" fn calculate(length: usize) -> i32 {
 #[no_mangle]
 pub extern "C" fn output_ptr() -> usize {
     OUTPUT.with(|output| output.borrow().as_ptr() as usize)
+}
+
+#[no_mangle]
+pub extern "C" fn compare_songs(length: usize) -> i32 {
+    OUTPUT.with(|output| output.borrow_mut().clear());
+    INPUT.with(|input| {
+        let input = input.borrow();
+        let Some(bytes) = input.get(..length).filter(|_| length <= MAX_INPUT) else {
+            return -1;
+        };
+        let Some(mut job) = read_job(bytes) else {
+            return -1;
+        };
+        if job.candidates.len() != 2 || !job.recent.is_empty() || !job.offered.is_empty() {
+            return -1;
+        }
+        for song in &mut job.candidates {
+            if !prepare(song, &job.tokens) {
+                return -1;
+            }
+        }
+        let a = &job.candidates[0];
+        let b = &job.candidates[1];
+        let flags = u8::from(same_song(a, b, &job.tokens))
+            | (u8::from(duplicate_recording(a, b, &job.tokens)) << 1)
+            | (u8::from(a.distinctive) << 2);
+        OUTPUT.with(|output| *output.borrow_mut() = vec![flags]);
+        1
+    })
 }

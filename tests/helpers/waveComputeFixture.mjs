@@ -3,18 +3,27 @@ import fs from 'node:fs';
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../../', import.meta.url));
-// Bundle the entire production graph fresh. Observe real results; matching and queue logic stay unchanged.
+/** Observe the required production Rust call, never substitute another algorithm. */
 export async function waveComputeFixture(mutation = '') {
   if (
-    !['', 'bypass-rust', 'ignore-history', 'ignore-duplicates', 'ignore-offered'].includes(mutation)
+    ![
+      '',
+      'bypass-rust',
+      'ignore-history',
+      'ignore-offered',
+      'ignore-duplicates',
+      'reject-ranking',
+    ].includes(mutation)
   )
-    throw Error('Unknown isolated test mutation: ' + mutation);
-  let mutations = 0;
+    throw Error('Unknown compute mutation');
+  let applied = 0;
   const result = await build({
     stdin: {
       resolveDir: root,
-      contents:
-        "export {sequenceWaveTracks} from './src/shared/utils/waveQueue.ts';export {initializeRustCompute,computeObservations} from './src/shared/compute/waveSongMatrix.ts';",
+      contents: `
+    export {sequenceWaveTracks,resequenceWaveQueue} from './src/shared/utils/waveQueue.ts';
+    export {initializeRustCompute,computeObservations} from './src/shared/compute/rustCore.ts';
+  `,
     },
     bundle: true,
     platform: 'node',
@@ -23,69 +32,64 @@ export async function waveComputeFixture(mutation = '') {
     logLevel: 'silent',
     plugins: [
       {
-        name: 'observe-real-compute',
+        name: 'observe-required-rust',
         setup(builder) {
-          builder.onLoad({ filter: /waveSongMatrix\.ts$/ }, (args) => {
-            let contents = fs.readFileSync(args.path, 'utf8');
-            const declaration = 'export function createWaveSongMatrix(';
-            if (!contents.includes(declaration)) throw Error('Compute observation anchor missing');
-            contents = contents.replace(declaration, 'function observedCreateWaveSongMatrix(');
-            contents += [
-              'export const computeObservations={calls:0,rustBatches:0,heard:0,offered:0,pairs:0};',
-              'export function createWaveSongMatrix(...args:Parameters<typeof observedCreateWaveSongMatrix>){',
-              'computeObservations.calls++;const matrix=observedCreateWaveSongMatrix(...args);if(!matrix)return null;computeObservations.rustBatches++;return {',
-              'wasHeard(index:number){computeObservations.heard++;return ' +
-                (mutation === 'ignore-history' ? 'false' : 'matrix.wasHeard(index)') +
-                ';},',
-              'wasOffered(index:number){computeObservations.offered++;return ' +
-                (mutation === 'ignore-offered' ? 'false' : 'matrix.wasOffered(index)') +
-                ';},',
-              'sameSong(left:number,right:number){computeObservations.pairs++;return ' +
-                (mutation === 'ignore-duplicates' ? 'false' : 'matrix.sameSong(left,right)') +
-                ';}',
-              '};}',
-            ].join('\n');
-            if (mutation && mutation !== 'bypass-rust') mutations++;
+          builder.onLoad({ filter: /rustCore\.ts$/ }, ({ path }) => {
+            let contents = fs.readFileSync(path, 'utf8');
+            const anchor = 'export function runRustCompute(';
+            if (!contents.includes(anchor)) throw Error('Rust observation anchor missing');
+            contents = contents.replace(anchor, 'function observedRunRustCompute(');
+            const altered =
+              mutation === 'bypass-rust'
+                ? 'return new Uint8Array();'
+                : mutation === 'reject-ranking'
+                  ? "throw Error('Forced Rust rejection');"
+                  : '';
+            contents += `
+          export const computeObservations={calls:0,rustBatches:0,matrices:0,comparisons:0};
+          export function runRustCompute(...args:Parameters<typeof observedRunRustCompute>){
+            if(args[0]==='sequence_wave'){computeObservations.calls++;${altered}}
+            const result=observedRunRustCompute(...args);
+            if(args[0]==='sequence_wave')computeObservations.rustBatches++;
+            if(args[0]==='calculate')computeObservations.matrices++;
+            if(args[0]==='compare_songs')computeObservations.comparisons++;
+            return result;
+          }`;
+            if (altered) applied++;
             return { contents, loader: 'ts' };
           });
-          if (mutation === 'bypass-rust')
-            builder.onLoad({ filter: /waveQueue\.ts$/ }, (args) => {
-              const contents = fs.readFileSync(args.path, 'utf8');
-              const file = ts.createSourceFile(args.path, contents, ts.ScriptTarget.Latest, true);
-              let initializer;
-              function visit(node) {
-                if (
-                  ts.isVariableDeclaration(node) &&
-                  node.name.getText(file) === 'matrix' &&
-                  node.initializer &&
-                  ts.isCallExpression(node.initializer) &&
-                  node.initializer.expression.getText(file) === 'createWaveSongMatrix'
-                ) {
-                  if (initializer) throw Error('Ambiguous Rust integration mutation');
-                  initializer = node.initializer;
+          if (['ignore-history', 'ignore-offered', 'ignore-duplicates'].includes(mutation))
+            builder.onLoad({ filter: /waveSequence\.ts$/ }, ({ path }) => {
+              let contents = fs.readFileSync(path, 'utf8');
+              if (mutation === 'ignore-history')
+                contents = contents.replace(/options\.recentTracks\s*\|\|\s*\[\]/, '[]');
+              if (mutation === 'ignore-offered')
+                contents = contents.replace(/options\.offeredTracks\s*\|\|\s*\[\]/, '[]');
+              if (mutation === 'ignore-duplicates') {
+                const file = ts.createSourceFile(path, contents, ts.ScriptTarget.Latest, true);
+                let expression;
+                function visit(node) {
+                  if (ts.isCallExpression(node) && node.expression.getText(file) === 'encodeSongs')
+                    expression = node.arguments[0];
+                  ts.forEachChild(node, visit);
                 }
-                ts.forEachChild(node, visit);
+                visit(file);
+                if (!expression) throw Error('Song packet mutation anchor missing');
+                contents =
+                  contents.slice(0, expression.getStart(file)) +
+                  `all.map((t,i)=>buildWaveSongIdentity({...t,title:'MutantUniqueTitle '+i+' xxxxx'},known))` +
+                  contents.slice(expression.end);
               }
-              visit(file);
-              if (!initializer) throw Error('Rust integration mutation anchor missing');
-              mutations++;
-              return {
-                contents:
-                  contents.slice(0, initializer.getStart(file)) +
-                  'null' +
-                  contents.slice(initializer.end),
-                loader: 'ts',
-              };
+              applied++;
+              return { contents, loader: 'ts' };
             });
         },
       },
     ],
   });
-  if (mutation && mutations !== 1) throw Error('Mutation was not applied exactly once');
+  if (mutation && applied !== 1) throw Error('Compute mutation must apply once');
   return import(
     'data:text/javascript;base64,' +
-      Buffer.from(result.outputFiles[0].text + '\n// isolated ' + crypto.randomUUID()).toString(
-        'base64',
-      )
+      Buffer.from(result.outputFiles[0].text + '\n// ' + crypto.randomUUID()).toString('base64')
   );
 }

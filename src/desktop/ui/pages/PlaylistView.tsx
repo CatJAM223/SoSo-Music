@@ -96,7 +96,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({
     <div className="space-y-8 animate-fade-in">
       {/* Playlist Hero Banner */}
       <div className="relative rounded-2xl overflow-hidden bg-slate-50 dark:bg-zinc-900 p-4 sm:p-6 md:p-8 border border-slate-200 dark:border-zinc-800 flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6">
-        <div className="w-24 h-24 sm:w-40 sm:h-40 md:w-48 md:h-48 rounded-xl bg-slate-200 dark:bg-zinc-800 flex items-center justify-center flex-shrink-0 overflow-hidden">
+        <div className="w-24 h-24 sm:w-40 sm:h-40 md:w-48 md:h-48 rounded-xl bg-slate-200 dark:bg-zinc-800 flex items-center justify-center shrink-0 overflow-hidden">
           {coverUrl ? (
             <img
               src={coverUrl}
@@ -166,7 +166,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({
             <button
               type="button"
               onClick={() => setIsAddTrackModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full bg-slate-200/80 dark:bg-zinc-800 hover:bg-slate-300 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 text-xs font-semibold border border-slate-300 dark:border-zinc-700 transition-all hover:scale-105 active:scale-95 shadow-sm"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full bg-slate-200/80 dark:bg-zinc-800 hover:bg-slate-300 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 text-xs font-semibold border border-slate-300 dark:border-zinc-700 transition-all hover:scale-105 active:scale-95 shadow-xs"
               title={t('Найти и добавить треки в этот плейлист')}
             >
               <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-soso-brand" />
@@ -176,7 +176,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({
             <TasteContextMenu scope="playlist" id={playlist.id} label={playlist.name} />
             <button
               onClick={() => setIsDeleteModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full bg-white dark:bg-zinc-800/80 hover:bg-red-50 dark:hover:bg-red-500/20 text-slate-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 text-xs font-semibold border border-slate-200 dark:border-zinc-700 transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full bg-white dark:bg-zinc-800/80 hover:bg-red-50 dark:hover:bg-red-500/20 text-slate-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 text-xs font-semibold border border-slate-200 dark:border-zinc-700 transition-colors shadow-xs"
             >
               <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span>{t('Удалить плейлист')}</span>

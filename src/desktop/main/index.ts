@@ -1,3 +1,4 @@
+import { isChartRegion } from '../../shared/utils/chartRegions';
 import { isSoundCloudUrl } from '../../shared/utils/soundcloudUrl';
 import { startAppUpdateMonitor } from './services/appUpdateMonitor';
 import { DesktopControls } from './services/desktopControls';
@@ -573,8 +574,9 @@ function registerIpcHandlers() {
 
   // Multi-Source Music API handlers (SoundCloud + YouTube Music / Source-filtered)
   registerSearchHandlers(ipcMain, MusicAggregatorService);
-  ipcMain.handle('music:getCharts', async (_event: any, source?: any) => {
-    return await MusicAggregatorService.getCharts(source);
+  ipcMain.handle('music:getCharts', async (_event, region: unknown = 'GLOBAL') => {
+    if (!isChartRegion(region)) throw new Error('Unknown chart region');
+    return await MusicAggregatorService.getCharts(region);
   });
 
   ipcMain.handle('music:getGenres', async () => {
@@ -930,6 +932,20 @@ let youtubeAccount: YouTubeAccountService | null = null;
 let disposeAccountHandlers: (() => void) | null = null;
 
 app.whenReady().then(async () => {
+  try {
+    const bytes = await fs.promises.readFile(
+      path.join(app.getAppPath(), 'public', 'compute', 'soso-core.wasm'),
+    );
+    if (!(await initializeRustCompute(bytes))) throw Error('Unsupported Rust compute module');
+  } catch (error) {
+    PlaybackLogger.error('[Compute:Rust] Required module failed to initialize', error);
+    dialog.showErrorBox(
+      'SoSo Music',
+      'Не удалось загрузить вычислительный модуль Rust. Переустановите приложение или восстановите его файлы.',
+    );
+    app.quit();
+    return;
+  }
   playerOverlay = createPlayerOverlayWindow(
     path.join(__dirname, 'preload.js'),
     path.join(__dirname, '../dist/index.html'),
@@ -945,10 +961,6 @@ app.whenReady().then(async () => {
   });
   playerOverlay.setEnabled(desktopControls.status().overlayEnabled);
   desktopControls.start();
-  void fs.promises
-    .readFile(path.join(app.getAppPath(), 'public', 'compute', 'soso-core.wasm'))
-    .then((bytes) => initializeRustCompute(bytes))
-    .catch(() => PlaybackLogger.warn('[Compute:Rust] Local asset unavailable; using JavaScript'));
   youtubeAccount = new YouTubeAccountService(
     () => mainWindow,
     (invalidate = false) => {

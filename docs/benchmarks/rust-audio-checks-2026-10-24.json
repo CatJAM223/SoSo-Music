@@ -1,0 +1,477 @@
+{
+  "verifiedAt": "2026-10-24T11:00:15.002064+00:00",
+  "version": "3.3.0",
+  "applicationPackaged": false,
+  "userProfileUsed": false,
+  "fullCheckGroups": 25,
+  "checks": [
+    {
+      "label": "Code style",
+      "entry": "node_modules/prettier/bin/prettier.cjs",
+      "status": 0,
+      "signal": null,
+      "log": "code-style.log"
+    },
+    {
+      "label": "TypeScript",
+      "entry": "node_modules/@typescript/native/bin/tsc",
+      "status": 0,
+      "signal": null,
+      "log": "typescript.log"
+    },
+    {
+      "label": "Architecture",
+      "entry": "scripts/architecture/checkBoundaries.cjs",
+      "status": 0,
+      "signal": null,
+      "log": "architecture.log"
+    },
+    {
+      "label": "Release metadata",
+      "entry": "scripts/release/checkRelease.cjs",
+      "status": 0,
+      "signal": null,
+      "log": "release-metadata.log"
+    },
+    {
+      "label": "Node behavior",
+      "entry": "tests/runAllTests.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "node-behavior.log"
+    },
+    {
+      "label": "Test sensitivity",
+      "entry": "scripts/testing/testTestSensitivity.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "test-sensitivity.log"
+    },
+    {
+      "label": "Playback startup sensitivity",
+      "entry": "scripts/testing/testPlaybackStartupSensitivity.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "playback-startup-sensitivity.log"
+    },
+    {
+      "label": "React player state",
+      "entry": "scripts/testing/testPlayerState.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "react-player-state.log"
+    },
+    {
+      "label": "Production main and preload wiring",
+      "entry": "scripts/testing/testDesktopBootstrap.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "production-main-and-preload-wiring.log"
+    },
+    {
+      "label": "Native crash recovery and local reports",
+      "entry": "scripts/testing/testDesktopBootstrap.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "native-crash-recovery-and-local-reports.log"
+    },
+    {
+      "label": "Selected media file access",
+      "entry": "scripts/testing/testMediaFileAccess.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "selected-media-file-access.log"
+    },
+    {
+      "label": "Desktop UI",
+      "entry": "scripts/testing/testDesktopUi.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "desktop-ui.log"
+    },
+    {
+      "label": "YouTube local login fixture",
+      "entry": "scripts/testing/testYouTubeLogin.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "youtube-local-login-fixture.log"
+    },
+    {
+      "label": "Audio transitions",
+      "entry": "scripts/testing/testAudioTransitions.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "audio-transitions.log"
+    },
+    {
+      "label": "Playback normalization and shared audio graph",
+      "entry": "scripts/testing/testPlaybackQuality.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "playback-normalization-and-shared-audio-graph.log"
+    },
+    {
+      "label": "Startup screen",
+      "entry": "scripts/testing/testStartupScreen.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "startup-screen.log"
+    },
+    {
+      "label": "Equalizer",
+      "entry": "scripts/testing/testEqualizer.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "equalizer.log"
+    },
+    {
+      "label": "UI interactions",
+      "entry": "scripts/testing/testUiInteractions.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "ui-interactions.log"
+    },
+    {
+      "label": "Settings lifecycle",
+      "entry": "scripts/testing/testSettingsLifecycle.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "settings-lifecycle.log"
+    },
+    {
+      "label": "UI rendering bounds",
+      "entry": "scripts/testing/testUiResponsiveness.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "ui-rendering-bounds.log"
+    },
+    {
+      "label": "Background resource lifecycle",
+      "entry": "scripts/testing/testBackgroundMemory.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "background-resource-lifecycle.log"
+    },
+    {
+      "label": "Widget resource isolation",
+      "entry": "scripts/testing/testWidgetResources.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "widget-resource-isolation.log"
+    },
+    {
+      "label": "Compact overlay resources",
+      "entry": "scripts/testing/testOverlayResources.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "compact-overlay-resources.log"
+    },
+    {
+      "label": "Rust in Chromium",
+      "entry": "scripts/testing/testRustComputeBrowser.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "rust-in-chromium.log"
+    },
+    {
+      "label": "Integration test sensitivity",
+      "entry": "scripts/testing/testIntegrationSensitivity.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "integration-test-sensitivity.log"
+    }
+  ],
+  "node": {
+    "tests": "1232",
+    "pass": "1232",
+    "fail": "0",
+    "duration_ms": "19666.8703"
+  },
+  "compute": {
+    "abi": 4,
+    "workletSha256": "17af9399ac0b2ffa2110e078fe1184666464b5f08209617aca73331fd2d521f6",
+    "sourceSha256": "1dd6b0f6d507f330acd96fa5f7e2ad35b4e29dd58527f8138c6cbeeb17ea1dc3",
+    "wasmSha256": "f2d32d143a1070a0dce3318a29ac619a0dc5f62a0c2b59cc383c3ce65096a89d",
+    "wasmBytes": 136788,
+    "workletBytes": 4508
+  },
+  "playbackQuality": {
+    "ok": true,
+    "checks": {
+      "sliderIndependent": true,
+      "equalizerIndependent": true,
+      "amplitudeDifference": true,
+      "analysisSuspendsOnPause": true,
+      "analysisResumes": true,
+      "analysisSurvivesSeek": true,
+      "firstPlayGainFixed": true,
+      "previousAnalysisReleased": true,
+      "highSliderMatched": true,
+      "lowSliderMatched": true,
+      "toggleRestores": true,
+      "bypassPreservesDifference": true,
+      "crossfadeStarted": true,
+      "crossfadePower": true,
+      "bufferingHoldsFade": true,
+      "muteBothTracks": true,
+      "unmuteBothTracks": true,
+      "crossfadeCompletes": true,
+      "peakGuard": true
+    },
+    "profiles": {
+      "base": 12.280715960129292,
+      "low-slider": 12.277148824488652,
+      "equalized": 12.272198107710619,
+      "loud": -5.785207174625183
+    },
+    "crossfadePower": 0.9997479108096363,
+    "limitedPeak": 0.9900763034820557,
+    "highDifferenceDb": 0.004403201147827963,
+    "lowDifferenceDb": 0.011404211693207326,
+    "high": [0.1162067349664914, 0.11614784037114471],
+    "low": [0.004359782657001925, 0.004354062199957468],
+    "restored": [0.004358192006316246, 0.004354830075378317],
+    "expectedQuietGain": 4.111836127324507,
+    "externalRequests": 0,
+    "electron": "45.0.0",
+    "chromium": "156.0.8078.48"
+  },
+  "audioTransitions": {
+    "ok": true,
+    "results": [
+      {
+        "scenario": "normalized-real-audio",
+        "ok": true,
+        "combinedPower": 1
+      },
+      {
+        "scenario": "low-volume-and-buffering",
+        "ok": true,
+        "combinedPower": 0.01426403873215002
+      },
+      {
+        "scenario": "real-capture-and-fixed-replay-gain",
+        "ok": true,
+        "gainDb": 6.7354837667,
+        "profileBytes": 158
+      }
+    ],
+    "externalRequests": 0,
+    "electron": "45.0.0",
+    "chromium": "156.0.8078.48"
+  },
+  "startup": {
+    "ok": true,
+    "externalRequests": 0,
+    "rows": [
+      {
+        "width": 1200,
+        "height": 800,
+        "zoom": 1,
+        "light": false,
+        "reduced": false,
+        "fail": false,
+        "initial": {
+          "w": 1200,
+          "h": 800,
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 800
+          },
+          "logoX": 600,
+          "logoY": 383,
+          "background": "rgb(18, 18, 18)",
+          "animations": 2
+        },
+        "pending": {
+          "same": true,
+          "opacity": "1",
+          "ready": false,
+          "vw": 1200,
+          "vh": 800,
+          "bootHeight": 800,
+          "w": 1200,
+          "h": 800,
+          "x": 0,
+          "y": 0
+        },
+        "fading": {
+          "exists": true,
+          "classes": "is-ready",
+          "visibility": "visible",
+          "opacity": 0.65293,
+          "ready": true
+        },
+        "done": {
+          "loader": false,
+          "ready": true,
+          "error": false
+        }
+      },
+      {
+        "width": 1440,
+        "height": 900,
+        "zoom": 1.25,
+        "light": true,
+        "reduced": false,
+        "fail": false,
+        "initial": {
+          "w": 1152,
+          "h": 720,
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1152,
+            "h": 720
+          },
+          "logoX": 576,
+          "logoY": 343,
+          "background": "rgb(241, 245, 249)",
+          "animations": 2
+        },
+        "pending": {
+          "same": true,
+          "opacity": "1",
+          "ready": false,
+          "vw": 1152,
+          "vh": 720,
+          "bootHeight": 720,
+          "w": 1152,
+          "h": 720,
+          "x": 0,
+          "y": 0
+        },
+        "fading": {
+          "exists": true,
+          "classes": "is-ready",
+          "visibility": "visible",
+          "opacity": 0.652759,
+          "ready": true
+        },
+        "done": {
+          "loader": false,
+          "ready": true,
+          "error": false
+        }
+      },
+      {
+        "width": 650,
+        "height": 900,
+        "zoom": 1,
+        "light": false,
+        "reduced": true,
+        "fail": false,
+        "initial": {
+          "w": 650,
+          "h": 900,
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 650,
+            "h": 900
+          },
+          "logoX": 325,
+          "logoY": 433,
+          "background": "rgb(18, 18, 18)",
+          "animations": 0
+        },
+        "pending": {
+          "same": true,
+          "opacity": "1",
+          "ready": false,
+          "vw": 650,
+          "vh": 900,
+          "bootHeight": 900,
+          "w": 650,
+          "h": 900,
+          "x": 0,
+          "y": 0
+        },
+        "fading": {
+          "exists": false,
+          "visibility": "visible",
+          "opacity": 0,
+          "ready": true
+        },
+        "done": {
+          "loader": false,
+          "ready": true,
+          "error": false
+        }
+      },
+      {
+        "width": 1200,
+        "height": 800,
+        "zoom": 1,
+        "light": false,
+        "reduced": false,
+        "fail": true,
+        "initial": {
+          "w": 1200,
+          "h": 800,
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 800
+          },
+          "logoX": 600,
+          "logoY": 383,
+          "background": "rgb(18, 18, 18)",
+          "animations": 2
+        },
+        "pending": {
+          "same": true,
+          "opacity": "1",
+          "ready": false,
+          "vw": 1200,
+          "vh": 800,
+          "bootHeight": 800,
+          "w": 1200,
+          "h": 800,
+          "x": 0,
+          "y": 0
+        },
+        "fading": {
+          "exists": false,
+          "visibility": "visible",
+          "opacity": 0,
+          "ready": false
+        },
+        "done": {
+          "loader": false,
+          "ready": false,
+          "error": true
+        }
+      }
+    ]
+  },
+  "waveWorker": {
+    "ok": true,
+    "orderedPairs": 14400,
+    "modes": 6,
+    "workerModes": 6,
+    "workerTracks": 1000,
+    "elapsedMs": 135.40000009536743,
+    "ticks": 33,
+    "maxGapMs": 5.5,
+    "dynamicJavaScriptBlocked": true,
+    "externalRequests": 0,
+    "electron": "45.0.0",
+    "chromium": "156.0.8078.48"
+  },
+  "sourceSha256": {
+    "index.html": "b481986f6306c662b37a1bd0a33f8789141ca20d7da67bab26eb22859179fc87",
+    "public/startup.css": "2984011800716f13ef692a42a66e74483264313d58360b13e725a6558a0bd732",
+    "src/renderer/App.tsx": "43cab24660ae3de96b71893b5748654c53c50a5e40212000b0cd52d29df3fbba",
+    "src/renderer/mountPlayer.tsx": "d387c80e6bf2349b75f997af0f52d36e883f7d4ca4d45028b32bfed335a5e643",
+    "src/shared/components/CatLoader.tsx": "5462e3dca97b07cee139c535d60a86446417e4b12d3586c5da774b81958dea24",
+    "src/shared/components/ErrorBoundary.tsx": "6dcc8388b982d6123fdb7375293c037e867fcfec9ad2fd6ff183493ec5c171b8",
+    "src/shared/services/offlineCacheService.ts": "5959f0f994925f406787f0e14f20989ec4f0dfffaaf1f4231b3bfb8ebc5508f0",
+    "src/shared/services/playlistImport.ts": "8e1b57894c8c3efc5554973e880ca3c78afba4a771595ef567e842dde2dd86cf",
+    "src/shared/services/trackVolumeNormalization.ts": "e16a40ca797f250aece5f87a560f40df21bad07f09d207e404461d8bcbd20080",
+    "src/shared/utils/recordingLoudness.ts": "4ec2b5cd22a176de78d8bfa64b81e3e52654dc5ef762957f2c3a23c16ee3e54f"
+  }
+}

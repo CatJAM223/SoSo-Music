@@ -91,9 +91,7 @@ export function SettingsAppearance({
               onClick={() => setThemePreset(theme.id)}
               aria-pressed={themePreset === theme.id}
             >
-              <span
-                className={`settings-theme-swatch bg-gradient-to-br ${theme.previewGradient}`}
-              />
+              <span className={`settings-theme-swatch bg-linear-to-br ${theme.previewGradient}`} />
               <span>{t(theme.name)}</span>
               {themePreset === theme.id && <Check size={18} aria-hidden="true" />}
             </button>

@@ -1,3 +1,4 @@
+import { SettingsEqualizer } from './SettingsEqualizer';
 import { SettingsShortcuts } from './SettingsShortcuts';
 import { useOverlaySettings } from '../../hooks/useOverlaySettings';
 import { useLastFmKeySettings } from '../../hooks/useLastFmKeySettings';
@@ -707,6 +708,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
               </section>
+
+              <SettingsEqualizer />
 
               <section className="settings-detail-section">
                 <h3>{t('Караоке')}</h3>

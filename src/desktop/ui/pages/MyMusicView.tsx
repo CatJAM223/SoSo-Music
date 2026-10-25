@@ -134,7 +134,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       {/* Hero Header */}
       <div className="flex flex-wrap items-center gap-4 sm:gap-6 pb-4 md:pb-6 border-b border-slate-200 dark:border-zinc-800">
         <div className="flex flex-1 basis-96 min-w-0 items-center gap-3.5 sm:gap-6">
-          <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-soso-brand flex-shrink-0">
+          <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-soso-brand shrink-0">
             <Heart className="w-8 h-8 sm:w-12 sm:h-12" />
           </div>
 
@@ -192,7 +192,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
         {/* Tracks Tab */}
         <button
           onClick={() => setActiveTab('tracks')}
-          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all flex-shrink-0 border-b-2 -mb-px ${
+          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all shrink-0 border-b-2 -mb-px ${
             activeTab === 'tracks'
               ? 'border-soso-brand text-soso-brand'
               : 'border-transparent text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-zinc-600'
@@ -204,7 +204,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
         {/* Playlists Tab */}
         <button
           onClick={() => setActiveTab('playlists')}
-          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all flex-shrink-0 border-b-2 -mb-px ${
+          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all shrink-0 border-b-2 -mb-px ${
             activeTab === 'playlists'
               ? 'border-soso-brand text-soso-brand'
               : 'border-transparent text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-zinc-600'
@@ -216,7 +216,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
         {/* Albums Tab */}
         <button
           onClick={() => setActiveTab('albums')}
-          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all flex-shrink-0 border-b-2 -mb-px ${
+          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all shrink-0 border-b-2 -mb-px ${
             activeTab === 'albums'
               ? 'border-soso-brand text-soso-brand'
               : 'border-transparent text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-zinc-600'
@@ -228,7 +228,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
         {/* Artists Tab */}
         <button
           onClick={() => setActiveTab('artists')}
-          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all flex-shrink-0 border-b-2 -mb-px ${
+          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all shrink-0 border-b-2 -mb-px ${
             activeTab === 'artists'
               ? 'border-soso-brand text-soso-brand'
               : 'border-transparent text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-zinc-600'
@@ -240,7 +240,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
         {/* History Tab */}
         <button
           onClick={() => setActiveTab('history')}
-          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all flex-shrink-0 border-b-2 -mb-px ${
+          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all shrink-0 border-b-2 -mb-px ${
             activeTab === 'history'
               ? 'border-soso-brand text-soso-brand'
               : 'border-transparent text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-zinc-600'
@@ -252,7 +252,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
         {/* Offline Tab */}
         <button
           onClick={() => setActiveTab('offline')}
-          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all flex-shrink-0 border-b-2 -mb-px ${
+          className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all shrink-0 border-b-2 -mb-px ${
             activeTab === 'offline'
               ? 'border-soso-brand text-soso-brand'
               : 'border-transparent text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-zinc-600'
@@ -319,7 +319,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                 !searchQuery ? (
                   <div
                     onClick={onOpenCreatePlaylist}
-                    className="group relative p-4 rounded-2xl bg-white/60 dark:bg-zinc-900/40 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border-2 border-dashed border-slate-300 dark:border-zinc-700 hover:border-soso-brand dark:hover:border-soso-brand transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md flex flex-col items-center justify-center text-center min-h-[170px]"
+                    className="group relative p-4 rounded-2xl bg-white/60 dark:bg-zinc-900/40 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border-2 border-dashed border-slate-300 dark:border-zinc-700 hover:border-soso-brand dark:hover:border-soso-brand transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md flex flex-col items-center justify-center text-center min-h-[170px]"
                   >
                     <div className="w-12 h-12 rounded-full bg-soso-brand/15 text-soso-brand flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
                       <Plus className="w-6 h-6" />
@@ -337,7 +337,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                 <div
                   key={pl.id}
                   onClick={() => onNavigate?.(`playlist_${pl.id}`, undefined, undefined, pl)}
-                  className="group relative p-3 rounded-2xl bg-white dark:bg-zinc-900/60 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-800/80 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md flex flex-col"
+                  className="group relative p-3 rounded-2xl bg-white dark:bg-zinc-900/60 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-800/80 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md flex flex-col"
                 >
                   <div className="relative aspect-square w-full rounded-xl overflow-hidden mb-3">
                     {pl.cover_url ? (
@@ -486,7 +486,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                       source: detectTrackSource(album),
                     })
                   }
-                  className="group relative p-3 rounded-2xl bg-white dark:bg-zinc-900/60 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-800/80 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md flex flex-col"
+                  className="group relative p-3 rounded-2xl bg-white dark:bg-zinc-900/60 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-800/80 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md flex flex-col"
                 >
                   <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-slate-200 dark:bg-zinc-800 mb-3 flex items-center justify-center">
                     {album.cover_url && !album.cover_url.includes('unsplash.com') ? (
@@ -594,7 +594,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                       name: artist.name,
                     })
                   }
-                  className="group relative p-4 rounded-2xl bg-white dark:bg-zinc-900/60 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-800/80 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md flex flex-col items-center text-center"
+                  className="group relative p-4 rounded-2xl bg-white dark:bg-zinc-900/60 hover:bg-slate-100 dark:hover:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-800/80 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md flex flex-col items-center text-center"
                 >
                   {/* Unfollow button on top-right of card */}
                   <button
@@ -651,7 +651,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             {historyItems.length > 0 && (
               <button
                 onClick={handleClearHistory}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200/80 dark:bg-zinc-800/80 text-rose-500 hover:bg-rose-500 hover:text-white text-xs font-bold transition-all shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200/80 dark:bg-zinc-800/80 text-rose-500 hover:bg-rose-500 hover:text-white text-xs font-bold transition-all shadow-xs"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{t('Очистить историю')}</span>

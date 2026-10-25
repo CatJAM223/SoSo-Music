@@ -28,6 +28,7 @@ function fixture(
     toasts = [],
     events = [],
     cache = new Map();
+  const equalizer = { attached: [], released: [] };
   class AudioFixture extends EventTarget {
     src = '';
     currentTime = 0;
@@ -53,9 +54,15 @@ function fixture(
   const audio = new AudioFixture(),
     requestRef = { current: 0 };
   const bindings = {
+    '../services/audioEqualizer': {
+      audioEqualizer: () => ({
+        attach: (audio) => equalizer.attached.push(audio),
+        release: (audio) => equalizer.released.push(audio),
+      }),
+    },
     './useYouTubeAvailability': { useYouTubeAvailability: () => false },
     '../services/youtubeAvailability.ts': { isYouTubeItemDisabled: () => false },
-    'hls.js': { default: class {} },
+    'hls.js': { __esModule: true, default: class {} },
     '../utils/formatters': { detectTrackSource: (t) => t.source },
     '../bridge/platformBridge': {
       platformBridge: {
@@ -113,7 +120,7 @@ function fixture(
     },
   );
   h.render(props);
-  return { h, props, audio, requests, loads, toasts, events, cache, requestRef };
+  return { h, props, audio, requests, loads, toasts, events, cache, requestRef, equalizer };
 }
 test('SoundCloud snippets resolve a fresh URL even while the generic cache still considers the rejected link valid', async () => {
   const f = fixture(),
@@ -311,4 +318,19 @@ test('A delayed manual play promise cannot change snippet state after close or t
   pending.resolve();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(f.h.lateUpdates(), 0);
+});
+
+test('Snippet equalizer remains attached across preview stops and releases on teardown', async () => {
+  const f = fixture();
+  assert.deepEqual(f.equalizer.attached, [f.audio]);
+  f.h.api().previewSnippet(song());
+  await f.h.flush();
+  f.h.api().stopSnippet();
+  f.h.render(f.props);
+  f.h.api().previewSnippet(song('another'));
+  await f.h.flush();
+  assert.equal(f.equalizer.attached.length, 1);
+  assert.equal(f.equalizer.released.length, 0);
+  f.h.unmount();
+  assert.deepEqual(f.equalizer.released, [f.audio]);
 });

@@ -1,6 +1,17 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss' source(none);
+@config "../../tailwind.config.js";
+@source "..";
+
+/* Preserve the previous default border color when no color utility is set. */
+@layer base {
+  *,
+  ::before,
+  ::after,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
 
 @layer base {
   :root {
@@ -283,7 +294,7 @@ html:not(.dark) ::-webkit-scrollbar-thumb:hover {
 
 /* Custom slider input (Seekbar & Volume) */
 input[type='range'] {
-  @apply appearance-none bg-transparent cursor-pointer outline-none;
+  @apply appearance-none bg-transparent cursor-pointer outline-hidden;
 }
 
 input[type='range']::-webkit-slider-runnable-track {

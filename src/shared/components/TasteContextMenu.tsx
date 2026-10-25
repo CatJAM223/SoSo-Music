@@ -73,7 +73,7 @@ export function TasteContextMenu({
   }, [open]);
   const action = excluded ? t('Снова учитывать во вкусе') : t('Не учитывать во вкусе');
   return (
-    <div className="flex-shrink-0" onClick={(event) => event.stopPropagation()}>
+    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
       <button
         ref={button}
         type="button"

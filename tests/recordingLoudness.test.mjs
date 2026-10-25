@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  RecordingLoudness,
   LoudnessProfiles,
   normalizationGain,
   recordingKey,
 } from '../src/shared/utils/recordingLoudness.ts';
+import { setAudioFadeVolume } from '../src/shared/utils/audioVolume.ts';
 import { TrackVolumeNormalization } from '../src/shared/services/trackVolumeNormalization.ts';
 
 import { YouTubeMusicService } from '../src/desktop/main/services/youtubeMusic.ts';
@@ -37,41 +37,6 @@ class FakeAudio extends EventTarget {
 }
 const near = (a, b, margin = 1e-8) => assert.ok(Math.abs(a - b) < margin, a + ' ~= ' + b);
 
-test('recording loudness: a 20 dB recording difference is cancelled by fixed gains', () => {
-  const loud = new RecordingLoudness(),
-    quiet = new RecordingLoudness();
-  for (let i = 0; i < 80; i++) {
-    loud.addPower(0.1);
-    quiet.addPower(0.001);
-  }
-  near(quiet.gainDb() - loud.gainDb(), 20);
-  near(
-    Math.sqrt(0.001) * normalizationGain(quiet.gainDb()),
-    Math.sqrt(0.1) * normalizationGain(loud.gainDb()),
-  );
-});
-test('recording loudness: silence, corrupted samples and short fragments cannot produce a gain', () => {
-  const m = new RecordingLoudness();
-  for (let i = 0; i < 200; i++) for (const v of [0, -1, 1e-9, NaN, Infinity]) m.addPower(v);
-  assert.equal(m.frames, 0);
-  assert.equal(m.gainDb(), null);
-  for (let i = 0; i < 15; i++) m.addPower(0.01);
-  assert.equal(m.gainDb(), null);
-  assert.equal(normalizationGain(NaN), 1);
-  assert.ok(normalizationGain(100) <= normalizationGain(18));
-});
-test('recording loudness: quiet intros do not pull the average down when gated', () => {
-  const gated = new RecordingLoudness(),
-    body = new RecordingLoudness();
-  for (let i = 0; i < 100; i++) {
-    gated.addPower(0.00001);
-    gated.addPower(0.01);
-    body.addPower(0.01);
-  }
-  near(gated.gainDb(), body.gainDb());
-  assert.equal(gated.counts.length, 96);
-  assert.equal(gated.powers.length, 96);
-});
 test('recording profiles: metadata only, bounded to 128 and expired after 30 days', () => {
   const st = storage();
   let now = 1000000;
@@ -266,4 +231,143 @@ test('YouTube recording loudness: optional numeric metadata accompanies the exis
     assert.ok(result.includes(id));
     assert.equal(YouTubeMusicService.getRecordingGain('yt_' + id), expected);
   }
+});
+
+test('normalization: graph gain preserves high slider and equal-power envelopes without saturation', () => {
+  const gains = new Map();
+  const service = new TrackVolumeNormalization(storage(true), (audio, gain) => {
+    gains.set(audio, gain);
+    return true;
+  });
+  const a = new FakeAudio();
+  service.remember({ id: 'quiet-graph' }, 18);
+  service.prepare(a, { id: 'quiet-graph' });
+  a.volume = 0.8;
+  near(a.rawVolume, 0.8);
+  near(gains.get(a), normalizationGain(18));
+  setAudioFadeVolume(a, 0.8, Math.SQRT1_2);
+  near(a.rawVolume, 0.8 * Math.SQRT1_2);
+  service.setEnabled(false);
+  near(gains.get(a), 1);
+  near(a.rawVolume, 0.8 * Math.SQRT1_2);
+  service.setEnabled(true);
+  near(gains.get(a), normalizationGain(18));
+  near(a.rawVolume, 0.8 * Math.SQRT1_2);
+  setAudioFadeVolume(a, 0, 0.5);
+  near(a.rawVolume, 0);
+  service.release(a);
+  near(gains.get(a), 1);
+  assert.equal(Object.hasOwn(a, 'volume'), false);
+});
+
+test('normalization: an unavailable output graph keeps the bounded native fallback audible', () => {
+  const service = new TrackVolumeNormalization(storage(true), () => false);
+  const a = new FakeAudio();
+  service.remember({ id: 'fallback' }, 18);
+  service.prepare(a, { id: 'fallback' });
+  setAudioFadeVolume(a, 0.8, 0.5);
+  near(a.rawVolume, 0.5);
+  near(a.volume, 0.4);
+  service.setEnabled(false);
+  near(a.rawVolume, 0.4);
+  service.release(a);
+});
+
+async function workletHarness(t) {
+  const previous = {
+    AudioContext: globalThis.AudioContext,
+    AudioWorkletNode: globalThis.AudioWorkletNode,
+    document: globalThis.document,
+  };
+  t.after(() => Object.assign(globalThis, previous));
+  const nodes = [],
+    contexts = [];
+  let stopped = 0;
+  globalThis.document = { baseURI: 'file:///fixture/index.html' };
+  globalThis.AudioContext = class {
+    state = 'running';
+    destination = {};
+    audioWorklet = {
+      addModule: async (url) => assert.ok(url.endsWith('/compute/soso-normalization.js')),
+    };
+    constructor() {
+      contexts.push(this);
+    }
+    async resume() {
+      this.state = 'running';
+    }
+    async suspend() {
+      this.state = 'suspended';
+    }
+    async close() {
+      this.state = 'closed';
+    }
+    createMediaStreamSource() {
+      return { connect() {}, disconnect() {} };
+    }
+  };
+  globalThis.AudioWorkletNode = class {
+    port = { onmessage: null, postMessage() {}, close() {} };
+    constructor() {
+      nodes.push(this);
+    }
+    connect() {}
+    disconnect() {}
+  };
+  const st = storage(true),
+    service = new TrackVolumeNormalization(st),
+    audio = new FakeAudio();
+  audio.captureStream = () => ({ getTracks: () => [{ stop: () => stopped++ }] });
+  service.prepare(audio, { id: 'capture' });
+  audio.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(nodes.length, 1);
+  t.after(() => service.release(audio));
+  return { service, audio, st, node: nodes[0], contexts, nodes, stopped: () => stopped };
+}
+test('normalization worklet: processor failure releases analysis and preserves the current playback volume', async (t) => {
+  const h = await workletHarness(t),
+    volume = h.audio.rawVolume;
+  h.node.onprocessorerror();
+  assert.equal(h.contexts[0].state, 'closed');
+  assert.equal(h.stopped(), 1);
+  near(h.audio.rawVolume, volume);
+});
+test('normalization worklet: stale results cannot write a profile for a new recording', async (t) => {
+  const h = await workletHarness(t),
+    late = h.node.port.onmessage;
+  h.audio.pause();
+  h.service.prepare(h.audio, { id: 'new-recording' });
+  late({ data: { type: 'stats', stats: { gainDb: -15, blocks: 40, samples: 200000 } } });
+  const saved = JSON.parse(h.st.values.get(LoudnessProfiles.STORAGE_KEY) || '[]');
+  assert.equal(saved.length, 0);
+  assert.equal(h.service.getGain(h.audio), 1);
+  assert.equal(h.stopped(), 1);
+});
+test('normalization worklet: provider metadata supersedes sampled profiles without mid-song gain changes', async (t) => {
+  const h = await workletHarness(t),
+    late = h.node.port.onmessage;
+  late({ data: { type: 'stats', stats: { gainDb: 5, blocks: 40, samples: 200000 } } });
+  h.service.remember({ id: 'capture' }, -4);
+  late({ data: { type: 'stats', stats: { gainDb: 12, blocks: 45, samples: 240000 } } });
+  assert.equal(new LoudnessProfiles(h.st).get('soundcloud:capture'), -4);
+  assert.equal(h.service.getGain(h.audio), 1);
+  assert.equal(h.stopped(), 1);
+});
+test('normalization worklet: a ready processor that stops reporting is bounded by the watchdog', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = await workletHarness(t);
+  h.node.port.onmessage({ data: { type: 'ready' } });
+  t.mock.timers.tick(15001);
+  assert.equal(h.stopped(), 1);
+  assert.equal(h.contexts[0].state, 'closed');
+  near(h.audio.rawVolume, 0.03);
+});
+test('recording profiles: legacy approximate loudness profiles are not reused by the new meter', () => {
+  const st = storage();
+  st.values.set(
+    'soso_recording_loudness_v1',
+    JSON.stringify([['youtube:old', { db: 18, at: Date.now() }]]),
+  );
+  assert.equal(new LoudnessProfiles(st).get('youtube:old'), null);
 });

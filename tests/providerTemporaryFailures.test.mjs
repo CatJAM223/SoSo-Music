@@ -171,6 +171,8 @@ for (const mobile of [false])
       };
       {
         t.mock.method(YouTubeMusicService, 'getVisitorData', async () => '');
+        t.mock.method(YouTubeMusicService, 'search', async () => ({ data: [] }));
+        t.mock.method(YouTubeMusicService, 'postInnertube', async () => ({ contents: {} }));
         t.mock.method(YouTubeMusicTransport, 'postPlayer', respond);
       }
       const resolve = () => MusicAggregatorService.getFullStreamUrl(ytTrack(id));

@@ -151,7 +151,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
       {/* Mobile Backdrop Overlay */}
       <div
         onClick={onClose}
-        className="md:hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-40 animate-fade-in"
+        className="md:hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-40 animate-fade-in"
       />
 
       <div
@@ -202,12 +202,12 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
               {t('Сейчас играет')}
             </h3>
             {currentTrack ? (
-              <div className="flex items-center gap-3 p-2.5 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700/40 shadow-sm">
+              <div className="flex items-center gap-3 p-2.5 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700/40 shadow-xs">
                 <img
                   src={resolveTrackCover(currentTrack)}
                   alt={currentTrack.title}
                   onError={(event) => advanceTrackArtwork(event.currentTarget, currentTrack)}
-                  className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+                  className="w-12 h-12 rounded-lg object-cover shrink-0"
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-soso-brand truncate">
@@ -217,7 +217,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                     {extractAllArtists(currentTrack.artist, currentTrack.title).join(', ')}
                   </p>
                 </div>
-                <Disc className="w-5 h-5 text-soso-brand animate-spin-slow flex-shrink-0" />
+                <Disc className="w-5 h-5 text-soso-brand animate-spin-slow shrink-0" />
               </div>
             ) : (
               <p className="text-xs text-slate-400 dark:text-zinc-500 italic">
@@ -316,7 +316,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                       {/* Visual Drop Indicator Line */}
                       {isOver && draggedIndex !== null && draggedIndex !== actualIndex && (
                         <div
-                          className={`absolute left-2 right-2 h-0.5 bg-soso-brand rounded-full shadow-sm shadow-soso-brand ${
+                          className={`absolute left-2 right-2 h-0.5 bg-soso-brand rounded-full shadow-xs shadow-soso-brand ${
                             draggedIndex > actualIndex ? '-top-1' : '-bottom-1'
                           }`}
                         />
@@ -324,7 +324,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
 
                       {/* Drag Grip Handle */}
                       <div
-                        className="queue-grip text-slate-300 dark:text-zinc-600 pr-1 flex-shrink-0"
+                        className="queue-grip text-slate-300 dark:text-zinc-600 pr-1 shrink-0"
                         draggable
                         title={t('Перетащить трек')}
                       >
@@ -354,7 +354,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                           }
                         }}
                       >
-                        <div className="relative flex-shrink-0">
+                        <div className="relative shrink-0">
                           <img
                             src={resolveTrackCover(track)}
                             alt={track.title}

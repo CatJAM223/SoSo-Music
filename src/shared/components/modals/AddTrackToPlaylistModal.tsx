@@ -223,7 +223,7 @@ export const AddTrackToPlaylistModal: React.FC<AddTrackToPlaylistModalProps> = (
                 setQuery('');
                 setResults([]);
               }}
-              className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${mode === value ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'}`}
+              className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${mode === value ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'}`}
             >
               {label}
             </button>
@@ -244,7 +244,7 @@ export const AddTrackToPlaylistModal: React.FC<AddTrackToPlaylistModalProps> = (
                 : t('Название трека или исполнителя...')
             }
             aria-label={mode === 'library' ? t('Найти в Моей музыке') : t('Найти трек')}
-            className="w-full pl-10 pr-10 py-2.5 bg-slate-100 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-700/60 rounded-2xl text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-soso-brand/50 transition-all"
+            className="w-full pl-10 pr-10 py-2.5 bg-slate-100 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-700/60 rounded-2xl text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 focus:ring-soso-brand/50 transition-all"
           />
           {query && (
             <button
@@ -296,7 +296,7 @@ export const AddTrackToPlaylistModal: React.FC<AddTrackToPlaylistModalProps> = (
                   className="flex items-center justify-between p-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-zinc-800/60 transition-colors gap-3"
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-200 dark:bg-zinc-800 flex-shrink-0 relative">
+                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-200 dark:bg-zinc-800 shrink-0 relative">
                       {cover ? (
                         <img
                           src={cover}
@@ -323,7 +323,7 @@ export const AddTrackToPlaylistModal: React.FC<AddTrackToPlaylistModalProps> = (
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
                     <span className="text-[11px] font-mono text-slate-400 dark:text-zinc-500">
                       {formatTime(track.duration || 180)}
                     </span>

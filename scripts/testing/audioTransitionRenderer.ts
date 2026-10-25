@@ -33,7 +33,7 @@ function sineWave(): string {
     view.setInt16(44 + i * 2, Math.round(Math.sin((i / rate) * Math.PI * 880) * 0.1 * 32767), true);
   return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
 }
-(globalThis as any).audioTransitionsResult = (async () => {
+export async function runAudioTransitions() {
   const results: Record<string, unknown>[] = [],
     url = sineWave();
   const values = new Map<string, string>([['soso_volume_normalization', 'true']]);
@@ -135,4 +135,4 @@ function sineWave(): string {
     }
     URL.revokeObjectURL(url);
   }
-})();
+}

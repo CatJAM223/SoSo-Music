@@ -154,7 +154,7 @@ const PlayerProgressBar: React.FC<{ fallbackDuration?: number; isActive: boolean
             formatTime(currentDisplayTime),
             formatTime(effectiveDuration),
           )}
-          className={`relative flex-1 group flex items-center h-5 touch-none select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soso-brand rounded-full ${isActive ? 'cursor-pointer' : 'cursor-default opacity-60'}`}
+          className={`relative flex-1 group flex items-center h-5 touch-none select-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-soso-brand rounded-full ${isActive ? 'cursor-pointer' : 'cursor-default opacity-60'}`}
         >
           <div className="relative w-full h-1.5 bg-slate-200 dark:bg-zinc-700/80 rounded-full overflow-hidden group-hover:h-2 transition-all shadow-inner pointer-events-none">
             {bufferedPercentRanges(isActive ? bufferedRanges : [], effectiveDuration).map(
@@ -169,7 +169,7 @@ const PlayerProgressBar: React.FC<{ fallbackDuration?: number; isActive: boolean
               ),
             )}
             <div
-              className="relative z-[1] h-full bg-soso-brand rounded-full shadow-sm"
+              className="relative z-[1] h-full bg-soso-brand rounded-full shadow-xs"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -331,7 +331,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         >
           {activeTrack ? (
             <>
-              <div className="relative w-14 h-14 rounded-md overflow-hidden flex-shrink-0 bg-gradient-to-br from-zinc-700 to-zinc-900 shadow-md flex items-center justify-center">
+              <div className="relative w-14 h-14 rounded-md overflow-hidden shrink-0 bg-linear-to-br from-zinc-700 to-zinc-900 shadow-md flex items-center justify-center">
                 {coverUrl ? (
                   <img
                     key={String(activeTrack.id) + ':' + coverUrl}
@@ -358,7 +358,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                     {activeTrack.title}
                   </p>
                   {isSnippetPlaying && (
-                    <span className="bg-purple-600/90 text-[10px] text-white font-bold px-2 py-0.5 rounded-full tracking-wider flex-shrink-0 shadow-sm">
+                    <span className="bg-purple-600/90 text-[10px] text-white font-bold px-2 py-0.5 rounded-full tracking-wider shrink-0 shadow-xs">
                       {t('СНИППЕТ')}
                     </span>
                   )}
@@ -455,7 +455,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               </div>
 
               {/* Action Buttons: Like & Dislike */}
-              <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">
+              <div className="flex items-center gap-0.5 shrink-0 ml-1">
                 {/* Heart Like Button */}
                 <AnimatedLikeButton
                   isLiked={isLiked}
@@ -479,7 +479,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                       ? t('Убрать отметку «Не нравится»')
                       : t('Не нравится (Пропустить и не рекомендовать)')
                   }
-                  className={`p-2 rounded-xl transition-all duration-150 active:scale-95 flex-shrink-0 ${
+                  className={`p-2 rounded-xl transition-all duration-150 active:scale-95 shrink-0 ${
                     isDisliked
                       ? 'text-amber-500 hover:text-amber-400'
                       : 'text-slate-400/70 dark:text-zinc-500 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-slate-100 dark:hover:bg-zinc-800/60'
@@ -493,7 +493,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                     onClick={() => activeTrack && onOpenAddToPlaylist(activeTrack)}
                     aria-label={t('Добавить в плейлист')}
                     title={t('Добавить в плейлист')}
-                    className="p-2 rounded-xl transition-all duration-150 active:scale-95 flex-shrink-0 text-slate-400 dark:text-zinc-400 hover:text-soso-brand hover:bg-slate-100 dark:hover:bg-zinc-800/60"
+                    className="p-2 rounded-xl transition-all duration-150 active:scale-95 shrink-0 text-slate-400 dark:text-zinc-400 hover:text-soso-brand hover:bg-slate-100 dark:hover:bg-zinc-800/60"
                   >
                     <Plus className="w-5 h-5" />
                   </button>
@@ -502,7 +502,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
             </>
           ) : (
             <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-zinc-500">
-              <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 dark:bg-zinc-800/40 flex items-center justify-center flex-shrink-0 border border-slate-200/50 dark:border-zinc-800/50">
+              <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 dark:bg-zinc-800/40 flex items-center justify-center shrink-0 border border-slate-200/50 dark:border-zinc-800/50">
                 <img
                   src={appLogo}
                   alt="SoSo Music"
@@ -612,6 +612,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
             {onToggleLyrics && (
               <button
                 data-tour="lyrics-guitar"
+                aria-pressed={Boolean(isLyricsOpen)}
                 onClick={onToggleLyrics}
                 aria-label={hasChords && !hasLyrics ? t('Аккорды') : t('Текст песни (Караоке)')}
                 title={
@@ -628,14 +629,14 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                 className={`p-2 rounded-xl transition-all duration-200 ${
                   isLyricsOpen
                     ? hasChords && !hasLyrics
-                      ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/40 shadow-sm'
+                      ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/40 shadow-xs'
                       : hasLyrics
-                        ? 'bg-soso-brand/20 text-soso-brand ring-1 ring-soso-brand/40 shadow-sm drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                        ? 'bg-soso-brand/20 text-soso-brand ring-1 ring-soso-brand/40 shadow-xs drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]'
                         : 'bg-slate-200/80 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
                     : hasLyrics || hasChords
                       ? hasChords && !hasLyrics
-                        ? 'text-amber-400 hover:bg-amber-500/15 drop-shadow-[0_0_6px_rgba(245,158,11,0.35)]'
-                        : 'text-soso-brand hover:text-soso-brand-light hover:bg-soso-brand/15 drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                        ? 'text-amber-400 hover:bg-slate-100 dark:hover:bg-zinc-800 drop-shadow-[0_0_6px_rgba(245,158,11,0.35)]'
+                        : 'text-soso-brand hover:text-soso-brand-light hover:bg-slate-100 dark:hover:bg-zinc-800 drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]'
                       : 'text-slate-400/40 dark:text-zinc-600 hover:text-slate-600 dark:hover:text-zinc-400 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40'
                 }`}
               >
@@ -721,7 +722,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               )}
               <div className="relative w-full h-1.5 bg-slate-200 dark:bg-zinc-700 rounded-full overflow-hidden group-hover/vol:h-2 transition-all shadow-inner pointer-events-none">
                 <div
-                  className="h-full bg-soso-brand rounded-full shadow-sm"
+                  className="h-full bg-soso-brand rounded-full shadow-xs"
                   style={{ width: `${volumePercent}%` }}
                 />
               </div>
@@ -753,7 +754,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
           {/* Left: Artwork + Track Details */}
           <div className="flex items-center gap-3 min-w-0 flex-1 pr-2 pt-0.5">
-            <div className="relative w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br from-zinc-700 to-zinc-900 shadow ring-1 ring-black/5 dark:ring-white/10 flex items-center justify-center">
+            <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 bg-linear-to-br from-zinc-700 to-zinc-900 shadow ring-1 ring-black/5 dark:ring-white/10 flex items-center justify-center">
               {coverUrl ? (
                 <img
                   key={String(activeTrack.id) + ':' + coverUrl}
@@ -777,7 +778,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                   {activeTrack.title}
                 </p>
                 {isSnippetPlaying && (
-                  <span className="bg-purple-600/90 text-[9px] text-white font-bold px-1.5 py-0.5 rounded-full tracking-wide flex-shrink-0">
+                  <span className="bg-purple-600/90 text-[9px] text-white font-bold px-1.5 py-0.5 rounded-full tracking-wide shrink-0">
                     {t('СНИППЕТ')}
                   </span>
                 )}
@@ -790,7 +791,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
           </div>
 
           {/* Right: Like + Play/Pause Controls */}
-          <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
+          <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
             {/* Heart Like Button */}
             <div onClick={(e) => e.stopPropagation()}>
               <AnimatedLikeButton

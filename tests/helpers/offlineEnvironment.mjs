@@ -1,3 +1,12 @@
+import fs from 'node:fs';
+import { initializeRustCompute } from '../../src/shared/compute/rustCore.ts';
+assert.equal(
+  await initializeRustCompute(
+    fs.readFileSync(new URL('../../public/compute/soso-core.wasm', import.meta.url)),
+  ),
+  true,
+  'Required test Rust module',
+);
 import { after } from 'node:test';
 import assert from 'node:assert/strict';
 

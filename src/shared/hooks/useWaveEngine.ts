@@ -18,7 +18,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MusicSource, Track, WaveMood } from '../types/index.ts';
 import { platformBridge } from '../bridge/platformBridge.ts';
 import { emitToast } from '../context/ToastContext.tsx';
-import { matchesDislikedWaveTrack, resequenceWaveQueue } from '../utils/waveQueue.ts';
+import { matchesDislikedWaveTrack } from '../utils/waveQueue.ts';
+import { resequenceWaveQueueInWorker, disposeWaveWorker } from '../compute/waveWorkerClient.ts';
 import {
   areSameWaveSong,
   buildWaveSongIdentity,
@@ -123,6 +124,60 @@ export function useWaveEngine({
     return !getWaveArtistKeys(track).some((artist) => familiar.has(artist));
   }, []);
 
+  const reorderVersionRef = useRef(0);
+  useEffect(
+    () => () => {
+      reorderVersionRef.current++;
+      disposeWaveWorker();
+    },
+    [],
+  );
+  const reorderPending = useCallback(
+    async (preserveNext: boolean): Promise<Track[] | null> => {
+      const version = ++reorderVersionRef.current;
+      const request = waveRequestIdRef.current;
+      const mood = waveMoodRef.current;
+      // Navigation can change the preserved prefix during computation. Rebase on the latest queue.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const original = queueRef.current,
+          index = queueIndexRef.current;
+        const next = await resequenceWaveQueueInWorker(
+          original,
+          preserveNext ? Math.min(index + 1, original.length - 1) : index,
+          mood,
+          [
+            ...familiarArtistsRef.current,
+            ...waveSession().positiveTracks.flatMap(getWaveArtistNames),
+          ],
+          waveSession().artistFeedback,
+          recentPlayedTracksRef.current,
+          [],
+          musicOptions(),
+        );
+        if (
+          version !== reorderVersionRef.current ||
+          request !== waveRequestIdRef.current ||
+          mood !== waveMoodRef.current ||
+          !isWaveActiveRef.current ||
+          isWaveStartingRef.current
+        )
+          return null;
+        if (queueRef.current !== original || queueIndexRef.current !== index) continue;
+        queueRef.current = next;
+        setQueue(next);
+        return next;
+      }
+      return null;
+    },
+    [queueRef, queueIndexRef, setQueue, waveSession, musicOptions],
+  );
+  const logReorderError = useCallback((error: unknown) => {
+    if (!(error instanceof DOMException && error.name === 'AbortError'))
+      PlaybackLogger.warn(
+        '[Wave:Compute] ' + (error instanceof Error ? error.message : String(error)),
+      );
+  }, []);
+
   const observeWavePlayback = useCallback(
     (track: Track, playedSeconds: number) => {
       if (!isWaveActiveRef.current || isWaveStartingRef.current) return;
@@ -201,53 +256,70 @@ export function useWaveEngine({
               batchKind = 'refresh';
               continue;
             }
-            const prev = queueRef.current;
-            const existingIds = new Set(prev.map((track) => String(track.id)));
-            const knownArtists = [
-              ...familiarArtistsRef.current,
-              ...prev.flatMap(getWaveArtistNames),
-              ...(more || []).flatMap(getWaveArtistNames),
-            ];
-            const queueSongs = prev.map((track) => buildWaveSongIdentity(track, knownArtists));
-            const capacity =
-              batchKind === 'refresh'
-                ? Math.max(
-                    0,
-                    WAVE_REFRESH_PENDING_LIMIT - (prev.length - queueIndexRef.current - 1),
+            let filtered: Track[] = [];
+            let acceptedCount = 0;
+            // Reuse the fetched batch when feedback or navigation changes during worker calculation.
+            for (let rebase = 0; rebase < 4; rebase++) {
+              const prev = queueRef.current;
+              const existingIds = new Set(prev.map((track) => String(track.id)));
+              const knownArtists = [
+                ...familiarArtistsRef.current,
+                ...prev.flatMap(getWaveArtistNames),
+                ...(more || []).flatMap(getWaveArtistNames),
+              ];
+              const queueSongs = prev.map((track) => buildWaveSongIdentity(track, knownArtists));
+              const capacity =
+                batchKind === 'refresh'
+                  ? Math.max(
+                      0,
+                      WAVE_REFRESH_PENDING_LIMIT - (prev.length - queueIndexRef.current - 1),
+                    )
+                  : Infinity;
+              filtered = (more || [])
+                .filter((track) => {
+                  if (
+                    !matchesWaveSource(track, source) ||
+                    isYouTubeItemDisabled(track) ||
+                    existingIds.has(String(track.id))
                   )
-                : Infinity;
-            const filtered = (more || [])
-              .filter((track) => {
+                    return false;
+                  const song = buildWaveSongIdentity(track, knownArtists);
+                  if (queueSongs.some((previous) => areSameWaveSong(previous, song))) return false;
+                  existingIds.add(String(track.id));
+                  return true;
+                })
+                .slice(0, capacity);
+              if (filtered.length) {
+                const rankIndex = queueIndexRef.current;
+                const rankVersion = reorderVersionRef.current;
+                // Preserve the live current/announced prefix, including navigation during the request.
+                const combined = await resequenceWaveQueueInWorker(
+                  [...prev, ...filtered],
+                  Math.min(queueIndexRef.current + 1, prev.length - 1),
+                  mood,
+                  [
+                    ...familiarArtistsRef.current,
+                    ...waveSession(mood).positiveTracks.flatMap(getWaveArtistNames),
+                  ],
+                  waveSession(mood).artistFeedback,
+                  recentPlayedTracksRef.current,
+                  [],
+                  musicOptions(),
+                );
+                if (!isCurrent() || controller.signal.aborted) return;
                 if (
-                  !matchesWaveSource(track, source) ||
-                  isYouTubeItemDisabled(track) ||
-                  existingIds.has(String(track.id))
-                )
-                  return false;
-                const song = buildWaveSongIdentity(track, knownArtists);
-                if (queueSongs.some((previous) => areSameWaveSong(previous, song))) return false;
-                existingIds.add(String(track.id));
-                return true;
-              })
-              .slice(0, capacity);
-            if (filtered.length) {
-              waveMemory.recordOffered(filtered);
-              // Preserve the live current/announced prefix, including navigation during the request.
-              const combined = resequenceWaveQueue(
-                [...prev, ...filtered],
-                Math.min(queueIndexRef.current + 1, prev.length - 1),
-                mood,
-                [
-                  ...familiarArtistsRef.current,
-                  ...waveSession(mood).positiveTracks.flatMap(getWaveArtistNames),
-                ],
-                waveSession(mood).artistFeedback,
-                recentPlayedTracksRef.current,
-                [],
-                musicOptions(),
-              );
-              queueRef.current = combined;
-              setQueue(combined);
+                  queueRef.current !== prev ||
+                  queueIndexRef.current !== rankIndex ||
+                  rankVersion !== reorderVersionRef.current
+                ) {
+                  continue;
+                }
+                waveMemory.recordOffered(filtered);
+                queueRef.current = combined;
+                setQueue(combined);
+                acceptedCount = filtered.length;
+              }
+              break;
             }
             const pending = queueRef.current.slice(
               queueIndexRef.current + 1,
@@ -263,7 +335,7 @@ export function useWaveEngine({
                 ', adjustment=' +
                 adjustment.toFixed(3) +
                 ', accepted=' +
-                filtered.length +
+                acceptedCount +
                 ', pending=' +
                 (queueRef.current.length - queueIndexRef.current - 1) +
                 ', artistsNext25=' +
@@ -374,29 +446,20 @@ export function useWaveEngine({
       }
       if (reaction) {
         const currentIndex = queueIndexRef.current;
-        const reordered = resequenceWaveQueue(
-          queueRef.current,
-          Math.min(currentIndex + 1, queueRef.current.length - 1),
-          waveMoodRef.current,
-          [
-            ...familiarArtistsRef.current,
-            ...waveSession().positiveTracks.flatMap(getWaveArtistNames),
-          ],
-          feedback,
-          recentPlayedTracksRef.current,
-          [],
-          musicOptions(),
-        );
-        queueRef.current = reordered;
-        setQueue(reordered);
-        if (reaction < 0)
-          PlaybackLogger.info(
-            `[Wave:Skip] ${track.title}: ${playedSeconds.toFixed(1)}s, artists=${artists.join(', ')}, pending=${reordered.length - currentIndex - 1}`,
-          );
+        void reorderPending(true)
+          .then((reordered) => {
+            if (reaction < 0 && reordered)
+              PlaybackLogger.info(
+                `[Wave:Skip] ${track.title}: ${playedSeconds.toFixed(1)}s, artists=${artists.join(', ')}, pending=${reordered.length - currentIndex - 1}`,
+              );
+          })
+          .catch(logReorderError);
       }
       if (refresh) void fetchWaveTracks('refresh');
     },
     [
+      reorderPending,
+      logReorderError,
       queueIndexRef,
       queueRef,
       setQueue,
@@ -444,23 +507,13 @@ export function useWaveEngine({
         (candidate, index) =>
           index <= queueIndexRef.current || !matchesDislikedWaveTrack(candidate, disliked),
       );
-      const next = resequenceWaveQueue(
-        filtered,
-        queueIndexRef.current,
-        waveMoodRef.current,
-        [
-          ...familiarArtistsRef.current,
-          ...waveSession().positiveTracks.flatMap(getWaveArtistNames),
-        ],
-        feedback,
-        recentPlayedTracksRef.current,
-        [],
-        musicOptions(),
-      );
-      queueRef.current = next;
-      setQueue(next);
+      queueRef.current = filtered;
+      setQueue(filtered);
+      void reorderPending(false).catch(logReorderError);
     },
     [
+      reorderPending,
+      logReorderError,
       queueIndexRef,
       queueRef,
       setQueue,
@@ -488,23 +541,11 @@ export function useWaveEngine({
         waveSession().skippedTracks,
         track,
       );
-      const next = resequenceWaveQueue(
-        queueRef.current,
-        queueIndexRef.current,
-        waveMoodRef.current,
-        [
-          ...familiarArtistsRef.current,
-          ...waveSession().positiveTracks.flatMap(getWaveArtistNames),
-        ],
-        feedback,
-        recentPlayedTracksRef.current,
-        [],
-        musicOptions(),
-      );
-      queueRef.current = next;
-      setQueue(next);
+      void reorderPending(false).catch(logReorderError);
     },
     [
+      reorderPending,
+      logReorderError,
       queueIndexRef,
       queueRef,
       setQueue,
@@ -657,7 +698,7 @@ export function useWaveEngine({
                 ),
             )
           : fetched;
-        const batch = resequenceWaveQueue(
+        const batch = await resequenceWaveQueueInWorker(
           candidates.filter(
             (track) => matchesWaveSource(track, source) && !isYouTubeItemDisabled(track),
           ),
@@ -706,7 +747,12 @@ export function useWaveEngine({
           setWaveMood(previousMood);
           waveMoodRef.current = previousMood;
           updateWaveSource(previousSource);
-          emitToast('Ошибка запуска Моей волны. Проверьте интернет.', 'error', 4000);
+          emitToast(
+            'Не удалось запустить Мою волну: ' +
+              (e instanceof Error ? e.message : 'ошибка расчёта или загрузки'),
+            'error',
+            4000,
+          );
         }
       } finally {
         if (waveControllerRef.current === controller) waveControllerRef.current = null;

@@ -8,3 +8,7 @@ logs/
 public/
 package-lock.json
 native/**/target/
+
+# Frozen compiled historical implementations used only as independent test references.
+tests/fixtures/waveBeforeFullRust.mjs
+tests/fixtures/waveBeforeRanking.mjs

@@ -6,6 +6,8 @@ import { useLibraryCaches } from './src/shared/hooks/useLibraryCaches';
 import { useMyMusicViewModel } from './src/shared/hooks/useMyMusicViewModel';
 
 const w = window as any;
+w.fixtureErrors = [];
+window.addEventListener('error', (event) => w.fixtureErrors.push(event.message));
 w.offlineListeners = new Set();
 w.offlineReads = 0;
 const root = createRoot(document.getElementById('root')!);
@@ -97,9 +99,22 @@ w.verifyPlayerState = async () => {
     ensure(api.queue[api.queueIndex].id === 'c', 'Stress pass moved the current item: ' + i);
     ensure(
       api.queueRef.current === api.queue && api.queueIndexRef.current === api.queueIndex,
-      'State and command refs diverged',
+      'State and command refs diverged: ' +
+        JSON.stringify({
+          errors: w.fixtureErrors,
+          iteration: i,
+          queueIdentity: api.queueRef.current === api.queue,
+          stateIndex: api.queueIndex,
+          refIndex: api.queueIndexRef.current,
+          stateIds: api.queue.map((t: any) => t.id),
+          refIds: api.queueRef.current.map((t: any) => t.id),
+        }),
     );
+    // Each batch represents a separate user event. Let React flush passive work
+    // between events instead of nesting 200 flushSync commits in one task.
+    await tick();
   }
+  ensure(w.fixtureErrors.length === 0, 'React reported an uncaught fixture error');
   command((_queue: any, library: any) => library.setSavedAlbumIds(new Set(['album'])));
   ensure(
     w.states.every((state: any) => state.library.savedAlbumIds.has('album')),

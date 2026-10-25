@@ -8,6 +8,7 @@ export interface ErrorBoundaryProps {
   mode?: 'full' | 'inline' | 'silent';
   name?: string;
   onReset?: () => void;
+  onError?: (error: Error) => void;
 }
 
 interface ErrorBoundaryState {
@@ -31,6 +32,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    this.props.onError?.(error);
     const componentName = this.props.name || 'UnknownComponent';
     logger.error(
       `[ErrorBoundary:${componentName}] Caught unhandled error:`,
@@ -132,7 +134,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <div className="flex flex-col gap-2 pt-2">
             <button
               onClick={this.resetError}
-              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-medium text-sm transition shadow-lg shadow-rose-500/20 active:scale-[0.99]"
+              className="w-full py-2.5 px-4 rounded-xl bg-linear-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-medium text-sm transition shadow-lg shadow-rose-500/20 active:scale-[0.99]"
             >
               {t('Попробовать продолжить')}{' '}
             </button>

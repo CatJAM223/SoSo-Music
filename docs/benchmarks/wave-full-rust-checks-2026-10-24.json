@@ -1,0 +1,12 @@
+{
+  "nodeTests": 1211,
+  "passed": 1211,
+  "failed": 0,
+  "nodeDurationMs": 18300.0505,
+  "typescript": "passed",
+  "architecture": "passed",
+  "rustFormatting": "passed",
+  "mutationChecks": 9,
+  "chromiumObservation": "wave-worker-chromium-2026-10-24.json",
+  "applicationPackaged": false
+}

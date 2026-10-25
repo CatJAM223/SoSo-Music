@@ -24,20 +24,20 @@ export const ToastContainer: React.FC = () => {
 
         let borderClass =
           'border-sky-500/60 bg-zinc-950/98 text-sky-100 shadow-2xl shadow-sky-950/60 ring-1 ring-sky-500/20';
-        let icon = <Info className="w-5 h-5 text-sky-400 flex-shrink-0" />;
+        let icon = <Info className="w-5 h-5 text-sky-400 shrink-0" />;
 
         if (isError) {
           borderClass =
             'border-rose-500/80 bg-zinc-950/98 text-rose-100 shadow-2xl shadow-rose-950/80 ring-1 ring-rose-500/30';
-          icon = <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />;
+          icon = <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />;
         } else if (isWarning) {
           borderClass =
             'border-amber-500/80 bg-zinc-950/98 text-amber-100 shadow-2xl shadow-amber-950/80 ring-1 ring-amber-500/30';
-          icon = <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />;
+          icon = <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />;
         } else if (isSuccess) {
           borderClass =
             'border-emerald-500/80 bg-zinc-950/98 text-emerald-100 shadow-2xl shadow-emerald-950/80 ring-1 ring-emerald-500/30';
-          icon = <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />;
+          icon = <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />;
         }
 
         return (
@@ -55,7 +55,7 @@ export const ToastContainer: React.FC = () => {
             <button
               type="button"
               onClick={() => dismissToast(toast.id)}
-              className="p-1 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors flex-shrink-0"
+              className="p-1 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors shrink-0"
               title={t('Закрыть')}
             >
               <X className="w-4 h-4" />

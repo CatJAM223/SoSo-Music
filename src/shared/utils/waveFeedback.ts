@@ -1,3 +1,4 @@
+import { requireRustCompute, waveMoodId } from '../compute/rustCore.ts';
 import { waveMusicProfile } from './waveMusicProfile.ts';
 import type { Track, WaveMood } from '../types/index.ts';
 import { getWaveArtistNames, normalizeWaveArtist } from './waveIdentity.ts';
@@ -32,26 +33,7 @@ export function getWavePlaybackFeedback(
 
 /** The ratio is a ranking target, bounded to preserve the selected station's intent. */
 export function waveDiscoveryTarget(mood: WaveMood, adjustment = 0): number {
-  const base =
-    mood === 'discover'
-      ? 0.75
-      : mood === 'mix'
-        ? 0.5
-        : mood === 'favorites' || mood === 'default'
-          ? 0.25
-          : 1 / 3;
-  const bounds =
-    mood === 'discover'
-      ? [0.6, 0.9]
-      : mood === 'favorites'
-        ? [0.1, 0.35]
-        : mood === 'mix'
-          ? [0.3, 0.7]
-          : mood === 'default'
-            ? [0.1, 0.4]
-            : [0.15, 0.55];
-  const change = Number.isFinite(adjustment) ? Math.max(-0.2, Math.min(0.2, adjustment)) : 0;
-  return Math.max(bounds[0], Math.min(bounds[1], base + change));
+  return requireRustCompute().wave_discovery_target(waveMoodId(mood), adjustment);
 }
 
 /** Session preferences fade so one reaction does not dominate the whole wave. */

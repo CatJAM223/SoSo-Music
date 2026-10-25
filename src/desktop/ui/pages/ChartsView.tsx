@@ -6,6 +6,12 @@ import { Album, Track } from '../../../shared/types';
 import { TrackTable } from '../components/TrackTable';
 import { useAudioControls, useAudioState } from '../../../shared/context/AudioContext';
 import { CatLoader } from '../components/CatLoader';
+import {
+  CHART_REGIONS,
+  CHART_REGION_STORAGE_KEY,
+  isChartRegion,
+  type ChartRegion,
+} from '../../../shared/utils/chartRegions';
 import { platformBridge } from '../../../shared/bridge/platformBridge';
 
 interface ChartsViewProps {
@@ -26,7 +32,14 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [hasLoadError, setHasLoadError] = useState<boolean>(false);
   const [refreshToken, setRefreshToken] = useState<number>(0);
-  const [chartSource, setChartSource] = useState<'all' | 'youtube' | 'soundcloud'>('all');
+  const [region, setRegion] = useState<ChartRegion>(() => {
+    try {
+      const saved = localStorage.getItem(CHART_REGION_STORAGE_KEY);
+      return isChartRegion(saved) ? saved : 'GLOBAL';
+    } catch {
+      return 'GLOBAL';
+    }
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -36,7 +49,7 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
       setHasLoadError(false);
       setTracks([]);
       try {
-        const chartData = await platformBridge.getCharts(chartSource);
+        const chartData = await platformBridge.getCharts(region);
         if (isMounted) {
           const nextTracks = chartData?.tracks?.data || [];
           setTracks(nextTracks);
@@ -58,7 +71,7 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [chartSource, refreshToken]);
+  }, [region, refreshToken]);
 
   const isPlayingChart =
     currentTrack && tracks.some((t) => String(t.id) === String(currentTrack.id)) && isPlaying;
@@ -80,50 +93,29 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
           <h1 className="text-xl md:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
             {t('Чарты')}
           </h1>
-          <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-            {chartSource === 'all'
-              ? t('Популярные треки YouTube Music и SoundCloud')
-              : chartSource === 'youtube'
-                ? t('Популярные треки YouTube Music')
-                : t('Популярные треки SoundCloud')}
-          </p>
         </div>
 
-        {/* Source Switcher & Play All Button */}
+        {/* Play All Button */}
         <div className="flex items-center gap-3 self-start md:self-auto flex-wrap sm:flex-nowrap shrink-0">
-          <div className="flex items-center p-1 bg-slate-200/80 dark:bg-zinc-800/80 rounded-2xl border border-slate-300/50 dark:border-zinc-700/50 shrink-0">
-            <button
-              onClick={() => setChartSource('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                chartSource === 'all'
-                  ? 'bg-white dark:bg-zinc-900 text-slate-900 dark:text-white shadow-sm font-black'
-                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              {t('Все источники')}
-            </button>
-            <button
-              onClick={() => setChartSource('youtube')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                chartSource === 'youtube'
-                  ? 'bg-red-600 text-white shadow-sm font-black'
-                  : 'text-slate-600 dark:text-zinc-400 hover:text-red-500'
-              }`}
-            >
-              YouTube Music
-            </button>
-            <button
-              onClick={() => setChartSource('soundcloud')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                chartSource === 'soundcloud'
-                  ? 'bg-amber-500 text-black shadow-sm font-black'
-                  : 'text-slate-600 dark:text-zinc-400 hover:text-amber-500'
-              }`}
-            >
-              SoundCloud
-            </button>
-          </div>
-
+          <select
+            value={region}
+            aria-label={t('Регион чарта')}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (!isChartRegion(next)) return;
+              setRegion(next);
+              try {
+                localStorage.setItem(CHART_REGION_STORAGE_KEY, next);
+              } catch {}
+            }}
+            className="max-w-52 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-hidden focus-visible:ring-2 focus-visible:ring-soso-brand dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+          >
+            {CHART_REGIONS.map((item) => (
+              <option key={item.code} value={item.code}>
+                {t(item.label)}
+              </option>
+            ))}
+          </select>
           {tracks.length > 0 && (
             <button
               onClick={handlePlayAll}
@@ -158,6 +150,7 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
       ) : tracks.length > 0 ? (
         <TrackTable
           tracks={tracks}
+          showChartRanks
           onOpenAddToPlaylist={onOpenAddToPlaylist}
           onNavigateToArtist={onNavigateToArtist}
           onNavigateToAlbum={onNavigateToAlbum}
@@ -173,9 +166,7 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
             {hasLoadError ? t('Не удалось загрузить чарты') : t('Источник не вернул треки')}
           </p>
           <p className="mt-1 max-w-md text-sm text-slate-500 dark:text-zinc-400">
-            {t(
-              'Это может быть пустой чарт или сбой соединения. Попробуйте ещё раз или выберите другой источник.',
-            )}
+            {t('YouTube Music не вернул треки. Попробуйте загрузить чарт ещё раз.')}
           </p>
           <button
             type="button"

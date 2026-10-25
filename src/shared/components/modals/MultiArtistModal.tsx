@@ -138,11 +138,11 @@ export const MultiArtistModal: React.FC<MultiArtistModalProps> = ({
                   });
                   onClose();
                 }}
-                className="group flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 hover:bg-slate-100 dark:hover:bg-zinc-800 border border-slate-200/60 dark:border-zinc-700/60 hover:border-soso-brand/50 dark:hover:border-soso-brand/50 transition-all cursor-pointer shadow-sm hover:shadow-md"
+                className="group flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 hover:bg-slate-100 dark:hover:bg-zinc-800 border border-slate-200/60 dark:border-zinc-700/60 hover:border-soso-brand/50 dark:hover:border-soso-brand/50 transition-all cursor-pointer shadow-xs hover:shadow-md"
               >
                 <div className="flex items-center gap-3.5 min-w-0 flex-1">
                   {/* Avatar */}
-                  <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden bg-slate-200 dark:bg-zinc-700 flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform ring-2 ring-transparent group-hover:ring-soso-brand/40">
+                  <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden bg-slate-200 dark:bg-zinc-700 shrink-0 shadow-xs group-hover:scale-105 transition-transform ring-2 ring-transparent group-hover:ring-soso-brand/40">
                     <img
                       src={displayPic}
                       alt={artist.name}

@@ -3,7 +3,7 @@
   <h1>SoSo Music</h1>
   <p>Your favorites, new discoveries and lyrics. Together in a Windows music player.</p>
   <p><a href="https://github.com/CatJAM223/SoSo-Music/releases">Download</a> · <a href="README.ru.md">Русский</a> · <a href="https://github.com/CatJAM223/SoSo-Music/issues">Report an issue</a></p>
-  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-3.2.3-eab308" alt="Version 3.2.3"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
+  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-3.3.4-eab308" alt="Version 3.3.4"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
 </div>
 
 Search SoundCloud and YouTube Music, build a personal library, and let **My Wave** find your next track. Switch between listening, karaoke and guitar practice without leaving the player.
@@ -16,7 +16,7 @@ Search SoundCloud and YouTube Music, build a personal library, and let **My Wave
 - **My Wave.** Flow, Energy, Chill, Discover and Mix respond to likes, skips and listening history. Choose one catalog or combine both sources.
 - **Your library.** Liked tracks, playlists, saved albums, followed artists and listening statistics. Import public playlists from Yandex Music or VK Music and review matches before saving.
 - **Lyrics and guitar.** Synchronized karaoke, chord diagrams, Songsterr tabs and official music videos where available.
-- **Comfortable playback.** Crossfade, volume normalization, sleep timer, previews, queue controls and automatic recovery from temporary stream failures.
+- **Comfortable playback.** A 10-band equalizer with presets and smooth animated transitions, crossfade, volume normalization, sleep timer, previews, queue controls and automatic recovery from temporary stream failures.
 - **Offline listening.** Download available tracks and artwork. Search and new streams still require an internet connection.
 - **Make it yours.** Themes, accent colors, animated backgrounds and video wallpapers. Russian and English interface, selectable in Settings.
 - **Desktop integration.** Media keys, tray controls, a mini widget and optional Discord Rich Presence. Transfer library metadata to the companion phone app over local Wi-Fi.
@@ -86,22 +86,22 @@ The unpacked app is written to `release/win-unpacked/`. ZIP packaging checks the
 
 ### Checks
 
-| Command                          | Purpose                                          |
-| -------------------------------- | ------------------------------------------------ |
-| `npm run lint`                   | TypeScript type checking                         |
-| `npm run format:check`           | Formatting                                       |
-| `npm run architecture:check`     | Main, preload and renderer dependency boundaries |
-| `npm test`                       | Node regression tests and Rust/WASM preparation  |
-| `npm run test:desktop-ui`        | Electron UI scenarios, settings and onboarding   |
-| `npm run test:player-state`      | Player state and lifecycle checks                |
-| `npm run test:audio-transitions` | Real audio transitions                           |
-| `npm run test:ui-performance`    | Large library responsiveness                     |
-| `npm run release:check`          | Version and release metadata consistency         |
-| `npm run test:desktop-bootstrap` | Real main/preload/IPC, video wallpaper and restart |
-| `npm run test:runtime-crashes` | Native renderer/main crashes, recovery and local dumps |
-| `npm run test:integration-sensitivity` | Five deliberate UI, IPC, video and CSP regressions |
-| `npm run test:production` | Built main/preload crash recovery and YouTube adapter, after building |
-| `npm run test:all`               | Complete local validation suite                  |
+| Command                                | Purpose                                                               |
+| -------------------------------------- | --------------------------------------------------------------------- |
+| `npm run lint`                         | TypeScript type checking                                              |
+| `npm run format:check`                 | Formatting                                                            |
+| `npm run architecture:check`           | Main, preload and renderer dependency boundaries                      |
+| `npm test`                             | Node regression tests and Rust/WASM preparation                       |
+| `npm run test:desktop-ui`              | Electron UI scenarios, settings and onboarding                        |
+| `npm run test:player-state`            | Player state and lifecycle checks                                     |
+| `npm run test:audio-transitions`       | Real audio transitions                                                |
+| `npm run test:ui-performance`          | Large library responsiveness                                          |
+| `npm run release:check`                | Version and release metadata consistency                              |
+| `npm run test:desktop-bootstrap`       | Real main/preload/IPC, video wallpaper and restart                    |
+| `npm run test:runtime-crashes`         | Native renderer/main crashes, recovery and local dumps                |
+| `npm run test:integration-sensitivity` | Five deliberate UI, IPC, video and CSP regressions                    |
+| `npm run test:production`              | Built main/preload crash recovery and YouTube adapter, after building |
+| `npm run test:all`                     | Complete local validation suite                                       |
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Some checks launch Electron and require a desktop session. Test outputs and local builds go into ignored folders.
 
@@ -109,7 +109,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Some checks la
 
 GitHub Actions runs `test:all`, including formatting, types, architecture, Node, Electron UI and deliberate regression sensitivity checks. Built main/preload and the production YouTube adapter are checked after building. Per-step logs are written to `scratch/check-logs` and uploaded on CI failures. Documentation-only and empty pushes do not start CI; newer runs cancel outdated ones.
 
-Use the **Windows release** workflow manually to download a build artifact, or push a tag matching the package version (for example, v3.2.3) to build and publish a GitHub Release with ZIP and 7z archives and their SHA-256 checksums. Desktop builds are not produced for every commit.
+Use the **Windows release** workflow manually to download a build artifact, or push a tag matching the package version (for example, v3.3.4) to build and publish a GitHub Release with ZIP and 7z archives and their SHA-256 checksums. Desktop builds are not produced for every commit.
 
 ### Project layout
 

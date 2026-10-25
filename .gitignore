@@ -75,6 +75,7 @@ coverage/
 /native/**/target/
 /public/compute/*.wasm
 /public/compute/soso-core.json
+/public/compute/soso-normalization.js
 
 # Personal agent instructions, skills and generated tool caches.
 .skills/

@@ -17,19 +17,29 @@ if (typeof window !== 'undefined' && !(window as any).electronAPI) {
 
 import { ErrorBoundary } from '../shared/components/ErrorBoundary';
 
-// Local optional acceleration initializes concurrently; mounting never waits for compilation.
-void fetch(new URL('compute/soso-core.wasm', document.baseURI))
-  .then((response) => {
-    if (!response.ok) throw Error('Local compute asset unavailable');
-    return response.arrayBuffer();
-  })
-  .then((bytes) => initializeRustCompute(bytes))
-  .catch(() => logger.warn('[Compute:Rust] Local asset unavailable; using JavaScript'));
+// Rust owns the algorithms; mount only after the required local module is ready.
+const computeReady = fetch(new URL('compute/soso-core.wasm', document.baseURI)).then(
+  async (response) => {
+    if (!response.ok || !(await initializeRustCompute(await response.arrayBuffer())))
+      throw Error('Не удалось загрузить вычислительный модуль Rust. Перезапустите приложение.');
+  },
+);
 
 export function mountPlayer(rootElement: HTMLElement): void {
+  void computeReady
+    .then(() => mountReadyPlayer(rootElement))
+    .catch((error) => {
+      logger.error('[Compute:Rust] Player initialization failed', error);
+      document.getElementById('app-preloader')?.remove();
+      rootElement.textContent =
+        error instanceof Error ? error.message : 'Не удалось загрузить вычислительный модуль Rust.';
+    });
+}
+
+function mountReadyPlayer(rootElement: HTMLElement): void {
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
-      <ErrorBoundary name="Root">
+      <ErrorBoundary name="Root" onError={() => document.getElementById('app-preloader')?.remove()}>
         <ToastProvider>
           <ThemeProvider>
             <AudioProvider>

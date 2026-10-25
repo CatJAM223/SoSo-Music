@@ -53,7 +53,7 @@ app
         backgroundThrottling: false,
       },
     });
-    win.webContents.on('console-message', (_event, level, message) => {
+    win.webContents.on('console-message', ({ level, message }) => {
       if (level >= 3) {
         rendererErrors.push(message);
         console.error('RENDERER', message);
@@ -85,9 +85,13 @@ app
             observed.TrackTable > 0 && observed.TrackRow > 0,
             'Profiling counters must observe real table and row renders before measuring their absence',
           );
+          assert.ok(
+            await evaluate('uiProbe.rootProfiles.length > 0'),
+            'Public React Profiler must observe committed renders',
+          );
           const measure = async (kind, samples) => {
             await evaluate(
-              'uiProbe.renders={};uiProbe.commits=[];uiProbe.renderPasses=[];uiProbe.profiles=[];uiProbe.persistence=[];uiProbe.syncCommands=[];uiProbe.passiveEffects=[];uiProbe.dispatches=[]',
+              'uiProbe.renders={};uiProbe.rootProfiles=[];uiProbe.profiles=[];uiProbe.persistence=[];uiProbe.syncCommands=[];uiProbe.dispatches=[]',
             );
             const latencies = [];
             for (let i = 0; i < samples; i++) {
@@ -110,21 +114,20 @@ app
             }
             await pause(40);
             const metrics = await evaluate(
-              '({renders:uiProbe.renders,commits:uiProbe.commits,renderPasses:uiProbe.renderPasses,profiles:uiProbe.profiles,persistence:uiProbe.persistence,syncCommands:uiProbe.syncCommands,dispatches:uiProbe.dispatches,passiveEffects:uiProbe.passiveEffects,domRows:document.querySelectorAll("[draggable]").length})',
+              '({renders:uiProbe.renders,rootProfiles:uiProbe.rootProfiles,profiles:uiProbe.profiles,persistence:uiProbe.persistence,syncCommands:uiProbe.syncCommands,dispatches:uiProbe.dispatches,domRows:document.querySelectorAll("[draggable]").length})',
             );
             return {
               kind,
               samples,
               renders: metrics.renders,
               domRows: metrics.domRows,
-              reactCommit: stats(metrics.commits),
-              reactRenderPass: stats(metrics.renderPasses),
+              reactCommitCount: metrics.rootProfiles.length,
+              reactRenderPass: stats(metrics.rootProfiles.map((value) => value.actualDuration)),
               trackTableRender: stats(metrics.profiles.map((value) => value.actualDuration)),
               actionToDom: stats(latencies),
               syncCommand: stats(metrics.syncCommands),
               syncDispatch: stats(metrics.dispatches),
               persistence: stats(metrics.persistence.map((value) => value.duration)),
-              passiveEffects: stats(metrics.passiveEffects),
             };
           };
           results.push({
@@ -185,9 +188,9 @@ app
       method: {
         legacyArtworkValidation: await evaluate('uiLegacyArtworkValidation'),
         domTiming: 'MutationObserver registered before dispatch; no timer polling',
-        renderer: 'React 18 production profiling build',
+        renderer: 'React 19 production profiling build',
         profiling:
-          'injectProfilingHooks commit start/stop, component render counters, React Profiler actualDuration',
+          'public React Profiler actualDuration and commit count; AST-instrumented production component invocation counters; commit/passive-effect durations are not measured',
         transport:
           'EventTarget fixture audio; real useAudioPlayerCore, AudioProvider, context hooks, TrackTable and TrackRow',
         profile: 'isolated temporary Electron userData',

@@ -1,3 +1,4 @@
+import { audioEqualizer } from '../services/audioEqualizer';
 import { useYouTubeAvailability } from './useYouTubeAvailability';
 import { isYouTubeItemDisabled } from '../services/youtubeAvailability.ts';
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -98,6 +99,8 @@ export function useSnippetController({
   // Initialize snippet audio element
   useEffect(() => {
     const snippetAudio = new Audio();
+    if (typeof window !== 'undefined' && window.electronAPI) snippetAudio.crossOrigin = 'anonymous';
+    audioEqualizer().attach(snippetAudio);
     snippetAudio.preload = 'auto';
     snippetAudio.volume = isMuted ? 0 : volume;
     snippetAudioRef.current = snippetAudio;
@@ -147,6 +150,7 @@ export function useSnippetController({
       snippetAudio.removeEventListener('error', handleSnippetError);
       snippetAudio.pause();
       snippetAudio.removeAttribute('src');
+      audioEqualizer().release(snippetAudio);
     };
   }, [stopSnippet]);
 

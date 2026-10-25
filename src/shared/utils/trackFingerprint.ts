@@ -1,3 +1,4 @@
+import { compareRecordings } from '../compute/waveSongMatrix.ts';
 import { cachedWaveText } from '../compute/waveTextCache.ts';
 /**
  * Fuzzy track fingerprinting for cross-source duplicate detection.
@@ -116,43 +117,6 @@ function tokenize(core: string): string[] {
     .filter((w) => /^\d+$/.test(w) || w.length >= 2);
 }
 
-function levenshtein(a: string, b: string, max: number): number {
-  if (a === b) return 0;
-  if (Math.abs(a.length - b.length) > max) return max + 1;
-  const prev = new Array(b.length + 1);
-  for (let j = 0; j <= b.length; j++) prev[j] = j;
-  for (let i = 1; i <= a.length; i++) {
-    let curr = i;
-    let best = curr;
-    for (let j = 1; j <= b.length; j++) {
-      const tmp = prev[j];
-      prev[j] = Math.min(prev[j] + 1, curr + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-      curr = tmp;
-      best = Math.min(best, prev[j]);
-    }
-    if (best > max) return max + 1;
-  }
-  return prev[b.length];
-}
-
-function tokensMatch(a: string, b: string): boolean {
-  if (a === b) return true;
-  const maxDist = a.length >= 8 ? 2 : a.length >= 4 ? 1 : 0;
-  return maxDist > 0 && levenshtein(a, b, maxDist) <= maxDist;
-}
-
-function countOverlappingTokens(small: TrackPrint, large: TrackPrint): number {
-  let inter = 0;
-  for (const tok of small.tokens) {
-    if (large.set.has(tok)) {
-      inter++;
-      continue;
-    }
-    if (tok.length >= 4 && large.tokens.some((t) => tokensMatch(tok, t))) inter++;
-  }
-  return inter;
-}
-
 /** Builds a comparable print from any track-like object (artist may be object or string). */
 export function buildTrackPrintFromTrack(track: any): TrackPrint {
   const title = track?.title || track?.name || '';
@@ -168,24 +132,5 @@ export function buildTrackPrintFromTrack(track: any): TrackPrint {
  * different songs that merely share a title.
  */
 export function areTracksDuplicates(a: TrackPrint, b: TrackPrint): boolean {
-  if (!a.tokens.length || !b.tokens.length) return false;
-
-  if (a.dur > 0 && b.dur > 0 && Math.abs(a.dur - b.dur) > 8) return false;
-
-  // Different variant sets (original vs remix/live/acoustic...) = different recordings
-  if (a.variants.size !== b.variants.size) return false;
-  for (const v of a.variants) {
-    if (!b.variants.has(v)) return false;
-  }
-
-  const [small, large] = a.tokens.length <= b.tokens.length ? [a, b] : [b, a];
-  const inter = countOverlappingTokens(small, large);
-  if (inter === 0) return false;
-
-  const coeff = inter / small.tokens.length;
-
-  if (coeff >= 0.99) return true;
-  if (coeff >= 0.75 && small.tokens.length >= 3) return true;
-
-  return false;
+  return compareRecordings(a, b);
 }

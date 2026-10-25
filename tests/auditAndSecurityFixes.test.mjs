@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DiscordRPCService } from '../src/desktop/main/services/discordRpc.ts';
 import { MusicAggregatorService } from '../src/desktop/main/services/musicAggregator.ts';
-import { SoundCloudService } from '../src/desktop/main/services/soundcloud.ts';
+import { YouTubeMusicService } from '../src/desktop/main/services/youtubeMusic.ts';
 
 import { toMediaFileUrl } from '../src/shared/utils/formatters.ts';
 
@@ -98,9 +98,15 @@ test('Audit Fix: Discord RPC packet framing accumulator handles fragmented and f
   assert.equal(resFused.remaining.length, 0);
 });
 
-test('Charts: Desktop SoundCloud routing', async (t) => {
-  const desktopTrack = { id: 'sc_desktop_1', title: 'Desktop chart track' };
-  t.mock.method(SoundCloudService, 'getCharts', async () => ({ tracks: { data: [desktopTrack] } }));
-  const charts = await MusicAggregatorService.getCharts('soundcloud');
+test('Charts: Desktop YouTube Music routing', async (t) => {
+  const desktopTrack = {
+    id: 'yt_desktop_1',
+    title: 'Desktop chart track',
+    artist: { name: 'Desktop Artist' },
+    duration: 180,
+    source: 'youtube',
+  };
+  t.mock.method(YouTubeMusicService, 'getCharts', async () => ({ data: [desktopTrack] }));
+  const charts = await MusicAggregatorService.getCharts();
   assert.deepEqual(charts.tracks.data, [desktopTrack]);
 });

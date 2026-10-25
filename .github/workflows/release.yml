@@ -69,4 +69,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $releaseAssets = @(Get-ChildItem -Path release/*.zip,release/*.zip.sha256,release/*.7z,release/*.7z.sha256 -File | ForEach-Object { $_.FullName })
-          gh release create $env:GITHUB_REF_NAME @releaseAssets --verify-tag --generate-notes --title "SoSo Music $env:GITHUB_REF_NAME"
+          $releaseNotes = "docs/releases/$env:GITHUB_REF_NAME.md"
+          if (!(Test-Path -LiteralPath $releaseNotes)) {
+            throw "Release notes are missing: $releaseNotes"
+          }
+          gh release create $env:GITHUB_REF_NAME @releaseAssets --verify-tag --notes-file $releaseNotes --title "SoSo Music $env:GITHUB_REF_NAME"

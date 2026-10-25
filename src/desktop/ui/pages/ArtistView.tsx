@@ -109,7 +109,7 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
       <div className="relative overflow-hidden rounded-2xl bg-slate-50 dark:bg-zinc-900 p-6 sm:p-8 border border-slate-200 dark:border-zinc-800">
         <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 relative z-10">
           {/* Avatar */}
-          <div className="relative w-36 h-36 sm:w-44 sm:h-44 rounded-full overflow-hidden flex-shrink-0 bg-slate-300 dark:bg-zinc-800">
+          <div className="relative w-36 h-36 sm:w-44 sm:h-44 rounded-full overflow-hidden shrink-0 bg-slate-300 dark:bg-zinc-800">
             <img
               src={
                 artist.picture_big ||
@@ -197,7 +197,7 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
                     picture_url: artist.picture_big || artist.picture_medium || artist.picture,
                   })
                 }
-                className={`flex items-center gap-2 px-5 py-3 rounded-full font-bold text-sm transition-all border shadow-sm hover:scale-105 active:scale-95 ${
+                className={`flex items-center gap-2 px-5 py-3 rounded-full font-bold text-sm transition-all border shadow-xs hover:scale-105 active:scale-95 ${
                   isArtistFollowed(artist.id)
                     ? 'bg-soso-brand/15 text-soso-brand border-soso-brand/40'
                     : 'bg-slate-200/90 dark:bg-zinc-800 hover:bg-slate-300 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 border-slate-300 dark:border-zinc-700'
@@ -225,9 +225,9 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
         {/* Top Tracks Tab */}
         <button
           onClick={() => setActiveTab('top')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors flex-shrink-0 ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors shrink-0 ${
             activeTab === 'top'
-              ? 'bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm'
+              ? 'bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-white shadow-xs'
               : 'text-slate-600 dark:text-zinc-400 hover:text-slate-950 dark:hover:text-white'
           }`}
         >
@@ -241,9 +241,9 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
         {/* All Tracks Tab */}
         <button
           onClick={() => setActiveTab('all')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors flex-shrink-0 ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors shrink-0 ${
             activeTab === 'all'
-              ? 'bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm'
+              ? 'bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-white shadow-xs'
               : 'text-slate-600 dark:text-zinc-400 hover:text-slate-950 dark:hover:text-white'
           }`}
         >
@@ -257,9 +257,9 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
         {/* Albums Tab */}
         <button
           onClick={() => setActiveTab('albums')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors flex-shrink-0 ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors shrink-0 ${
             activeTab === 'albums'
-              ? 'bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm'
+              ? 'bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-white shadow-xs'
               : 'text-slate-600 dark:text-zinc-400 hover:text-slate-950 dark:hover:text-white'
           }`}
         >
@@ -294,7 +294,7 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
 
           {/* Artist Biography from Last.fm */}
           {artistDetails.bio && (
-            <div className="p-5 sm:p-6 rounded-2xl bg-white/60 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800/80 backdrop-blur-sm space-y-2.5">
+            <div className="p-5 sm:p-6 rounded-2xl bg-white/60 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800/80 backdrop-blur-xs space-y-2.5">
               <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-zinc-400">
                 {t('Об исполнителе')}
               </h3>
@@ -318,7 +318,7 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
                   <button
                     key={sa.id || sa.name}
                     onClick={() => onNavigateToArtist({ id: sa.id, name: sa.name })}
-                    className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100 dark:bg-zinc-800/90 hover:bg-slate-200 dark:hover:bg-zinc-700 text-xs font-bold text-slate-800 dark:text-zinc-200 border border-slate-200/60 dark:border-zinc-700/60 transition-all hover:scale-105 active:scale-95 shadow-sm"
+                    className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100 dark:bg-zinc-800/90 hover:bg-slate-200 dark:hover:bg-zinc-700 text-xs font-bold text-slate-800 dark:text-zinc-200 border border-slate-200/60 dark:border-zinc-700/60 transition-all hover:scale-105 active:scale-95 shadow-xs"
                   >
                     <span>{sa.name}</span>
                     <ChevronRight className="w-3 h-3 text-slate-400 dark:text-zinc-500" />
@@ -351,7 +351,7 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
                   onClick={() => setAllTracksViewMode('albums')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
                     allTracksViewMode === 'albums'
-                      ? 'bg-white dark:bg-zinc-900 text-slate-900 dark:text-white shadow-sm'
+                      ? 'bg-white dark:bg-zinc-900 text-slate-900 dark:text-white shadow-xs'
                       : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
@@ -362,7 +362,7 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
                   onClick={() => setAllTracksViewMode('list')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
                     allTracksViewMode === 'list'
-                      ? 'bg-white dark:bg-zinc-900 text-slate-900 dark:text-white shadow-sm'
+                      ? 'bg-white dark:bg-zinc-900 text-slate-900 dark:text-white shadow-xs'
                       : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
@@ -401,7 +401,7 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
                 {groupedTracksByAlbum.groups.map((group) => (
                   <div
                     key={group.albumInfo.id || group.albumInfo.title}
-                    className="p-4 sm:p-5 rounded-3xl bg-white/70 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800/80 shadow-sm space-y-3"
+                    className="p-4 sm:p-5 rounded-3xl bg-white/70 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800/80 shadow-xs space-y-3"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div
@@ -447,7 +447,7 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
                 ))}
 
                 {groupedTracksByAlbum.singles.length > 0 && (
-                  <div className="p-4 sm:p-5 rounded-3xl bg-white/70 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800/80 shadow-sm space-y-3">
+                  <div className="p-4 sm:p-5 rounded-3xl bg-white/70 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800/80 shadow-xs space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <h3 className="text-base font-bold text-slate-900 dark:text-white">
@@ -613,14 +613,14 @@ export const ArtistView: React.FC<ArtistViewProps> = ({
 
       {/* Fallback Album Modal View */}
       {selectedAlbum && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-fade-in">
           <div
             className="relative w-full max-w-2xl bg-white dark:bg-[#18181b] border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
             <div className="flex items-start gap-4 pb-6 border-b border-slate-100 dark:border-zinc-800">
-              <div className="w-24 h-24 rounded-2xl overflow-hidden shadow-lg flex-shrink-0 bg-slate-200 dark:bg-zinc-800">
+              <div className="w-24 h-24 rounded-2xl overflow-hidden shadow-lg shrink-0 bg-slate-200 dark:bg-zinc-800">
                 <img
                   src={
                     selectedAlbum.cover_big ||

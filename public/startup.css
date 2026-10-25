@@ -1,0 +1,101 @@
+/* Critical startup layout: available before the renderer bundle and React. */
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+#app-preloader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 32px;
+  overflow: hidden;
+  background: var(--bg-app, #121212);
+  color: var(--text-secondary, #a1a1aa);
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  opacity: 1;
+  transition:
+    opacity 220ms ease-out,
+    background-color 150ms ease;
+}
+html[data-theme='light'] #app-preloader {
+  background: var(--bg-app, #f1f5f9);
+  color: var(--text-secondary, #475569);
+}
+#app-preloader.is-ready {
+  opacity: 0;
+  pointer-events: none;
+}
+.startup-mark {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.startup-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(var(--theme-accent-rgb, 34, 197, 94), 0.15);
+  filter: blur(20px);
+  animation: startup-glow 2s ease-in-out infinite;
+}
+.startup-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(128, 128, 128, 0.2);
+  border-top-color: var(--theme-accent, #22c55e);
+  box-sizing: border-box;
+  animation: startup-spin 850ms linear infinite;
+}
+.startup-mark img {
+  position: relative;
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 12px;
+}
+#app-preloader p {
+  margin: 16px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+}
+@keyframes startup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes startup-glow {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app-preloader {
+    transition: none;
+  }
+  .startup-ring,
+  .startup-glow {
+    animation: none;
+  }
+}

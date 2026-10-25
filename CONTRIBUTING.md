@@ -21,3 +21,7 @@ Electron main owns native services. Preload exposes typed contracts; the rendere
 ## Reporting bugs
 
 Include the app version, Windows version, exact steps and relevant log lines. Do not attach cookies, tokens, pairing codes or a full personal database. Mocked tests cannot establish external service availability or successful real account sign-in.
+
+## TypeScript compiler and tooling API
+
+The `tsc` command uses TypeScript 7 through `@typescript/native`. The `typescript` dependency aliases the official `@typescript/typescript6` compatibility package because architecture checks and regression fixtures use the compiler API that TypeScript 7 no longer exposes. Keep both dependencies when upgrading; `npm run lint` checks the application with the native compiler.

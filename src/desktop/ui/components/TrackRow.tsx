@@ -56,7 +56,7 @@ const SnippetButton: React.FC<{
   useLocale();
   return (
     <div
-      className={`hidden sm:flex w-20 flex-shrink-0 justify-center transition-opacity duration-150 ${
+      className={`hidden sm:flex w-20 shrink-0 justify-center transition-opacity duration-150 ${
         isSnippetActive
           ? 'opacity-100'
           : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
@@ -202,7 +202,7 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
         }`}
       >
         {/* Index Number or Soundwave Equalizer when playing */}
-        <div className="w-5 md:w-7 text-center text-[10px] md:text-xs font-medium text-slate-500 dark:text-zinc-400 flex-shrink-0 flex items-center justify-center tabular-nums">
+        <div className="w-5 md:w-7 text-center text-[10px] md:text-xs font-medium text-slate-500 dark:text-zinc-400 shrink-0 flex items-center justify-center tabular-nums">
           {isCurrentlyLoadingFull ? (
             <Loader2
               className="w-3.5 h-3.5 animate-spin text-soso-brand"
@@ -220,7 +220,7 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
         </div>
 
         {/* Album Cover Thumbnail with Play/Pause button */}
-        <div className="relative w-9 h-9 md:w-10 md:h-10 rounded-md overflow-hidden flex-shrink-0 bg-zinc-800 flex items-center justify-center group/cover">
+        <div className="relative w-9 h-9 md:w-10 md:h-10 rounded-md overflow-hidden shrink-0 bg-zinc-800 flex items-center justify-center group/cover">
           <img
             key={String(track.id) + ':' + coverUrl}
             src={coverUrl}
@@ -395,7 +395,7 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
         />
 
         {/* Like Button */}
-        <div className="w-8 flex-shrink-0 flex justify-center">
+        <div className="w-8 shrink-0 flex justify-center">
           <AnimatedLikeButton
             isLiked={isLiked}
             onToggle={handleLikeClick}
@@ -406,7 +406,7 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
         </div>
 
         {/* Offline Download Button */}
-        <div className="w-8 flex-shrink-0 flex justify-center">
+        <div className="w-8 shrink-0 flex justify-center">
           <button
             onClick={async (e) => {
               e.stopPropagation();
@@ -462,7 +462,7 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
           </button>
         </div>
 
-        <div className="w-8 flex-shrink-0 flex justify-center">
+        <div className="w-8 shrink-0 flex justify-center">
           <TasteContextMenu
             scope="track"
             id={track.id}
@@ -472,7 +472,7 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
         </div>
 
         {/* Duration */}
-        <div className="w-9 md:w-12 text-right text-[11px] md:text-xs text-slate-500 dark:text-zinc-400 font-sans tabular-nums font-medium flex-shrink-0">
+        <div className="w-9 md:w-12 text-right text-[11px] md:text-xs text-slate-500 dark:text-zinc-400 font-sans tabular-nums font-medium shrink-0">
           {formatTime(track.duration)}
         </div>
       </div>

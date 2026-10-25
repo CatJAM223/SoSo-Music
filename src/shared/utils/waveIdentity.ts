@@ -1,12 +1,8 @@
+import { compareWaveSongs, isDistinctiveSongTitle } from '../compute/waveSongMatrix.ts';
 import { cachedWaveText } from '../compute/waveTextCache.ts';
 import type { Track } from '../types/index.ts';
 import { extractAllArtists } from './artistParser.ts';
-import {
-  areTracksDuplicates,
-  buildTrackPrintFromTrack,
-  extractCoreTitle,
-  type TrackPrint,
-} from './trackFingerprint.ts';
+import { buildTrackPrintFromTrack, extractCoreTitle, type TrackPrint } from './trackFingerprint.ts';
 
 type WaveTrackLike = { title?: string; artist?: Track['artist'] | string };
 
@@ -153,16 +149,6 @@ function cleanWaveSongTitle(raw: string): string {
   );
 }
 
-function distinctiveSongTitle(tokens: readonly string[]): boolean {
-  // Require a complete, substantial title for cross-artist covers. Generic
-  // homonyms (Home, You And Me) must still count as different compositions.
-  return (
-    new Set(tokens).size >= 3 &&
-    tokens.join('').length >= 16 &&
-    tokens.filter((token) => token.length >= 4).length >= 2
-  );
-}
-
 function waveSongFields(track: WaveTrackLike, knownArtists: readonly string[]): WaveTrackLike {
   const artist = typeof track.artist === 'string' ? track.artist : track.artist?.name || '';
   const title = cleanWaveSongTitle(track.title || '');
@@ -176,7 +162,7 @@ function waveSongFields(track: WaveTrackLike, knownArtists: readonly string[]): 
     /\b(?:slowed|sped[\s-]*up|speed[\s-]*up|speedup|nightcore|daycore|remix|bootleg|acoustic|cover|live)\b|кавер|акустик|замедлен/i.test(
       track.title || '',
     ) &&
-    distinctiveSongTitle(buildTrackPrintFromTrack({ title: cleanWaveSongTitle(artist) }).tokens)
+    isDistinctiveSongTitle(buildTrackPrintFromTrack({ title: cleanWaveSongTitle(artist) }).tokens)
   ) {
     return { title: artist, artist: title };
   }
@@ -201,51 +187,5 @@ export function buildWaveSongIdentity(
 }
 
 export function areSameWaveSong(a: WaveSongIdentity, b: WaveSongIdentity): boolean {
-  if (!a.artists.some((artist) => b.artists.includes(artist))) {
-    const left = a.print.tokens,
-      right = b.print.tokens;
-    // Covers/reuploads need a complete title match, never the fingerprint's
-    // partial containment rule. Keep one typo tolerance with exact word anchors.
-    if (left.length !== right.length || !distinctiveSongTitle(left) || !distinctiveSongTitle(right))
-      return false;
-    let differences = 0;
-    return left.every(
-      (token, index) =>
-        token === right[index] || (++differences <= 1 && oneCharacterApart(token, right[index])),
-    );
-  }
-  if (areTracksDuplicates(a.print, b.print)) return true;
-  // Allow one typo in a multiword title (MARTIN / MARTINE ROSE), with an exact
-  // second word as an anchor. Never fuzzy-merge single-word song titles.
-  const [small, large] =
-    a.print.tokens.length <= b.print.tokens.length
-      ? [a.print.tokens, b.print.tokens]
-      : [b.print.tokens, a.print.tokens];
-  return (
-    small.length >= 2 &&
-    small.some((token) => large.includes(token)) &&
-    small.every(
-      (token) => large.includes(token) || large.some((other) => oneCharacterApart(token, other)),
-    )
-  );
-}
-
-function oneCharacterApart(a: string, b: string): boolean {
-  // A chapter/part number is identity, not a spelling mistake.
-  if (/\p{N}/u.test(a + b) || Math.min(a.length, b.length) < 5 || Math.abs(a.length - b.length) > 1)
-    return false;
-  let i = 0;
-  let j = 0;
-  let differences = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      i++;
-      j++;
-      continue;
-    }
-    if (++differences > 1) return false;
-    if (a.length >= b.length) i++;
-    if (b.length >= a.length) j++;
-  }
-  return differences + Number(i < a.length || j < b.length) <= 1;
+  return compareWaveSongs(a, b);
 }

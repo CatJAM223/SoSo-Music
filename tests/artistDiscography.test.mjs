@@ -460,8 +460,10 @@ test('Artist Discography: SoundCloudService.getArtistAllTracks resolves non-nume
   assert.equal(tracks[0].album?.title, 'After Hours', 'Album association should be resolved');
 });
 
-test('Artist Discography: YouTubeMusicService.getArtistAllTracks caps album queries to 10 and aggregates tracks', async (t) => {
+test('Artist Discography: YouTubeMusicService.getArtistAllTracks includes every release with bounded concurrency', async (t) => {
   const requestedAlbums = [];
+  let active = 0,
+    maxActive = 0;
 
   // Mock artist with 14 albums
   t.mock.method(YouTubeMusicService, 'getArtist', async () => {
@@ -500,7 +502,11 @@ test('Artist Discography: YouTubeMusicService.getArtistAllTracks caps album quer
   });
 
   t.mock.method(YouTubeMusicService, 'getAlbumTracks', async (albumId, albumTitle, artistName) => {
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setImmediate(resolve));
     requestedAlbums.push(albumId);
+    active--;
     return [
       {
         id: `yt_trk_from_${albumId}`,
@@ -517,9 +523,8 @@ test('Artist Discography: YouTubeMusicService.getArtistAllTracks caps album quer
     'Prolific Artist',
   );
 
-  // Verify albums were capped to exactly 10
-  assert.equal(requestedAlbums.length, 10, 'Must cap album fetches to max 10 to avoid rate limits');
-  // Verify top track + 10 album tracks = 11 tracks
-  assert.equal(tracks.length, 11);
+  assert.equal(requestedAlbums.length, 14, 'Every discovered release must be included');
+  assert.ok(maxActive <= 3, 'Provider requests remain bounded');
+  assert.equal(tracks.length, 15);
   assert.equal(tracks[0].id, 'yt_top_1');
 });

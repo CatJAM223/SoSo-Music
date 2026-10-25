@@ -553,17 +553,17 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
           style={{ backgroundImage: `url(${coverUrl})` }}
         />
       ) : null}
-      <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-black/50 via-black/20 to-black/75" />
+      <div className="absolute inset-0 pointer-events-none bg-linear-to-b from-black/50 via-black/20 to-black/75" />
 
       {/* Modal Header */}
       <div
-        className="karaoke-header relative z-30 flex items-center justify-between px-6 lg:px-12 py-4 flex-shrink-0 gap-4"
+        className="karaoke-header relative z-30 flex items-center justify-between px-6 lg:px-12 py-4 shrink-0 gap-4"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         {/* Left: Track Info in Chords/Tabs mode; subtle spacer in Lyrics mode */}
         {viewMode !== 'lyrics' ? (
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div className="relative w-10 h-10 rounded-xl overflow-hidden bg-white/10 flex-shrink-0 shadow-lg ring-1 ring-white/15">
+            <div className="relative w-10 h-10 rounded-xl overflow-hidden bg-white/10 shrink-0 shadow-lg ring-1 ring-white/15">
               {coverUrl ? (
                 <img
                   src={coverUrl}
@@ -580,7 +580,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-bold text-white truncate drop-shadow-sm">
+              <h3 className="text-sm font-bold text-white truncate drop-shadow-xs">
                 {currentTrack?.title || t('Без названия')}
               </h3>
               <p className="text-xs text-zinc-400 font-semibold truncate">{artistName}</p>
@@ -593,7 +593,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
         {/* Center: Mode Switcher [ 🎤 Караоке ] vs [ 🎸 Гитара ] */}
         {hasValidLyrics && (hasValidChords || hasValidTabs) && (
           <div
-            className="flex items-center p-1 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 flex-shrink-0 shadow-xl gap-1"
+            className="flex items-center p-1 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 shrink-0 shadow-xl gap-1"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             <button
@@ -640,7 +640,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
               type="button"
               onClick={togglePlay}
               title={isPlaying ? t('Пауза (Пробел)') : t('Воспроизвести (Пробел)')}
-              className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white transition-all border border-white/10 active:scale-95 shadow-sm"
+              className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white transition-all border border-white/10 active:scale-95 shadow-xs"
             >
               {isPlaying ? (
                 <Pause className="w-4 h-4 fill-current" />
@@ -667,7 +667,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
           {/* LEFT COLUMN: Media (Artwork / Video Clip) + Info + Progress */}
           <div
             data-video={showVideo && activeVideoId ? 'true' : 'false'}
-            className="karaoke-media w-full md:w-[45%] lg:w-[40%] xl:w-[36%] flex flex-col items-center justify-center p-6 lg:p-12 space-y-4 select-none flex-shrink-0"
+            className="karaoke-media w-full md:w-[45%] lg:w-[40%] xl:w-[36%] flex flex-col items-center justify-center p-6 lg:p-12 space-y-4 select-none shrink-0"
           >
             {/* Square Media Box */}
             <div className="karaoke-art relative w-64 h-64 sm:w-72 sm:h-72 md:w-80 md:h-80 lg:w-[350px] lg:h-[350px] xl:w-[380px] xl:h-[380px] aspect-square rounded-3xl overflow-hidden shadow-2xl shadow-black/80 ring-1 ring-white/15 group bg-black/40">
@@ -1211,7 +1211,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
           {showChordDiagrams && uniqueSongChords.length > 0 && (
             <div className="px-6 py-3 bg-zinc-950/80 border-b border-white/10 overflow-x-auto flex items-center gap-3 no-scrollbar animate-fade-in shadow-inner">
               {uniqueSongChords.map((chord) => (
-                <div key={chord} className="flex-shrink-0">
+                <div key={chord} className="shrink-0">
                   <GuitarChordDiagram chord={chord} size="sm" />
                 </div>
               ))}
@@ -1345,7 +1345,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       {viewMode === 'guitar' && effectiveGuitarMode === 'tabs' && (
         <div className="relative z-10 flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Songsterr Quick Toolbar */}
-          <div className="px-6 py-2.5 bg-black/50 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs flex-shrink-0">
+          <div className="px-6 py-2.5 bg-black/50 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
             <div className="flex items-center gap-2 flex-wrap">
               {trackTabOverride && (
                 <button
@@ -1363,7 +1363,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                     onClick={() => switchGuitarPreference('chords')}
                     className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
                       guitarPreference === 'chords'
-                        ? 'bg-white/20 text-white shadow-sm'
+                        ? 'bg-white/20 text-white shadow-xs'
                         : 'text-zinc-400 hover:text-white'
                     }`}
                   >
@@ -1374,7 +1374,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                     onClick={() => switchGuitarPreference('tabs')}
                     className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
                       guitarPreference === 'tabs'
-                        ? 'bg-[#1877F2] text-white shadow-sm'
+                        ? 'bg-[#1877F2] text-white shadow-xs'
                         : 'text-zinc-400 hover:text-white'
                     }`}
                   >
@@ -1395,7 +1395,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                       }}
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all border ${
                         idx === selectedTrackIndex
-                          ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-sm'
+                          ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-xs'
                           : 'bg-white/5 hover:bg-white/10 text-zinc-300 border-white/5'
                       }`}
                     >
@@ -1420,7 +1420,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                   onClick={() => setTabDisplayMode('player')}
                   className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
                     tabDisplayMode === 'player'
-                      ? 'bg-[#1877F2] text-white shadow-sm'
+                      ? 'bg-[#1877F2] text-white shadow-xs'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -1431,7 +1431,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                   onClick={() => setTabDisplayMode('tracks')}
                   className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
                     tabDisplayMode === 'tracks'
-                      ? 'bg-[#1877F2] text-white shadow-sm'
+                      ? 'bg-[#1877F2] text-white shadow-xs'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -1540,7 +1540,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                 </div>
 
                 {/* Open Songsterr Player Callout */}
-                <div className="p-6 rounded-2xl bg-gradient-to-r from-blue-900/30 via-indigo-900/20 to-blue-900/30 border border-blue-500/25 text-center space-y-3">
+                <div className="p-6 rounded-2xl bg-linear-to-r from-blue-900/30 via-indigo-900/20 to-blue-900/30 border border-blue-500/25 text-center space-y-3">
                   <Guitar className="w-9 h-9 text-[#1877F2] mx-auto" />
                   <div>
                     <div className="font-bold text-white text-base">

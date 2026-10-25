@@ -61,7 +61,7 @@ export const AnimatedLikeButton: React.FC<AnimatedLikeButtonProps> = ({
           {/* Left Falling Half */}
           <svg
             viewBox="0 0 24 24"
-            className={`absolute ${iconClassName} fill-rose-500 text-rose-500 filter drop-shadow-sm animate-heart-break-left`}
+            className={`absolute ${iconClassName} fill-rose-500 text-rose-500 filter drop-shadow-xs animate-heart-break-left`}
           >
             <path d="M12 5.2 L12 8 L10.5 10.5 L12.5 13 L11 15.5 L12 21 L5 14 C3.5 12.55 2 10.8 2 8.5 A5.5 5.5 0 0 1 7.5 3 C9.26 3 10.5 3.5 12 5.2 Z" />
           </svg>
@@ -69,7 +69,7 @@ export const AnimatedLikeButton: React.FC<AnimatedLikeButtonProps> = ({
           {/* Right Falling Half */}
           <svg
             viewBox="0 0 24 24"
-            className={`absolute ${iconClassName} fill-rose-500 text-rose-500 filter drop-shadow-sm animate-heart-break-right`}
+            className={`absolute ${iconClassName} fill-rose-500 text-rose-500 filter drop-shadow-xs animate-heart-break-right`}
           >
             <path d="M12 5.2 L12 8 L10.5 10.5 L12.5 13 L11 15.5 L12 21 L19 14 C20.5 12.55 22 10.8 22 8.5 A5.5 5.5 0 0 0 16.5 3 C14.74 3 13.5 3.5 12 5.2 Z" />
           </svg>

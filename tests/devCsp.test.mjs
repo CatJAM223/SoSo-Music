@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
-import { devCspHashes } from '../scripts/desktop/devCsp.ts';
+import { devCspHashes } from '../scripts/desktop/devCsp.mts';
 
 test('Development HTML authorizes the actual React Refresh preamble by hash without unsafe-inline', async () => {
   const server = await createServer({

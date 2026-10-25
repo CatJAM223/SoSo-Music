@@ -16,6 +16,7 @@ interface TrackTableProps {
   onNavigateToAlbum?: (album: any) => void;
   hideAlbumColumn?: boolean;
   totalDurationSeconds?: number;
+  showChartRanks?: boolean;
 }
 
 const ROW_HEIGHT = 56;
@@ -31,6 +32,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   onNavigateToAlbum,
   hideAlbumColumn = false,
   totalDurationSeconds,
+  showChartRanks = false,
 }) => {
   useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -130,7 +132,11 @@ export const TrackTable: React.FC<TrackTableProps> = ({
             <TrackRow
               key={`${track.id}-${idx}`}
               track={track}
-              index={idx}
+              index={
+                showChartRanks && typeof track.chartRank === 'number' && track.chartRank > 0
+                  ? track.chartRank - 1
+                  : idx
+              }
               onOpenAddToPlaylist={onOpenAddToPlaylist}
               playlistContext={playlistContext || tracks}
               playbackOrigin={playbackOrigin}

@@ -5,6 +5,7 @@ import type {
 } from '../utils/desktopControls';
 import type { PlaybackOrigin, TasteExclusionChange, TastePolicySnapshot } from './tastePolicy.ts';
 import type { LibraryTasteReport } from './libraryTaste.ts';
+import type { ChartRegion } from '../utils/chartRegions.ts';
 import type { PlaylistReadResult } from './playlistImport.ts';
 
 export type MusicSource = 'all' | 'soundcloud' | 'youtube';
@@ -15,6 +16,8 @@ export interface Track {
   queueOrigin?: PlaybackOrigin;
   title: string;
   title_short?: string;
+  /** Position in the originating chart, before unavailable songs are removed. */
+  chartRank?: number;
   artist: {
     id?: number | string;
     name: string;
@@ -177,6 +180,8 @@ export interface SavedAlbum {
 }
 
 export interface ArtistDetails {
+  /** Complete artist-owned shelves; topTracks remains the popularity preview. */
+  catalogTracks?: Track[];
   artist: Artist;
   topTracks: Track[];
   albums: Album[];
@@ -507,7 +512,7 @@ export interface ElectronAPI {
     requestId?: string,
   ) => Promise<{ data: Artist[] }>;
   cancelSearch?: (requestId: string) => Promise<void>;
-  getCharts: (source?: MusicSource) => Promise<ChartData>;
+  getCharts: (region?: ChartRegion) => Promise<ChartData>;
   getGenres: () => Promise<{ data: Genre[] }>;
   getGenreTracks: (genreId: number | string, source?: MusicSource) => Promise<{ data: Track[] }>;
   getAutocomplete: (query: string) => Promise<AutocompleteSuggestion[]>;

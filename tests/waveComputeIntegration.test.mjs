@@ -62,12 +62,6 @@ test('Public wave queue uses the Rust results for history, deduplication and exp
       before.rustBatches + 1,
       'supported public wave batch must use Rust',
     );
-    assert.ok(api.computeObservations.heard > before.heard, 'wave must read Rust history flags');
-    assert.ok(
-      api.computeObservations.offered > before.offered,
-      'wave must read Rust exposure flags',
-    );
-    assert.ok(api.computeObservations.pairs > before.pairs, 'wave must read Rust duplicate flags');
     assertQueueContract(queue);
   }
   const offered = track('offered', 'Ivory Horizon', 'Offer Artist'),
@@ -82,28 +76,26 @@ test('Public wave queue uses the Rust results for history, deduplication and exp
   assert.equal(queue[0]?.id, 'fresh', 'offered songs must lose priority');
 });
 
-test('Public queue keeps the same behavior before initialization and after corrupt WASM', async () => {
-  const before = await waveComputeFixture(),
-    corrupt = await waveComputeFixture();
-  assert.equal(await corrupt.initializeRustCompute(new Uint8Array([0, 1, 2, 3])), false);
-  for (const mood of moods) {
+test('Missing, corrupt or old Rust modules fail explicitly without a JS algorithm fallback', async () => {
+  for (const bytes of [
+    null,
+    new Uint8Array([0, 1, 2, 3]),
+    fs.readFileSync(new URL('./fixtures/waveBeforeFullRust.wasm', import.meta.url)),
+  ]) {
+    const api = await waveComputeFixture();
+    if (bytes) assert.equal(await api.initializeRustCompute(bytes), false);
     const { tracks, options } = scenario();
-    const reference = before.sequenceWaveTracks(tracks, mood, [], 200, options);
-    assertQueueContract(reference);
-    assert.deepEqual(corrupt.sequenceWaveTracks(tracks, mood, [], 200, options), reference);
+    assert.throws(() => api.sequenceWaveTracks(tracks, 'default', [], 200, options), /Rust/);
+    assert.equal(api.computeObservations.rustBatches, 0);
   }
-  assert.equal(before.computeObservations.rustBatches, 0);
-  assert.equal(corrupt.computeObservations.rustBatches, 0);
 });
-
-test('Unsupported public batches fall back without losing songs or poisoning later Rust work', async () => {
-  const rust = await waveComputeFixture(),
-    js = await waveComputeFixture();
-  assert.equal(await rust.initializeRustCompute(bytes), true);
+test('Former JS fallback sizes and small jobs now execute the same required Rust pipeline', async () => {
+  const api = await waveComputeFixture();
+  assert.equal(await api.initializeRustCompute(bytes), true);
   for (const options of [
     {
       recentTracks: Array.from({ length: 301 }, (_, i) =>
-        track('recent-' + i, 'Past Journey ' + i, 'Past Artist'),
+        track('past-' + i, 'Past Journey ' + i, 'Past Artist'),
       ),
     },
     {
@@ -111,19 +103,21 @@ test('Unsupported public batches fall back without losing songs or poisoning lat
         track('offered-' + i, 'Past Journey ' + i, 'Past Artist'),
       ),
     },
+    {},
   ]) {
-    const tracks = filler();
-    assert.deepEqual(
-      rust.sequenceWaveTracks(tracks, 'default', [], 25, options),
-      js.sequenceWaveTracks(tracks, 'default', [], 25, options),
-    );
-    assert.equal(rust.computeObservations.rustBatches, 0, 'unsupported history must use JS');
+    const before = api.computeObservations.rustBatches;
+    const input = filler().slice(0, options.recentTracks ? 85 : 10);
+    assert.ok(api.sequenceWaveTracks(input, 'default', [], 25, options).length);
+    assert.equal(api.computeObservations.rustBatches, before + 1);
   }
+});
+test('A native calculation failure propagates; later queued music is not fabricated in JS', async () => {
+  const api = await waveComputeFixture('reject-ranking');
+  assert.equal(await api.initializeRustCompute(bytes), true);
   const { tracks, options } = scenario();
-  assertQueueContract(rust.sequenceWaveTracks(tracks, 'default', [], 200, options));
-  assert.equal(
-    rust.computeObservations.rustBatches,
-    1,
-    'valid work after fallback must still use Rust',
+  assert.throws(
+    () => api.sequenceWaveTracks(tracks, 'mix', [], 25, options),
+    /Forced Rust rejection/,
   );
+  assert.equal(api.computeObservations.rustBatches, 0);
 });

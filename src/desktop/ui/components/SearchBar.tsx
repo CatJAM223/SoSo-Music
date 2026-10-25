@@ -245,7 +245,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
             loadHistory();
           }}
           placeholder={t('Что хотите послушать? (трек, артист, альбом...)')}
-          className="w-full pl-10 pr-10 py-2.5 soso-search-input text-sm placeholder-slate-400 dark:placeholder-zinc-400 shadow-sm"
+          className="w-full pl-10 pr-10 py-2.5 soso-search-input text-sm placeholder-slate-400 dark:placeholder-zinc-400 shadow-xs"
         />
 
         {query && (

@@ -1,3 +1,4 @@
+import { RustTsDemuxer } from '../compute/audioCore.ts';
 /**
  * Offline Audio Cache Service
  * Provides IndexedDB-backed audio caching for offline playback and instantaneous loading.
@@ -355,6 +356,21 @@ export async function fetchCompleteAudioBlob(
     }
   }
 
+  if (/^#EXT-X-KEY:.*METHOD=(?!NONE(?:,|$))/m.test(manifestText))
+    throw Error('Зашифрованный HLS поток не поддерживает офлайн скачивание');
+  if (manifestText.includes('#EXT-X-BYTERANGE'))
+    throw Error('HLS с диапазонами байтов не поддерживает офлайн скачивание');
+  const discontinuities = new Set<number>();
+  let segmentIndex = /^#EXT-X-MAP:/m.test(manifestText) ? 1 : 0;
+  let discontinuity = false;
+  for (const line of manifestText.split('\n').map((line) => line.trim())) {
+    if (line === '#EXT-X-DISCONTINUITY') discontinuity = true;
+    if (line && !line.startsWith('#')) {
+      if (discontinuity) discontinuities.add(segmentIndex);
+      discontinuity = false;
+      segmentIndex++;
+    }
+  }
   // Extract all segment URLs
   const segmentUrls = parseHlsSegments(manifestText, streamUrl);
 
@@ -363,7 +379,10 @@ export async function fetchCompleteAudioBlob(
   }
 
   // Fetch all segments in parallel batches (concurrency: 6)
-  const segmentBuffers: ArrayBuffer[] = [];
+  const audioChunks: Uint8Array[] = [];
+  let directMime: string | null = null;
+  let demuxer: RustTsDemuxer | null = null;
+  let initialized = false;
   const BATCH_SIZE = 6;
   for (let i = 0; i < segmentUrls.length; i += BATCH_SIZE) {
     const batch = segmentUrls.slice(i, i + BATCH_SIZE);
@@ -374,7 +393,7 @@ export async function fetchCompleteAudioBlob(
           try {
             const buf = await (window as any).electronAPI.downloadAudioBuffer(url);
             if (buf && (buf.byteLength > 1000 || (buf as any).length > 1000)) {
-              return buf instanceof ArrayBuffer ? buf : buf.buffer || buf;
+              return buf instanceof ArrayBuffer ? buf : new Uint8Array(buf).buffer;
             }
           } catch (e) {}
         }
@@ -384,111 +403,39 @@ export async function fetchCompleteAudioBlob(
         return await segRes.arrayBuffer();
       }),
     );
-    segmentBuffers.push(...results);
+    for (let j = 0; j < results.length; j++) {
+      const buffer = results[j];
+      const bytes = new Uint8Array(buffer);
+      if (!initialized) {
+        const head = bytes.subarray(0, 16);
+        const boxTag = String.fromCharCode(...head.subarray(4, 8));
+        directMime = ['styp', 'ftyp', 'moov', 'sidx'].includes(boxTag)
+          ? 'audio/mp4'
+          : head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3
+            ? 'audio/webm'
+            : head[0] === 0xff && (head[1] & 0xf6) === 0xf0
+              ? 'audio/aac'
+              : head[0] === 0xff && (head[1] & 0xe0) === 0xe0
+                ? 'audio/mpeg'
+                : null;
+        if (!directMime) demuxer = new RustTsDemuxer();
+        initialized = true;
+      }
+      if (demuxer) {
+        if (i + j > 0 && discontinuities.has(i + j)) demuxer.boundary();
+        audioChunks.push(...demuxer.push(bytes));
+      } else audioChunks.push(bytes);
+    }
     onProgress?.(
       0.18 + (Math.min(segmentUrls.length, i + batch.length) / segmentUrls.length) * 0.64,
     );
   }
 
-  // Combine segment buffers into a single buffer
-  let totalTsBytes = 0;
-  for (const b of segmentBuffers) totalTsBytes += b.byteLength;
-  const mergedTs = new Uint8Array(totalTsBytes);
-  let offset = 0;
-  for (const b of segmentBuffers) {
-    mergedTs.set(new Uint8Array(b), offset);
-    offset += b.byteLength;
-  }
-
-  // Detect the actual segment container — SoundCloud HLS serves CMAF/fMP4
-  // (.m4s, "styp" boxes), others serve MPEG-TS or raw ADTS AAC. Mislabeled
-  // blobs fail <audio> decoding and get purged as "corrupted" on first play.
-  const head = new Uint8Array(mergedTs.buffer, 0, Math.min(16, mergedTs.byteLength));
-  const boxTag = String.fromCharCode(head[4], head[5], head[6], head[7]);
-  const isFmp4 = boxTag === 'styp' || boxTag === 'ftyp' || boxTag === 'moov' || boxTag === 'sidx';
-  const isAdtsAac = head[0] === 0xff && (head[1] & 0xf6) === 0xf0;
-  const isMp3 = head[0] === 0xff && (head[1] & 0xe0) === 0xe0;
-  const isEbml = head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3;
-
-  if (mergedTs.byteLength >= 20000) {
-    // fMP4 / CMAF: init segment (moov) + moof/mdat fragments concatenate into
-    // a valid fragmented MP4 stream — playable with the audio/mp4 MIME.
-    if (isFmp4) return new Blob([mergedTs], { type: 'audio/mp4' });
-    if (isAdtsAac) return new Blob([mergedTs], { type: 'audio/aac' });
-    if (isEbml) return new Blob([mergedTs], { type: 'audio/webm' });
-    if (isMp3) return new Blob([mergedTs], { type: 'audio/mpeg' });
-  }
-
-  // MPEG-TS: demux packets into raw elementary ADTS AAC / MP3 audio frames
-  const audioData = demuxMpegTsToElementaryAudio(mergedTs.buffer);
-  if (audioData && audioData.byteLength >= 20000) {
-    const headerBytes = new Uint8Array(audioData, 0, Math.min(audioData.byteLength, 10));
-    // ADTS AAC starts with 0xFF 0xF1 or 0xFF 0xF9
-    const isAac = headerBytes[0] === 0xff && (headerBytes[1] & 0xf0) === 0xf0;
-    return new Blob([audioData], { type: isAac ? 'audio/aac' : 'audio/mpeg' });
-  }
-
-  const combinedBlob = new Blob([mergedTs], { type: 'audio/mpeg' });
-  if (combinedBlob.size < 20000) {
-    throw new Error(`Combined audio size is too small (${combinedBlob.size} bytes)`);
-  }
-  return combinedBlob;
-}
-
-/**
- * Demuxes MPEG-TS transport stream into raw AAC / MP3 elementary audio stream
- */
-function demuxMpegTsToElementaryAudio(tsBuffer: ArrayBuffer): ArrayBuffer {
-  const tsBytes = new Uint8Array(tsBuffer);
-  const audioChunks: Uint8Array[] = [];
-  let totalLength = 0;
-
-  for (let i = 0; i < tsBytes.length; i += 188) {
-    if (tsBytes[i] !== 0x47) continue; // TS Sync byte
-
-    const payloadUnitStart = (tsBytes[i + 1] & 0x40) !== 0;
-    const adaptationField = (tsBytes[i + 3] & 0x30) >> 4;
-
-    let payloadStart = i + 4;
-    if (adaptationField === 2 || adaptationField === 3) {
-      const adaptationLength = tsBytes[i + 4];
-      payloadStart = i + 5 + adaptationLength;
-    }
-
-    if (payloadStart >= i + 188) continue;
-
-    let chunk = tsBytes.subarray(payloadStart, i + 188);
-
-    if (payloadUnitStart) {
-      // Look for PES header: 0x00 0x00 0x01
-      if (chunk.length >= 9 && chunk[0] === 0x00 && chunk[1] === 0x00 && chunk[2] === 0x01) {
-        const streamId = chunk[3];
-        // Audio stream IDs in PES: 0xC0..0xDF or 0xBD
-        if ((streamId >= 0xc0 && streamId <= 0xdf) || streamId === 0xbd) {
-          const headerDataLen = chunk[8];
-          const pesPayloadStart = 9 + headerDataLen;
-          if (pesPayloadStart < chunk.length) {
-            chunk = chunk.subarray(pesPayloadStart);
-          }
-        }
-      }
-    }
-
-    if (chunk.length > 0) {
-      audioChunks.push(chunk);
-      totalLength += chunk.length;
-    }
-  }
-
-  if (totalLength === 0) return tsBuffer;
-
-  const result = new Uint8Array(totalLength);
-  let outOffset = 0;
-  for (const c of audioChunks) {
-    result.set(c, outOffset);
-    outOffset += c.length;
-  }
-  return result.buffer;
+  const mime = demuxer ? demuxer.finish() : directMime;
+  if (!mime) throw Error('Empty HLS audio stream');
+  const blob = blobFromChunks(audioChunks, mime);
+  if (blob.size < 20000) throw Error(`Combined audio size is too small (${blob.size} bytes)`);
+  return blob;
 }
 
 export function getPossibleKeyVariants(trackId: string | number): string[] {

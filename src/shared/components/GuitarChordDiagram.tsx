@@ -60,7 +60,7 @@ export const GuitarChordDiagram: React.FC<GuitarChordDiagramProps> = ({
     >
       {/* Chord Name Header with Theme Color */}
       <span
-        className="font-mono font-black text-sm sm:text-base tracking-wide drop-shadow-sm mb-1.5"
+        className="font-mono font-black text-sm sm:text-base tracking-wide drop-shadow-xs mb-1.5"
         style={{ color: themeHex }}
       >
         {data.chord}

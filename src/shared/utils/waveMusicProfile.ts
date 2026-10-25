@@ -1,3 +1,6 @@
+import { numericNames, encodeNumbers } from '../compute/songPacket.ts';
+import { runRustCompute } from '../compute/rustCore.ts';
+import { requireRustCompute, waveMoodId } from '../compute/rustCore.ts';
 import type { Track, WaveMood } from '../types/index.ts';
 
 /** Only provider classification metadata is musical evidence; names and titles are not. */
@@ -89,74 +92,36 @@ export function waveMusicProfile(track: Pick<Track, 'genre' | 'tags'>): WaveMusi
   return { styles, energy };
 }
 
-function similarity(left: WaveMusicProfile, right: WaveMusicProfile): number {
-  if (!left.styles.size || !right.styles.size) return 0;
-  let shared = 0;
-  for (const style of left.styles) if (right.styles.has(style)) shared++;
-  const moodCompatibility = left.energy * right.energy < 0 ? 0.2 : 1;
-  return (shared / Math.sqrt(left.styles.size * right.styles.size)) * moodCompatibility;
-}
-
+/** Numeric mood scoring is shared with the Rust queue implementation. */
 export function waveMoodScore(profile: WaveMusicProfile, mood: WaveMood): number {
-  // The selected mood must outweigh ordinary familiarity and genre-affinity bonuses.
-  return mood === 'energy' ? profile.energy * 12 : mood === 'chill' ? -profile.energy * 12 : 0;
+  return requireRustCompute().wave_mood_score(profile.energy, waveMoodId(mood));
 }
 
-/** Keep multiple taste clusters. A skip is a temporary hint, never a genre ban. */
+/** Compatibility API: prepare profile data once; the scorer itself exists only in Rust. */
 export function createWaveMusicScorer(
   taste: readonly Track[] = [],
-  positives: readonly Track[] = [],
+  positive: readonly Track[] = [],
   skipped: readonly Track[] = [],
   learned: readonly Track[] = [],
 ) {
-  const profiles = (tracks: readonly Track[], limit: number) => {
-    const seen = new Set<string>();
-    const selected: WaveMusicProfile[] = [];
-    for (const track of tracks) {
-      if (seen.has(String(track.id))) continue;
-      seen.add(String(track.id));
-      selected.push(waveMusicProfile(track));
-      if (selected.length >= limit) break;
+  const pools = [taste, positive, skipped, learned].map((pool) =>
+    pool.map((track) => ({ id: String(track.id), profile: waveMusicProfile(track) })),
+  );
+  return (profile: WaveMusicProfile, mood: WaveMood): number => {
+    const styles = numericNames(),
+      ids = numericNames();
+    const pack = (p: WaveMusicProfile) => [
+      p.energy,
+      p.styles.size,
+      ...[...p.styles].map(styles.id),
+    ];
+    const words = [waveMoodId(mood), ...pack(profile)];
+    for (const pool of pools) {
+      words.push(pool.length);
+      for (const item of pool) words.push(ids.id(item.id), ...pack(item.profile));
     }
-    return selected;
+    const result = runRustCompute('music_affinity', encodeNumbers(words));
+    if (result.length !== 8) throw Error('Invalid Rust music score');
+    return new DataView(result.buffer, result.byteOffset, 8).getFloat64(0, true);
   };
-  const tasteProfiles = profiles(taste, 48),
-    positiveProfiles = profiles(positives, 12),
-    skippedProfiles = profiles(skipped, 12),
-    learnedProfiles = profiles(learned, 48);
-  const affinity = (profile: WaveMusicProfile, pool: WaveMusicProfile[], decay = 1) =>
-    Math.max(0, ...pool.map((anchor, index) => similarity(profile, anchor) * decay ** index));
-  return (profile: WaveMusicProfile, mood: WaveMood) => {
-    const negativeEvidence = skippedProfiles.reduce(
-      (sum, anchor, index) => sum + similarity(profile, anchor) * 0.75 ** index,
-      0,
-    );
-    // Corroborated skips can outweigh an old success; one skip leaves that anchor intact.
-    const positive =
-      affinity(profile, positiveProfiles, 0.85) *
-      Math.max(0, 1 - Math.max(0, negativeEvidence - 1.5) / 0.75);
-    const negative = Math.min(1, negativeEvidence / 2);
-    let score =
-      waveMoodScore(profile, mood) +
-      affinity(profile, tasteProfiles) * 2 +
-      affinity(profile, learnedProfiles) * 1.5 +
-      positive * 4;
-    // Successful listening in the same style counterbalances an isolated skip.
-    score -= Math.max(0, negative - positive) * 4;
-    return score;
-  };
-}
-
-/** Transition cost depends on the preceding selection; taste relevance does not. */
-export function waveTransitionScore(
-  profile: WaveMusicProfile,
-  previous: WaveMusicProfile | undefined,
-  mood: WaveMood,
-): number {
-  if (!previous) return 0;
-  // A mix deliberately moves between taste clusters instead of following one style.
-  if (mood === 'mix') return -similarity(profile, previous) * 3;
-  const coherence =
-    similarity(profile, previous) * 1.5 - (profile.energy * previous.energy < 0 ? 1 : 0);
-  return coherence;
 }

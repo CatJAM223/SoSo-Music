@@ -63,7 +63,7 @@ export const AlbumView: React.FC<AlbumViewProps> = ({
       <div className="relative overflow-hidden rounded-2xl bg-slate-50 dark:bg-zinc-900 p-6 sm:p-8 border border-slate-200 dark:border-zinc-800">
         <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 relative z-10">
           {/* Artwork */}
-          <div className="relative w-44 h-44 sm:w-52 sm:h-52 rounded-xl overflow-hidden flex-shrink-0 bg-slate-300 dark:bg-zinc-800 group">
+          <div className="relative w-44 h-44 sm:w-52 sm:h-52 rounded-xl overflow-hidden shrink-0 bg-slate-300 dark:bg-zinc-800 group">
             <img src={coverUrl} alt={albumTitle} className="w-full h-full object-cover" />
           </div>
 

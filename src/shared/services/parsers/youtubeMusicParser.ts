@@ -341,7 +341,11 @@ export function extractArtistsFromRuns(runs: any[]): {
   return { artistName, artistBrowseId };
 }
 
-export function parseInnerTubeShelfItem(r: any, seenIds?: Set<string>): Track | null {
+export function parseInnerTubeShelfItem(
+  r: any,
+  seenIds?: Set<string>,
+  options: { requireDuration?: boolean } = {},
+): Track | null {
   if (!r) return null;
   const renderer = r.musicResponsiveListItemRenderer || r;
 
@@ -370,7 +374,7 @@ export function parseInnerTubeShelfItem(r: any, seenIds?: Set<string>): Track | 
 
   const { albumTitle, albumBrowseId } = extractAlbumFromFlexColumns(renderer.flexColumns);
 
-  let durationSec = 180;
+  let durationSec: number | undefined;
 
   // 1. Check fixedColumns (runs & simpleText)
   if (Array.isArray(renderer.fixedColumns)) {
@@ -386,8 +390,8 @@ export function parseInnerTubeShelfItem(r: any, seenIds?: Set<string>): Track | 
   }
 
   // 2. Fallback: check all flexColumns from last to first
-  if (durationSec === 180 && Array.isArray(renderer.flexColumns)) {
-    for (let colIdx = renderer.flexColumns.length - 1; colIdx >= 0; colIdx--) {
+  if (durationSec === undefined && Array.isArray(renderer.flexColumns)) {
+    for (let colIdx = renderer.flexColumns.length - 1; colIdx >= 1; colIdx--) {
       const runs =
         renderer.flexColumns[colIdx]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
       for (let i = runs.length - 1; i >= 0; i--) {
@@ -398,9 +402,11 @@ export function parseInnerTubeShelfItem(r: any, seenIds?: Set<string>): Track | 
           break;
         }
       }
-      if (durationSec !== 180) break;
+      if (durationSec !== undefined) break;
     }
   }
+
+  if (options.requireDuration && durationSec === undefined) return null;
 
   const thumbs =
     renderer.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails ||
@@ -419,7 +425,7 @@ export function parseInnerTubeShelfItem(r: any, seenIds?: Set<string>): Track | 
     id: `yt_${videoId}`,
     title,
     title_short: title,
-    duration: durationSec,
+    duration: durationSec ?? 180,
     preview: `https://www.youtube.com/watch?v=${videoId}`,
     artist: {
       id: `yt_art_${artistBrowseId || artistName.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '_')}`,
@@ -442,7 +448,10 @@ export function parseInnerTubeShelfItem(r: any, seenIds?: Set<string>): Track | 
   };
 }
 
-export function parsePlaylistPanelItem(r: any): Track | null {
+export function parsePlaylistPanelItem(
+  r: any,
+  options: { requireDuration?: boolean } = {},
+): Track | null {
   if (!r) return null;
   const renderer = r.playlistPanelVideoRenderer || r;
   const videoId = renderer.videoId || renderer.navigationEndpoint?.watchEndpoint?.videoId;
@@ -456,6 +465,7 @@ export function parsePlaylistPanelItem(r: any): Track | null {
   const { artistName, artistBrowseId } = extractArtistsFromRuns(bylineRuns);
 
   const lengthText = renderer.lengthText?.runs?.[0]?.text || renderer.lengthText?.simpleText || '';
+  if (options.requireDuration && !/^\d+:\d+(:\d+)?$/.test(String(lengthText).trim())) return null;
   const duration = lengthText ? parseDuration(lengthText) : 180;
 
   const thumbs = renderer.thumbnail?.thumbnails || [];

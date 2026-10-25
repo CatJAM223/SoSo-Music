@@ -6,7 +6,12 @@ import type {
   ImportSearchSource,
 } from '../types/playlistImport.ts';
 import { extractCoreTitle } from '../utils/trackFingerprint.ts';
-import { getWaveArtistNames, matchesWaveArtist } from '../utils/waveIdentity.ts';
+import {
+  getWaveArtistNames,
+  getWaveArtistKeys,
+  normalizeWaveArtist,
+} from '../utils/waveIdentity.ts';
+import { runRustCompute } from '../compute/rustCore.ts';
 import { PlaybackLogger } from './playbackLogger.ts';
 
 export type ImportSearch = (
@@ -66,70 +71,91 @@ const titleCore = (title: string, artists: string[]) => {
   }
   return core;
 };
-const tokenMatches = (wanted: string, actual: string) =>
-  wanted === actual ||
-  (wanted.endsWith('masktoken') && wanted.length >= 11 && actual.startsWith(wanted.slice(0, -9))) ||
-  (actual.endsWith('masktoken') && actual.length >= 11 && wanted.startsWith(actual.slice(0, -9)));
+export function rankImportCandidates(original: ExternalPlaylistTrack, candidates: Track[]) {
+  if (candidates.length > 256) throw Error('Too many import candidates');
+  let packet = new Uint8Array(16384);
+  let view = new DataView(packet.buffer);
+  let offset = 0;
+  const encoder = new TextEncoder();
+  const ensure = (size: number) => {
+    if (offset + size > 8 * 1024 * 1024) throw Error('Import metadata exceeds limits');
+    if (offset + size <= packet.length) return;
+    const next = new Uint8Array(
+      Math.min(8 * 1024 * 1024, Math.max(packet.length * 2, offset + size)),
+    );
+    next.set(packet.subarray(0, offset));
+    packet = next;
+    view = new DataView(next.buffer);
+  };
+  const word = (value: number) => {
+    ensure(4);
+    view.setUint32(offset, value, true);
+    offset += 4;
+  };
+  const number = (value: number) => {
+    ensure(8);
+    view.setFloat64(offset, Number.isFinite(value) ? value : 0, true);
+    offset += 8;
+  };
+  const text = (value: string) => {
+    ensure(value.length * 3 + 4);
+    const { written } = encoder.encodeInto(value, packet.subarray(offset + 4));
+    view.setUint32(offset, written, true);
+    offset += 4 + written;
+  };
+  const strings = (values: Iterable<string>) => {
+    const list = [...values];
+    word(list.length);
+    list.forEach(text);
+  };
+  const artists = getWaveArtistNames(original.artist);
+  const artist = normalize(artists[0] || '');
+  word(1);
+  word(candidates.length);
+  number(original.duration);
+  text(artist);
+  text(titleCore(original.title, artists));
+  strings(variants(original.title));
+  strings(getWaveArtistNames(artists[0] || '').map(normalizeWaveArtist));
+  for (const candidate of candidates) {
+    const candidateArtist = normalize(
+      (candidate?.artist?.name || '').replace(/\s*[-–—]?\s*Topic$/i, ''),
+    );
+    word(
+      candidate?.title &&
+        candidate.id &&
+        candidate.artist?.name &&
+        !candidate.playbackUnavailable &&
+        ['soundcloud', 'youtube'].includes(candidate.source || '')
+        ? 1
+        : 0,
+    );
+    number(candidate?.duration || 0);
+    text(candidateArtist);
+    text(titleCore(candidate?.title || '', [...artists, ...getWaveArtistNames(candidate || '')]));
+    strings(variants(candidate?.title || ''));
+    // Exact credit text already travels in the packet. Extra parsed credits are only
+    // needed when the uploader differs, avoiding repeated catalog metadata parsing.
+    strings(
+      candidateArtist === artist ? [] : getWaveArtistKeys(candidate || {}, artists.slice(0, 1)),
+    );
+  }
+  const bytes = runRustCompute('match_import', packet.subarray(0, offset));
+  if (bytes.length !== candidates.length * 16) throw Error('Invalid Rust import ranking');
+  const result = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return candidates.map((_, i) => ({
+    track: candidates[result.getUint32(i * 16, true)],
+    score: result.getFloat64(i * 16 + 4, true),
+    confident: result.getUint32(i * 16 + 12, true) === 1,
+  }));
+}
 
 export function scoreImportCandidate(
   original: ExternalPlaylistTrack,
   candidate: Track,
 ): { score: number; confident: boolean } {
-  if (
-    !candidate?.title ||
-    !candidate.id ||
-    !candidate.artist?.name ||
-    candidate.playbackUnavailable ||
-    !['soundcloud', 'youtube'].includes(candidate.source || '')
-  )
-    return { score: 0, confident: false };
-  const targetVariants = variants(original.title);
-  const candidateVariants = variants(candidate.title);
-  if (
-    targetVariants.size !== candidateVariants.size ||
-    [...targetVariants].some((v) => !candidateVariants.has(v))
-  )
-    return { score: 0, confident: false };
-  const originalArtists = getWaveArtistNames(original.artist);
-  const artist = normalize(originalArtists[0] || '');
-  const candidateArtist = normalize(candidate.artist.name.replace(/\s*[-–—]?\s*Topic$/i, ''));
-  const creditNames = [...originalArtists, ...getWaveArtistNames(candidate)];
-  const title = titleCore(candidate.title, creditNames);
-  const expected = titleCore(original.title, originalArtists);
-  if (!expected || !artist) return { score: 0, confident: false };
-  const artistMatches =
-    candidateArtist === artist || matchesWaveArtist(candidate, originalArtists[0]);
-  if (!artistMatches) return { score: 0, confident: false };
-  const wanted = new Set(expected.split(' ').filter(Boolean));
-  const actual = new Set(title.split(' ').filter(Boolean));
-  const common = [...wanted].filter((token) =>
-    [...actual].some((other) => tokenMatches(token, other)),
-  ).length;
-  const recall = common / wanted.size;
-  const precision = common / Math.max(1, actual.size);
-  if (recall < 0.6 || precision < 0.5) return { score: 0, confident: false };
-  const shortOriginal = original.duration > 0 && original.duration < 15;
-  const durationKnown = original.duration >= 15 && candidate.duration > 0;
-  const difference = durationKnown ? Math.abs(original.duration - candidate.duration) : 0;
-  if (durationKnown && original.duration > 60 && candidate.duration <= 35)
-    return { score: 0, confident: false };
-  if (durationKnown && difference > Math.max(20, original.duration * 0.1) && recall < 0.95)
-    return { score: 0, confident: false };
-  const exact = title === expected;
-  const masked = expected.includes('masktoken') || title.includes('masktoken');
-  const confident =
-    !shortOriginal &&
-    (!masked || exact) &&
-    (exact || (recall >= 0.95 && precision >= 0.9)) &&
-    (!durationKnown || difference <= 8);
-  return {
-    score:
-      recall * 45 +
-      precision * 30 +
-      (candidateArtist === artist ? 15 : 8) +
-      (durationKnown ? Math.max(0, 10 - difference) : 3),
-    confident,
-  };
+  const { score, confident } = rankImportCandidates(original, [candidate])[0];
+  return { score, confident };
 }
 
 function checkAbort(signal?: AbortSignal): void {
@@ -189,10 +215,7 @@ export async function matchImportedTrack(
       for (const query of queries) {
         checkAbort(signal);
         const found = await boundedSearch(search, query, source, signal);
-        const ranked = found
-          .map((track) => ({ track, ...scoreImportCandidate(original, track) }))
-          .filter((item) => item.score > 0)
-          .sort((a, b) => b.score - a.score);
+        const ranked = rankImportCandidates(original, found).filter((item) => item.score > 0);
         candidates.push(...ranked);
         PlaybackLogger.info(
           `[Import:Search] ${original.artist} — ${original.title}: duration=${original.duration}s, source=${source}, found=${found.length}, accepted=${ranked.length}`,

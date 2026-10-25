@@ -1,15 +1,13 @@
+import { rustComputeBytes } from '../compute/rustCore.ts';
+import type { LoudnessStats } from '../compute/audioCore.ts';
+import { audioEqualizer } from './audioEqualizer.ts';
 import { PlaybackLogger } from './playbackLogger.ts';
 import {
   registerAudioVolumeWriter,
   releaseAudioVolumeWriter,
   resetAudioFadeVolume,
 } from '../utils/audioVolume.ts';
-import {
-  RecordingLoudness,
-  LoudnessProfiles,
-  normalizationGain,
-  recordingKey,
-} from '../utils/recordingLoudness.ts';
+import { LoudnessProfiles, normalizationGain, recordingKey } from '../utils/recordingLoudness.ts';
 type AudioTarget = HTMLAudioElement & {
   captureStream?: () => MediaStream;
   setTrackNormalization?: (key: string | null, enabled: boolean, gainDb?: number | null) => void;
@@ -18,7 +16,9 @@ type Capture = {
   context: AudioContext;
   stream: MediaStream;
   nodes: AudioNode[];
-  timer: ReturnType<typeof setInterval> | null;
+  worklet: AudioWorkletNode | null;
+  stats: LoudnessStats | null;
+  readyTimer: ReturnType<typeof setTimeout> | null;
 };
 interface Controller {
   audio: AudioTarget;
@@ -29,20 +29,26 @@ interface Controller {
   gain: number;
   known: boolean;
   started: boolean;
-  meter: RecordingLoudness;
   generation: number;
   capture: Capture | null;
   write: (volume: number) => void;
   start: () => void;
   stop: () => void;
+  seek: () => void;
+  seeked: () => void;
   original: PropertyDescriptor | undefined;
 }
-/** Analysis is a separate, silent branch; the normal playback decoder/output is untouched. */
+/** Analysis uses a silent branch; fixed recording correction uses the shared output graph. */
 export class TrackVolumeNormalization {
   private controllers = new Map<AudioTarget, Controller>();
   private profiles: LoudnessProfiles;
   private enabled = false;
-  constructor(storage?: Pick<Storage, 'getItem' | 'setItem'>) {
+  private outputGain?: (audio: HTMLAudioElement, gain: number) => boolean;
+  constructor(
+    storage?: Pick<Storage, 'getItem' | 'setItem'>,
+    outputGain?: (audio: HTMLAudioElement, gain: number) => boolean,
+  ) {
+    this.outputGain = outputGain;
     this.profiles = new LoudnessProfiles(storage);
     try {
       this.enabled = storage?.getItem('soso_volume_normalization') === 'true';
@@ -69,19 +75,31 @@ export class TrackVolumeNormalization {
       gain: 1,
       known: false,
       started: false,
-      meter: new RecordingLoudness(),
       generation: 0,
       capture: null,
       write,
       start: () => {},
       stop: () => {},
+      seek: () => {},
+      seeked: () => {},
       original: Object.getOwnPropertyDescriptor(audio, 'volume'),
     };
     c.start = () => {
       c.started = true;
       void this.capture(c);
     };
-    c.stop = () => this.stopCapture(c);
+    c.stop = () => {
+      const capture = c.capture;
+      if (!capture) return;
+      capture.worklet?.port.postMessage({ type: 'active', active: false });
+      if (capture.readyTimer) clearTimeout(capture.readyTimer);
+      capture.readyTimer = null;
+      void capture.context.suspend().catch(() => {});
+      this.saveProfile(c, capture);
+    };
+    c.seek = () => c.capture?.worklet?.port.postMessage({ type: 'active', active: false });
+    c.seeked = () =>
+      c.capture?.worklet?.port.postMessage({ type: 'active', active: !c.audio.paused });
     if (!audio.setTrackNormalization)
       Object.defineProperty(audio, 'volume', {
         configurable: true,
@@ -107,6 +125,8 @@ export class TrackVolumeNormalization {
     audio.addEventListener('pause', c.stop);
     audio.addEventListener('emptied', c.stop);
     audio.addEventListener('ended', c.stop);
+    audio.addEventListener('seeking', c.seek);
+    audio.addEventListener('seeked', c.seeked);
   }
   prepare(audio: AudioTarget, track: { id: string | number; source?: string }): void {
     this.attach(audio);
@@ -116,7 +136,6 @@ export class TrackVolumeNormalization {
     this.stopCapture(c);
     c.key = recordingKey(track);
     c.started = false;
-    c.meter = new RecordingLoudness();
     const db = this.profiles.get(c.key);
     c.known = db !== null;
     c.gain = db === null ? 1 : normalizationGain(db);
@@ -139,7 +158,7 @@ export class TrackVolumeNormalization {
     for (const c of this.controllers.values()) {
       if (c.key !== key) continue;
       c.known = true;
-      this.stopCapture(c);
+      this.stopCapture(c, false);
       // Late metadata is saved for the next play, never applied halfway through a song.
       if (!c.started) {
         c.gain = normalizationGain(db);
@@ -161,6 +180,7 @@ export class TrackVolumeNormalization {
     const c = this.controllers.get(audio);
     if (!c) return;
     this.stopCapture(c);
+    this.outputGain?.(audio, 1);
     for (const event of ['playing', 'pause', 'emptied', 'ended'])
       audio.removeEventListener(event, event === 'playing' ? c.start : c.stop);
     if (!audio.setTrackNormalization) {
@@ -168,22 +188,44 @@ export class TrackVolumeNormalization {
       else delete (audio as Partial<HTMLAudioElement>).volume;
       c.write(c.logicalVolume);
     }
+    audio.removeEventListener('seeking', c.seek);
+    audio.removeEventListener('seeked', c.seeked);
     releaseAudioVolumeWriter(audio);
     this.controllers.delete(audio);
   }
   private writeVolume(c: Controller): void {
-    // Saturate the normalized endpoint before fading; boosting must not flatten the envelope.
-    c.write(Math.min(1, c.baseVolume * (this.enabled ? c.gain : 1)) * c.fadeFactor);
+    // Graph gain is independent of the bounded slider and fade. Without Web Audio,
+    // saturate the endpoint before fading so boosting cannot flatten the envelope.
+    const gain = this.enabled ? c.gain : 1;
+    const graphOwnsGain = this.outputGain?.(c.audio, gain) ?? false;
+    c.write((graphOwnsGain ? c.baseVolume : Math.min(1, c.baseVolume * gain)) * c.fadeFactor);
   }
   getGain(audio: AudioTarget): number {
     return this.controllers.get(audio)?.gain ?? 1;
   }
-  private stopCapture(c: Controller): void {
+  private saveProfile(c: Controller, capture: Capture): void {
+    const stats = capture.stats;
+    if (!stats || !Number.isFinite(stats.gainDb)) return;
+    this.profiles.set(c.key, stats.gainDb);
+    // Apply only when the recording starts again, preserving a fixed gain during playback.
+  }
+  private watchCapture(c: Controller, capture: Capture): void {
+    if (capture.readyTimer) clearTimeout(capture.readyTimer);
+    capture.readyTimer = setTimeout(() => {
+      if (c.capture === capture && !c.audio.paused) this.stopCapture(c);
+    }, 15000);
+  }
+  private stopCapture(c: Controller, save = true): void {
     c.generation++;
     const capture = c.capture;
     c.capture = null;
     if (!capture) return;
-    if (capture.timer) clearInterval(capture.timer);
+    if (save) this.saveProfile(c, capture);
+    if (capture.readyTimer) clearTimeout(capture.readyTimer);
+    if (capture.worklet) {
+      capture.worklet.port.onmessage = null;
+      capture.worklet.port.close();
+    }
     capture.nodes.forEach((node) => {
       try {
         node.disconnect();
@@ -193,6 +235,12 @@ export class TrackVolumeNormalization {
     void capture.context.close().catch(() => {});
   }
   private async capture(c: Controller): Promise<void> {
+    if (c.capture) {
+      this.watchCapture(c, c.capture);
+      c.capture.worklet?.port.postMessage({ type: 'active', active: !c.audio.seeking });
+      void c.capture.context.resume().catch(() => {});
+      return;
+    }
     if (
       !this.enabled ||
       !c.key ||
@@ -208,72 +256,55 @@ export class TrackVolumeNormalization {
     let stream: MediaStream | null = null;
     try {
       stream = c.audio.captureStream();
-      const context = new AudioContext({ sampleRate: 24000 });
-      capture = { stream, context, nodes: [], timer: null };
+      const context = new AudioContext({ sampleRate: 48000 });
+      capture = { stream, context, nodes: [], worklet: null, stats: null, readyTimer: null };
       c.capture = capture;
       await context.resume();
       if (generation !== c.generation || c.audio.paused || !this.enabled) {
         if (c.capture === capture) this.stopCapture(c);
         return;
       }
-      const source = context.createMediaStreamSource(stream),
-        splitter = context.createChannelSplitter(2);
-      const silent = context.createGain();
-      silent.gain.value = 0;
-      source.connect(splitter);
-      silent.connect(context.destination);
-      capture.nodes.push(source, splitter, silent);
-      const meters = [0, 1].map((channel) => {
-        const shelf = context.createBiquadFilter();
-        shelf.type = 'highshelf';
-        shelf.frequency.value = 1500;
-        shelf.gain.value = 4;
-        const highpass = context.createBiquadFilter();
-        highpass.type = 'highpass';
-        highpass.frequency.value = 60;
-        highpass.Q.value = 0.5;
-        const analyser = context.createAnalyser();
-        analyser.fftSize = 4096;
-        splitter.connect(shelf, channel);
-        shelf.connect(highpass);
-        highpass.connect(analyser);
-        analyser.connect(silent);
-        capture!.nodes.push(shelf, highpass, analyser);
-        return { analyser, samples: new Float32Array(4096) };
+      const workletUrl = new URL('compute/soso-normalization.js', document.baseURI).href;
+      await context.audioWorklet.addModule(workletUrl);
+      if (generation !== c.generation || c.capture !== capture) return;
+      const source = context.createMediaStreamSource(stream);
+      const node = new AudioWorkletNode(context, 'soso-normalization', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        channelCount: 2,
+        channelCountMode: 'clamped-max',
       });
-      const began = performance.now();
-      capture.timer = setInterval(() => {
+      capture.worklet = node;
+      capture.nodes.push(source, node);
+      // No samples are copied to the renderer. The worklet posts scalar metadata once a second.
+      node.port.onmessage = ({ data }) => {
         if (generation !== c.generation || c.capture !== capture) return;
-        if (!c.audio.paused && !c.audio.seeking && c.audio.readyState >= 2) {
-          let power = 0;
-          for (const meter of meters) {
-            meter.analyser.getFloatTimeDomainData(meter.samples);
-            let sum = 0;
-            for (const sample of meter.samples) sum += sample * sample;
-            power += sum / meter.samples.length;
-          }
-          c.meter.addPower(power);
-          const db = c.meter.gainDb();
-          if (db !== null && c.meter.frames >= 80) {
-            this.profiles.set(c.key, db);
-            c.known = true;
-            PlaybackLogger.debug(
-              '[AudioPlayer:Normalization] Estimated profile saved for the next playback',
-              { recording: c.key, gainDb: db, frames: c.meter.frames },
-            );
-            this.stopCapture(c);
-            return;
-          }
-        }
-        // Silence/inaccessible cross-origin audio must never be boosted or analysed indefinitely.
-        if (performance.now() - began > 45000) {
-          PlaybackLogger.debug(
-            '[AudioPlayer:Normalization] Analysis stopped without a usable profile',
-            { recording: c.key, frames: c.meter.frames },
-          );
+        if (data.type === 'ready') {
+          if (capture!.readyTimer) clearTimeout(capture!.readyTimer);
+          this.watchCapture(c, capture!);
+        } else if (data.type === 'stats') {
+          this.watchCapture(c, capture!);
+          capture!.stats = data.stats;
+          this.saveProfile(c, capture!);
+        } else if (data.type === 'error') {
           this.stopCapture(c);
+          PlaybackLogger.debug('[AudioPlayer:Normalization] Rust analysis unavailable', {
+            recording: c.key,
+          });
         }
-      }, 200);
+      };
+      node.onprocessorerror = () => {
+        if (c.capture === capture) this.stopCapture(c);
+      };
+      capture.readyTimer = setTimeout(() => {
+        if (c.capture === capture) this.stopCapture(c);
+      }, 10000);
+      node.port.postMessage({ type: 'init', bytes: rustComputeBytes() });
+      node.port.postMessage({ type: 'active', active: !c.audio.paused && !c.audio.seeking });
+      source.connect(node);
+      node.connect(context.destination);
+      if (c.audio.paused) void context.suspend().catch(() => {});
     } catch {
       if (capture && c.capture === capture) this.stopCapture(c);
       else if (!capture) stream?.getTracks().forEach((track) => track.stop());
@@ -292,7 +323,9 @@ export function trackVolumeNormalization(): TrackVolumeNormalization {
     try {
       storage = globalThis.localStorage;
     } catch {}
-    instance = new TrackVolumeNormalization(storage);
+    instance = new TrackVolumeNormalization(storage, (audio, gain) =>
+      audioEqualizer().setNormalizationGain(audio, gain),
+    );
   }
   return instance;
 }

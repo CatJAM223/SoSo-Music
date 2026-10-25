@@ -1,5 +1,37 @@
 # Changelog
 
+### [3.3.4]
+
+- Move offline MPEG-TS/PES audio extraction and playlist-import scoring/ranking to required Rust ABI 4. Select audio through PAT/PMT, retain segment boundaries, validate transport integrity and remove the old production TypeScript algorithms.
+- Replace approximate loudness polling with continuous mono/stereo BS.1770 K-weighting, gated LUFS and 4x true-peak analysis in a Rust AudioWorklet; preserve fixed playback gain, crossfades, pause/seek behavior and provider metadata priority.
+- Keep Wave taste scoring, history/exposure filtering, version choice, matching and ordering in Rust, with managed renderer Workers and no production JavaScript scorer fallback.
+- Fix startup loading coverage and preserve its animation until the lazy player commits; fade into the ready interface and release the loading screen on errors.
+
+- Add a persistent chart-region selector with Worldwide and 19 supported countries; load official weekly song rankings and batch metadata for exact chart recordings, validating region and preserving provider positions.
+- Remove chart/genre heading captions and the genre heading icon; restore a visible hover surface on the highlighted karaoke/chords control.
+
+- Keep the charts section exclusively on official YouTube Music song rankings; remove SoundCloud chart routing, source controls and mixed-chart state. Preserve original chart positions.
+- Use verified SoundCloud genre playlists only for genre browsing, with recording hydration and strict per-track classification.
+
+- Read the official global YouTube Music song chart with current catalog layouts; remove generic Top Hits search substitutions and show retry controls on failure.
+- Share song-duration, mix/tempo-edit and recording-family deduplication across charts and genres; require explicit matching SoundCloud genre tags and use YouTube Songs-only discovery with credited artist matching.
+- Load genre selections per source with separate expiring caches, stale-request protection and a refresh action.
+
+- Recover unavailable YouTube uploads using an available recording with matching title, artist and duration; preserve saved track IDs and the selected service.
+- Follow artist release, video and album continuations; remove the ten-release catalog cap, filter unrelated search results and clear stale artist data on navigation.
+- Group releases and assign SoundCloud album membership by recording/release IDs to avoid mixing same-title songs and albums.
+
+- Update Electron to 45, React to 19, Vite to 8, Tailwind CSS to 4, electron-builder to 26 and the native TypeScript checker to 7; refresh playback, database, icon and build dependencies.
+- Migrate Tailwind utilities, PostCSS, React refs/inert attributes and Rolldown chunk configuration; retain the supported TypeScript 6 compiler API for code-analysis tools.
+
+- Apply recording normalization in the shared audio graph so quiet recordings receive their full correction at high slider levels; preserve crossfade envelopes, guard boosted peaks and let the capture stream settle before analysis.
+- Verify normalization with real decoded audio at 3% and 80% volume, equalizer independence, buffering, mute/unmute and crossfade completion.
+
+- Add a 10-band equalizer to Settings → Playback with an interactive frequency-response graph, precise gain input and seven built-in presets: Default, Headphones, Speakers, Bass boost, Vocals, Rock and Soft sound.
+- Morph the curve and control points smoothly between presets, following live audio filter values; rapid selection continues from the current curve and respects reduced motion.
+- Preserve equalizer settings across restarts, apply them to playback and snippets, smooth filter changes and reserve headroom for overlapping boosts.
+- Verify the frequency response against native Web Audio at four sample rates and cover live audio, preset transitions, keyboard/pointer controls and snippet lifecycle.
+
 ### [3.2.3]
 
 - Isolate overlay storage from playback checkpoints to prevent memory accumulation during long listening sessions. Preserve language changes, positioning and authorized local artwork through IPC and the isolated media handler.

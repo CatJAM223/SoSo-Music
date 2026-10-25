@@ -6,9 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 import postcss from 'postcss';
-import tailwind from 'tailwindcss';
-import autoprefixer from 'autoprefixer';
-import tailwindConfig from '../../tailwind.config.js';
+import tailwind from '@tailwindcss/postcss';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const require = createRequire(import.meta.url);
@@ -102,12 +100,12 @@ try {
       },
     ],
   });
-  const css = await postcss([
-    tailwind({ ...tailwindConfig, content: [path.join(root, 'src/**/*.{ts,tsx}')] }),
-    autoprefixer,
-  ]).process(fs.readFileSync(path.join(root, 'src/renderer/index.css'), 'utf8'), {
-    from: path.join(root, 'src/renderer/index.css'),
-  });
+  const css = await postcss([tailwind({ base: root })]).process(
+    fs.readFileSync(path.join(root, 'src/renderer/index.css'), 'utf8'),
+    {
+      from: path.join(root, 'src/renderer/index.css'),
+    },
+  );
   fs.writeFileSync(
     path.join(output, 'fixture.css'),
     css.css +

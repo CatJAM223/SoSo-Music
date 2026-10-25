@@ -1,6 +1,6 @@
-import { devCspHashes } from './scripts/desktop/devCsp';
+import { devCspHashes } from './scripts/desktop/devCsp.mts';
 import { defineConfig } from 'vite';
-import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import electron from 'vite-plugin-electron';
 import renderer from 'vite-plugin-electron-renderer';
 import react from '@vitejs/plugin-react';
@@ -17,7 +17,7 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            rollupOptions: {
+            rolldownOptions: {
               external: ['sql.js', 'path', 'fs', 'electron'],
               output: {
                 entryFileNames: 'main.js',
@@ -34,7 +34,7 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            rollupOptions: {
+            rolldownOptions: {
               output: {
                 entryFileNames: 'preload.js',
               },
@@ -47,16 +47,21 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src'),
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-icons': ['lucide-react'],
-          'vendor-hls': ['hls.js'],
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor-react',
+              test: /[\\/]node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
+            },
+            { name: 'vendor-icons', test: /[\\/]node_modules[\\/]lucide-react[\\/]/ },
+            { name: 'vendor-hls', test: /[\\/]node_modules[\\/]hls\.js[\\/]/ },
+          ],
         },
       },
     },

@@ -3,9 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const checks = [
-  ['bypass-rust', 'wave must call the Rust adapter'],
+  ['bypass-rust', 'supported public wave batch must use Rust'],
   ['ignore-history', 'heard family returned'],
-  ['ignore-duplicates', 'alternative version returned'],
+  ['ignore-duplicates', 'heard family returned'],
   ['ignore-offered', 'offered songs must lose priority'],
 ];
 for (const [mutation, expected] of checks) {

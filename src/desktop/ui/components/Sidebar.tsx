@@ -104,13 +104,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-64 flex-shrink-0 flex flex-col h-full bg-slate-50/85 dark:bg-[#0a0a0c]/85 backdrop-blur-2xl border-r border-slate-200/70 dark:border-white/[0.05] text-slate-700 dark:text-zinc-300 select-none z-20 transition-colors duration-200">
+    <aside className="w-64 shrink-0 flex flex-col h-full bg-slate-50/85 dark:bg-[#0a0a0c]/85 backdrop-blur-2xl border-r border-slate-200/70 dark:border-white/[0.05] text-slate-700 dark:text-zinc-300 select-none z-20 transition-colors duration-200">
       {/* Seamless Top Brand Header (Window Drag Region with compact h-11 height) */}
       <div
-        className="h-11 px-4 flex items-center gap-2.5 border-b border-slate-200/70 dark:border-white/[0.05] cursor-grab active:cursor-grabbing flex-shrink-0"
+        className="h-11 px-4 flex items-center gap-2.5 border-b border-slate-200/70 dark:border-white/[0.05] cursor-grab active:cursor-grabbing shrink-0"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        <div className="w-6 h-6 rounded-lg overflow-hidden shadow-sm ring-1 ring-black/5 dark:ring-white/10 flex-shrink-0 transition-transform duration-300 hover:scale-105">
+        <div className="w-6 h-6 rounded-lg overflow-hidden shadow-xs ring-1 ring-black/5 dark:ring-white/10 shrink-0 transition-transform duration-300 hover:scale-105">
           <img src={appLogo} alt="SoSo Music" className="w-full h-full object-cover" />
         </div>
         <div>
@@ -140,7 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }`}
             >
               <Icon
-                className={`w-[18px] h-[18px] flex-shrink-0 transition-transform duration-150 group-hover:scale-105 ${
+                className={`w-[18px] h-[18px] shrink-0 transition-transform duration-150 group-hover:scale-105 ${
                   isActive
                     ? 'text-soso-brand'
                     : 'text-slate-400 dark:text-zinc-500 group-hover:text-slate-700 dark:group-hover:text-zinc-300'
@@ -205,7 +205,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <img
                         src={pl.cover_url}
                         alt=""
-                        className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+                        className="w-12 h-12 rounded-lg object-cover shrink-0"
                       />
                     ) : (
                       <PlaylistCover size="md" className="!rounded-lg" />
@@ -244,7 +244,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={onOpenSettings}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[14px] font-medium text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.04] transition-all duration-150 group"
         >
-          <Settings className="w-5 h-5 flex-shrink-0 text-slate-400 dark:text-zinc-500 group-hover:text-slate-700 dark:group-hover:text-zinc-300 transition-transform duration-300 group-hover:rotate-45" />
+          <Settings className="w-5 h-5 shrink-0 text-slate-400 dark:text-zinc-500 group-hover:text-slate-700 dark:group-hover:text-zinc-300 transition-transform duration-300 group-hover:rotate-45" />
           <span className="flex-1 text-left">{t('Настройки')}</span>
         </button>
       </div>

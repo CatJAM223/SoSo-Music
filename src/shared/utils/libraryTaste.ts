@@ -1,3 +1,5 @@
+import { numericNames, encodeNumbers } from '../compute/songPacket.ts';
+import { runRustCompute, requireRustCompute } from '../compute/rustCore.ts';
 import type { LibraryTasteGenre } from '../types/libraryTaste.ts';
 import { waveMusicProfile } from './waveMusicProfile.ts';
 
@@ -78,20 +80,14 @@ export function libraryGenreAffinity(
   styles: ReadonlySet<string>,
   genres: readonly LibraryTasteGenre[],
 ): number {
-  const knownGenres = genres.filter((genre) => Number.isFinite(genre.share) && genre.share > 0);
-  if (!styles.size || !knownGenres.length) return 0;
-  const dominantShare = Math.max(...knownGenres.map((genre) => genre.share));
-  const matchedShare = Math.max(
-    0,
-    ...knownGenres.filter((genre) => styles.has(genre.name)).map((genre) => genre.share),
-  );
-  return matchedShare
-    ? (matchedShare / dominantShare) * LIBRARY_GENRE_MAX_SCORE
-    : LIBRARY_GENRE_MIN_SCORE;
+  const names = numericNames();
+  const ids = [...styles].map(names.id);
+  const words = [ids.length, ...ids, genres.length];
+  for (const genre of genres) words.push(names.id(genre.name), genre.share);
+  const result = runRustCompute('genre_affinity', encodeNumbers(words));
+  if (result.length !== 8) throw Error('Invalid Rust genre score');
+  return new DataView(result.buffer, result.byteOffset, 8).getFloat64(0, true);
 }
-
 export function boundedLibraryGenreScore(score: number | undefined): number {
-  return Number.isFinite(score)
-    ? Math.max(LIBRARY_GENRE_MIN_SCORE, Math.min(LIBRARY_GENRE_MAX_SCORE, score!))
-    : 0;
+  return requireRustCompute().bounded_genre_score(score ?? NaN);
 }
