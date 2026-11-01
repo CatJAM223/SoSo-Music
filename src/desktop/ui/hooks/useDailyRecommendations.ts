@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { readTastePolicy, refreshTastePolicy } from '../../../shared/hooks/useTastePolicy';
-import type { Track } from '../../../shared/types';
+import type { Track, MusicSource } from '../../../shared/types';
 import { dailyDislikeKey } from '../../../shared/utils/dailyDislikes';
 import {
   createDailyRecommendationLoader,
@@ -15,10 +15,10 @@ function loader() {
         getItem: (key) => window.localStorage.getItem(key),
         setItem: (key, value) => window.localStorage.setItem(key, value),
       },
-      (previous) => {
+      (previous, previousTracks, options) => {
         if (!window.electronAPI?.getRecommendedTracks)
           throw new Error('Recommendations API unavailable');
-        return window.electronAPI.getRecommendedTracks(previous);
+        return window.electronAPI.getRecommendedTracks(previous, previousTracks, options);
       },
       () => new Date(),
       () => readTastePolicy().revision,
@@ -26,22 +26,30 @@ function loader() {
   return load;
 }
 
-export function useDailyRecommendations(dislikedTrackIds: ReadonlySet<string>) {
+export function useDailyRecommendations(
+  dislikedTrackIds: ReadonlySet<string>,
+  source: MusicSource = 'all',
+) {
   const dislikeKey = dailyDislikeKey(dislikedTrackIds);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const generation = useRef(0);
   const day = useRef('');
+  const publishedKey = useRef('');
   const refresh = useCallback(async () => {
     const request = ++generation.current;
-    setLoading(true);
+    const snapshotKey = JSON.stringify([localRecommendationDay(), dislikeKey, source]);
+    if (publishedKey.current !== snapshotKey) {
+      setTracks([]);
+      setLoading(true);
+    }
     setFailed(false);
-    setTracks([]);
+
     try {
       await refreshTastePolicy();
       if (request !== generation.current) return;
-      const result = await loader()(dislikeKey);
+      const result = await loader()(dislikeKey, source);
       if (request !== generation.current) return;
       if (
         result.day !== localRecommendationDay() ||
@@ -52,13 +60,19 @@ export function useDailyRecommendations(dislikedTrackIds: ReadonlySet<string>) {
         return;
       }
       day.current = result.day;
+      publishedKey.current = snapshotKey;
       setTracks(result.tracks);
     } catch {
       if (request === generation.current) setFailed(true);
     } finally {
       if (request === generation.current) setLoading(false);
     }
-  }, [dislikeKey]);
+  }, [dislikeKey, source]);
+  useEffect(() => {
+    if (loading || failed || tracks.length >= 5) return;
+    const retry = setTimeout(() => void refresh(), 5 * 60 * 1000);
+    return () => clearTimeout(retry);
+  }, [loading, failed, tracks, refresh]);
   useEffect(() => {
     void refresh();
     let timer: ReturnType<typeof setTimeout>;

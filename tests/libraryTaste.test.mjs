@@ -467,5 +467,9 @@ test('An empty track lookup still uses known Last.fm artist genres when enrichin
   const [candidate] = f.service.enrichCached([
     { id: 'yt_unknown', title: saved.title, artist: { name: saved.artist }, tags: ['rock'] },
   ]);
-  assert.deepEqual(candidate.tags, ['grunge', 'rock']);
+  assert.deepEqual(
+    candidate.tags,
+    ['rock'],
+    'Artist fallback must not override existing track evidence',
+  );
 });

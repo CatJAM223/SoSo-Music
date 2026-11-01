@@ -1,3 +1,4 @@
+import { readWaveRecommendation } from './waveQuality.ts';
 import { normalizePlaybackOrigin } from '../utils/tastePolicy.ts';
 import type { RepeatMode, Track } from '../types/index.ts';
 import { ensureQueueEntries, readQueueEntryId } from '../utils/queueEntry.ts';
@@ -74,7 +75,15 @@ function cleanTrack(value: unknown, artworkCache: ArtworkCache): Track | null {
     : undefined;
   return {
     id: key,
+    ...(typeof item.recordingId === 'string' &&
+    item.recordingId.startsWith('rec:') &&
+    item.recordingId.length <= 1024
+      ? { recordingId: item.recordingId }
+      : {}),
     queueOrigin: normalizePlaybackOrigin(item.queueOrigin),
+    ...(readWaveRecommendation(item.waveRecommendation)
+      ? { waveRecommendation: readWaveRecommendation(item.waveRecommendation) }
+      : {}),
     ...(readQueueEntryId(item) ? { queueEntryId: readQueueEntryId(item) } : {}),
     title,
     source,

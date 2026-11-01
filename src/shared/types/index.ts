@@ -11,6 +11,9 @@ import type { PlaylistReadResult } from './playlistImport.ts';
 export type MusicSource = 'all' | 'soundcloud' | 'youtube';
 
 export interface Track {
+  /** Canonical recording identity; independent of provider and queue occurrence. */
+  recordingId?: string;
+  waveRecommendation?: import('../services/waveQuality.ts').WaveRecommendation;
   id: number | string;
   /** Queue occurrence provenance, separate from provider recording identity. */
   queueOrigin?: PlaybackOrigin;
@@ -47,6 +50,8 @@ export interface Track {
   playbackUnavailable?: boolean;
   /** Ephemeral wave taste strength; never a playback URL or stored rating. */
   waveSeedWeight?: number;
+  /** Artist-wide tags are weaker evidence than track classification. */
+  waveMetadataScope?: 'track' | 'artist';
   /** Ephemeral relevance within a provider song radio, normalized to 0..1. */
   waveRadioScore?: number;
   /** Library genre affinity carried to renderer queue refinement, bounded to -2..6. */
@@ -66,6 +71,7 @@ export interface StreamResolveOptions {
 
 /** Small, serializable listening context for recommendation retrieval. */
 export interface WaveBatchContext {
+  tasteTracks?: Track[];
   tasteRevision?: number;
   /** Providers allowed for this wave, independent of its mood. */
   source?: MusicSource;
@@ -84,6 +90,7 @@ export interface WaveBatchContext {
 }
 
 export interface LikedTrack {
+  recordingId?: string;
   id?: number;
   deezer_id: string;
   title: string;
@@ -109,6 +116,7 @@ export interface Playlist {
 }
 
 export interface PlaylistTrack {
+  recordingId?: string;
   id: number;
   playlist_id: string;
   track_deezer_id: string;
@@ -364,6 +372,7 @@ export interface DislikedTrack {
 }
 
 export interface ListeningHistoryItem {
+  recordingId?: string;
   id?: number;
   track_id: string;
   title: string;
@@ -441,6 +450,10 @@ export type AppUpdateStatus = {
 };
 export type LibraryPersistenceStatus = { state: 'ready' | 'recovered' | 'error'; message?: string };
 export interface ElectronAPI {
+  listeningRoomRequest?: (request: import('./listeningRoom').RoomRequest) => Promise<unknown>;
+  onListeningRoomSession?: (
+    callback: (session: import('./listeningRoom').RoomSession) => void,
+  ) => () => void;
   getAvailableAppUpdate?: () => Promise<AppUpdateStatus | null>;
   onAppUpdateAvailable?: (callback: (status: AppUpdateStatus) => void) => () => void;
   getDesktopControls?: () => Promise<DesktopControlsStatus>;
@@ -463,10 +476,12 @@ export interface ElectronAPI {
   getTastePolicy?: () => Promise<TastePolicySnapshot>;
   setTasteExcluded?: (value: TasteExclusionChange) => Promise<TastePolicySnapshot>;
   getTasteProfile?: () => Promise<{
+    waveSeeds?: Track[];
     revision: number;
     likes: LikedTrack[];
     artists: { name: string; id?: string | number; score?: number }[];
   }>;
+  onRecordingAliasesChanged?: (callback: () => void) => () => void;
   onTastePolicyChanged?: (callback: (policy: TastePolicySnapshot) => void) => () => void;
   getLibraryTaste?: () => Promise<LibraryTasteReport>;
   analyzeLibraryTaste?: () => Promise<LibraryTasteReport>;
@@ -496,6 +511,7 @@ export interface ElectronAPI {
   onNavForward?: (callback: () => void) => () => void;
 
   // Theme animation freeze (window minimized / hidden to tray)
+  getAnimationsPaused?: () => Promise<boolean>;
   onAnimationsPaused?: (callback: (paused: boolean) => void) => () => void;
 
   // Music API & Full Stream
@@ -539,7 +555,11 @@ export interface ElectronAPI {
     requestId?: string,
   ) => Promise<Track[]>;
   cancelWaveBatch?: (requestId: string) => Promise<void>;
-  getRecommendedTracks?: (previousIds?: (string | number)[]) => Promise<Track[]>;
+  getRecommendedTracks?: (
+    previousIds?: (string | number)[],
+    previousTracks?: Track[],
+    options?: { source: MusicSource; retainedTracks: Track[] },
+  ) => Promise<Track[]>;
   getFullStreamUrl: (
     track: {
       title: string;

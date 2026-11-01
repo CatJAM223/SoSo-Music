@@ -60,7 +60,7 @@ fn similarity(a: &Profile, b: &Profile) -> f64 {
     }
     let shared = a.styles.iter().filter(|id| b.styles.contains(id)).count();
     shared as f64 / ((a.styles.len() * b.styles.len()) as f64).sqrt()
-        * if a.energy * b.energy < 0.0 { 0.2 } else { 1.0 }
+        * (1.0 - 0.8 * (-a.energy * b.energy).clamp(0.0, 1.0))
 }
 pub(super) fn mood_score(energy: f64, mood: usize) -> f64 {
     if mood == 1 {
@@ -302,8 +302,10 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
     let mut priorities = Vec::new();
     for (i, raw) in raw.iter().enumerate() {
         if !raw.valid
-            || (starts[1]..starts[1] + sizes[1])
-                .any(|h| same_song(&songs.candidates[h], &songs.candidates[i], &songs.tokens))
+            || (starts[1]..starts[1] + sizes[1]).any(|h| {
+                aux[h].id == aux[i].id
+                    || same_song(&songs.candidates[h], &songs.candidates[i], &songs.tokens)
+            })
         {
             continue;
         }
@@ -320,17 +322,20 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
         } else {
             0.0
         };
-        let exposed = (starts[2]..starts[2] + sizes[2])
-            .any(|o| same_song(&songs.candidates[o], &songs.candidates[i], &songs.tokens));
+        let exposed = (starts[2]..starts[2] + sizes[2]).any(|o| {
+            aux[o].id == aux[i].id
+                || same_song(&songs.candidates[o], &songs.candidates[i], &songs.tokens)
+        });
         let offered_artist_count = aux[starts[2]..starts[2] + sizes[2]]
             .iter()
             .rev()
             .take(25)
             .filter(|o| o.artists.iter().any(|id| a.artists.contains(id)))
             .count();
-        let exact_like = liked_indices
-            .iter()
-            .any(|&l| same_song(&songs.candidates[l], &songs.candidates[i], &songs.tokens));
+        let exact_like = liked_indices.iter().any(|&l| {
+            aux[l].id == aux[i].id
+                || same_song(&songs.candidates[l], &songs.candidates[i], &songs.tokens)
+        });
         let has_liked_artist = a.artists.iter().any(|id| liked_artists.contains(id));
         let genre = if has_genres {
             genre_score(&a.profile, &genres)
@@ -374,11 +379,14 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
     let mut pairs = vec![0; count * count];
     for i in 0..count {
         for j in 0..count {
-            pairs[i * count + j] = u8::from(same_song(
-                &songs.candidates[original[i]],
-                &songs.candidates[original[j]],
-                &songs.tokens,
-            ));
+            pairs[i * count + j] = u8::from(
+                aux[original[i]].id == aux[original[j]].id
+                    || same_song(
+                        &songs.candidates[original[i]],
+                        &songs.candidates[original[j]],
+                        &songs.tokens,
+                    ),
+            );
         }
     }
     let keep: Vec<bool> = (0..count)
@@ -542,4 +550,26 @@ pub extern "C" fn music_affinity(length: usize) -> i32 {
         OUTPUT.with(|output| *output.borrow_mut() = result.to_vec());
         8
     })
+}
+
+#[cfg(test)]
+mod confidence_tests {
+    use super::*;
+    #[test]
+    fn uncertain_opposition_preserves_more_musical_affinity() {
+        let strong = Profile {
+            energy: 1.0,
+            styles: vec![1],
+        };
+        let opposite = Profile {
+            energy: -1.0,
+            styles: vec![1],
+        };
+        let weak = Profile {
+            energy: -0.25,
+            styles: vec![1],
+        };
+        assert!((similarity(&strong, &opposite) - 0.2).abs() < 1e-10);
+        assert!(similarity(&strong, &weak) > similarity(&strong, &opposite));
+    }
 }

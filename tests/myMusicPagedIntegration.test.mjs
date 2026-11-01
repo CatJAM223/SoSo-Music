@@ -6,7 +6,7 @@ const repo = process.env.SOSO_TEST_REPO || fileURLToPath(new URL('../', import.m
 const { hookRuntime } = await import(
   pathToFileURL(path.join(repo, 'tests/helpers/hookRuntime.mjs'))
 );
-const { beginPlaybackIntent, invalidatePlaybackIntent } = await import(
+const { beginPlaybackIntent, invalidatePlaybackIntent, markPreparedPlayback } = await import(
   pathToFileURL(path.join(repo, 'src/shared/utils/playbackIntent.ts'))
 );
 const proposal = process.env.SOSO_LIBRARY_PROPOSAL;
@@ -81,7 +81,7 @@ function fixture(options = {}) {
       '../utils/playlistEvents': { subscribePlaylistUpdates: () => () => {} },
       '../utils/formatters': { detectTrackSource: () => 'youtube' },
       './formatters': { detectTrackSource: () => 'youtube' },
-      '../utils/playbackIntent.ts': { beginPlaybackIntent },
+      '../utils/playbackIntent.ts': { beginPlaybackIntent, markPreparedPlayback },
       '../context/AudioContext': { useAudioState: () => audio, useAudioControls: () => audio },
       '../bridge/platformBridge': { platformBridge: platform },
       '../services/offlineCacheService': {

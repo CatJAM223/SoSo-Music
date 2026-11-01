@@ -58,6 +58,12 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
   const cycleRepeatMode = useCallback(() => {
     setRepeatMode((previous) => (previous === 'off' ? 'all' : previous === 'all' ? 'one' : 'off'));
   }, [setRepeatMode]);
+  const replaceUpcomingQueue = useCallback(
+    (tracks: Track[]) => {
+      setQueue([...queueRef.current.slice(0, queueIndexRef.current + 1), ...tracks]);
+    },
+    [setQueue],
+  );
   const toggleShuffle = useCallback(() => setIsShuffle((previous) => !previous), [setIsShuffle]);
   const addToQueue = useCallback(
     (track: Track) => setQueue((previous) => [...previous, createQueueEntry(track)]),
@@ -179,6 +185,7 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
   }, [setQueue]);
 
   return {
+    replaceUpcomingQueue,
     shuffledUpcomingIndices,
     queue,
     setQueue,

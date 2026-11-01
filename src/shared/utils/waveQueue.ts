@@ -3,7 +3,7 @@ import type { LibraryTasteGenre } from '../types/libraryTaste.ts';
 import type { Track, WaveMood } from '../types/index.ts';
 import { WAVE_HISTORY_LIMIT } from './waveHistoryLimits.ts';
 import { areTracksDuplicates, buildTrackPrintFromTrack } from './trackFingerprint.ts';
-import { getWaveArtistKeys, getWaveArtistNames, normalizeWaveArtist } from './waveIdentity.ts';
+import { normalizeWaveArtist } from './waveIdentity.ts';
 
 export const CURATED_WAVE_FALLBACK_QUERIES = [
   'zxcursed phonk',
@@ -119,28 +119,6 @@ export function matchesDislikedWaveTrack(track: Track, disliked: DislikedWaveTra
   )
     return false;
   return areTracksDuplicates(buildTrackPrintFromTrack(track), buildTrackPrintFromTrack(disliked));
-}
-
-/** A quick skip should not immediately lead to another song by the same artist. */
-export function moveDifferentArtistAfterSkip(queue: Track[], currentIndex: number): Track[] {
-  const current = queue[currentIndex];
-  const next = queue[currentIndex + 1];
-  if (!current || !next) return queue;
-  const knownArtists = queue.flatMap(getWaveArtistNames);
-  const currentArtists = getWaveArtistKeys(current, knownArtists);
-  const overlaps = (track: Track) =>
-    getWaveArtistKeys(track, knownArtists).some((artist) => currentArtists.includes(artist));
-  if (!overlaps(next)) return queue;
-  const replacementIndex = queue.findIndex(
-    (track, index) => index > currentIndex + 1 && !overlaps(track),
-  );
-  if (replacementIndex < 0) return queue;
-  const reordered = [...queue];
-  [reordered[currentIndex + 1], reordered[replacementIndex]] = [
-    reordered[replacementIndex],
-    reordered[currentIndex + 1],
-  ];
-  return reordered;
 }
 
 export interface WaveQueueOptions {

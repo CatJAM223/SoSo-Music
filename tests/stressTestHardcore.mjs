@@ -10,7 +10,6 @@ import { WaveEngine } from '../src/desktop/main/services/waveEngine.ts';
 
 const transformSCTrack = SoundCloudService.transformSCTrack.bind(SoundCloudService);
 const parseLrc = LyricsService.parseLrc.bind(LyricsService);
-const findBestSoundCloudMatch = SoundCloudService.findBestTrackMatch.bind(SoundCloudService);
 
 // --- 1. SOUNDCLOUD HARDCORE EDGE CASES ---
 
@@ -95,69 +94,6 @@ test('Hardcore SC: Multi-hyphen and bracketed artist extraction', () => {
   assert.ok(track);
   assert.equal(track.artist.name, 'AC/DC');
   assert.equal(track.title, 'Highway to Hell - Live at River Plate');
-});
-
-// --- 2. MUSIC AGGREGATOR MATCHER HARDCORE CASES ---
-
-test('Hardcore Matcher: Rejects unwanted covers/slowed/nightcore unless requested', () => {
-  const target = {
-    title: 'Smells Like Teen Spirit',
-    artist: { name: 'Nirvana' },
-    duration: 301,
-  };
-
-  const candidates = [
-    {
-      id: 1,
-      title: 'Nirvana - Smells Like Teen Spirit (Slowed + Reverb)',
-      duration: 350,
-      artist: 'Nirvana',
-    },
-    {
-      id: 2,
-      title: 'Nirvana - Smells Like Teen Spirit (Guitar Cover)',
-      duration: 301,
-      artist: 'Guitarist99',
-    },
-    {
-      id: 3,
-      title: 'Nirvana - Smells Like Teen Spirit (Nightcore Remix)',
-      duration: 250,
-      artist: 'NightcoreGod',
-    },
-    {
-      id: 4,
-      title: 'Nirvana - Smells Like Teen Spirit (Original Studio Track)',
-      duration: 301,
-      artist: 'Nirvana',
-    },
-  ];
-
-  const matched = findBestSoundCloudMatch(target, candidates);
-  assert.ok(matched);
-  assert.equal(matched.id, 4);
-});
-
-test('Hardcore Matcher: Matches featuring artists cleanly', () => {
-  const target = {
-    title: 'Save Your Tears (feat. Ariana Grande)',
-    artist: { name: 'The Weeknd, Ariana Grande' },
-    duration: 191,
-  };
-
-  const candidates = [
-    { id: 10, title: 'The Weeknd - Save Your Tears', duration: 215, artist: 'The Weeknd' },
-    {
-      id: 20,
-      title: 'The Weeknd - Save Your Tears ft. Ariana Grande',
-      duration: 191,
-      artist: 'The Weeknd',
-    },
-  ];
-
-  const matched = findBestSoundCloudMatch(target, candidates);
-  assert.ok(matched);
-  assert.equal(matched.id, 20);
 });
 
 // --- 3. LYRICS & KARAOKE PARSING HARDCORE CASES ---

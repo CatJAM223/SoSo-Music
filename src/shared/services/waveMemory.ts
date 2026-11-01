@@ -1,3 +1,4 @@
+import { requireRustCompute } from '../compute/rustCore.ts';
 import { waveMusicMetadata } from '../utils/waveMusicProfile.ts';
 import type { Track } from '../types/index.ts';
 import { normalizeWaveSeed } from '../utils/waveRecommendations.ts';
@@ -24,6 +25,7 @@ export function waveMemoryTrack(value: unknown): Track | null {
     return null;
   return {
     id: track.id,
+    ...(track.recordingId ? { recordingId: track.recordingId } : {}),
     title: track.title.slice(0, 500),
     artist: { name: track.artist.name.slice(0, 500) },
     album: { title: '' },
@@ -55,10 +57,17 @@ export function createWaveMemory(storage?: StorageLike, now: () => number = Date
         !track ||
         !Number.isFinite(entry.at) ||
         entry.at > stamp + 60000 ||
-        stamp - entry.at > ttl
+        stamp - entry.at >
+          (ttl === WAVE_PLAYED_TTL
+            ? requireRustCompute().wave_memory_ttl(entry.seconds, track.duration)
+            : ttl)
       )
         continue;
-      if (ttl === WAVE_PLAYED_TTL && (!Number.isFinite(entry.seconds) || entry.seconds < 2))
+      if (
+        ttl === WAVE_PLAYED_TTL &&
+        (!Number.isFinite(entry.seconds) ||
+          !requireRustCompute().wave_memory_ttl(entry.seconds, track.duration))
+      )
         continue;
       valid.push({ track, at: entry.at, seconds: entry.seconds });
     }
@@ -76,7 +85,11 @@ export function createWaveMemory(storage?: StorageLike, now: () => number = Date
   const prune = () => {
     const stamp = now();
     played = played
-      .filter((entry) => stamp - entry.at <= WAVE_PLAYED_TTL)
+      .filter(
+        (entry) =>
+          stamp - entry.at <=
+          requireRustCompute().wave_memory_ttl(entry.seconds || 0, entry.track.duration),
+      )
       .slice(-WAVE_HISTORY_LIMIT);
     offered = offered.filter((entry) => stamp - entry.at <= WAVE_OFFERED_TTL).slice(-80);
   };
@@ -99,7 +112,7 @@ export function createWaveMemory(storage?: StorageLike, now: () => number = Date
       return offered.map((entry) => entry.track);
     },
     recordPlayback(value: Track, seconds: number, force = false): boolean {
-      if (!Number.isFinite(seconds) || seconds < 2) return false;
+      if (!requireRustCompute().wave_memory_ttl(seconds, value.duration)) return false;
       const id = String(value.id),
         stamp = now();
       if (

@@ -4,6 +4,7 @@ import { selectPlayerQueue } from '../src/shared/utils/playerQueueSelection.ts';
 import {
   readCachedPlayerCover,
   readCachedPlayerSource,
+  OFFLINE_LOOKUP_TIMEOUT_MS,
 } from '../src/shared/services/playerCachedSource.ts';
 const track = (id) => ({
   id,
@@ -12,6 +13,46 @@ const track = (id) => ({
   album: { title: 'Album' },
   preview: '',
   duration: 200,
+});
+
+test('A blocked disk cache cannot hold online startup indefinitely or install late audio', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let complete;
+  const pending = readCachedPlayerSource(track('blocked'), {
+    offlineUrl: () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    memoryUrl: () => null,
+    isCurrent: () => true,
+  });
+  t.mock.timers.tick(OFFLINE_LOOKUP_TIMEOUT_MS);
+  assert.deepEqual(await pending, { kind: 'none' });
+  complete('blob:late');
+  assert.deepEqual(await pending, { kind: 'none' });
+});
+
+test('Cancelling a blocked cache read settles immediately and never reaches another source', async () => {
+  const controller = new AbortController();
+  let fail,
+    memoryReads = 0;
+  const pending = readCachedPlayerSource(track('cancelled'), {
+    offlineUrl: () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+    memoryUrl: () => {
+      memoryReads++;
+      return null;
+    },
+    isCurrent: () => true,
+    signal: controller.signal,
+  });
+  controller.abort();
+  assert.deepEqual(await pending, { kind: 'stale' });
+  fail(Error('late database failure'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(memoryReads, 1);
 });
 
 test('queue selection retains a repeated saved occurrence, detects collection changes and appends only unknown tracks', () => {

@@ -2,6 +2,71 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { probeYouTubeMedia } from '../src/desktop/main/services/youtubeMediaProbe.ts';
 import { YouTubeMusicTransport } from '../src/desktop/main/services/youtubeMusicTransport.ts';
+import { hasMp4MediaData } from '../src/shared/utils/mp4MediaData.ts';
+
+function box(type, payload = Buffer.alloc(0)) {
+  const header = Buffer.alloc(8);
+  header.writeUInt32BE(8 + payload.length);
+  header.write(type, 4);
+  return Buffer.concat([header, payload]);
+}
+const metadataOnlyMp4 = Buffer.concat([box('ftyp', Buffer.from('mp42')), box('moov'), box('free')]);
+
+test('MP4 media detection distinguishes metadata-only files, payloads and incomplete probes', () => {
+  assert.equal(hasMp4MediaData(metadataOnlyMp4), false);
+  assert.equal(
+    hasMp4MediaData(Buffer.concat([metadataOnlyMp4, box('mdat', Buffer.from([1]))])),
+    true,
+  );
+  assert.equal(hasMp4MediaData(Buffer.concat([metadataOnlyMp4, box('mdat')])), false);
+  assert.equal(hasMp4MediaData(metadataOnlyMp4.subarray(0, 15)), null);
+  assert.equal(hasMp4MediaData(Buffer.from('not mp4')), null);
+  const emptyMedia = Buffer.alloc(8);
+  emptyMedia.writeUInt32BE(4328563);
+  emptyMedia.write('mdat', 4);
+  const truncated = Buffer.concat([metadataOnlyMp4, emptyMedia]);
+  assert.equal(hasMp4MediaData(truncated), null);
+  assert.equal(hasMp4MediaData(truncated, true), false);
+  const extended = Buffer.alloc(17);
+  extended.writeUInt32BE(1);
+  extended.write('mdat', 4);
+  extended.writeBigUInt64BE(17n, 8);
+  assert.equal(hasMp4MediaData(Buffer.concat([metadataOnlyMp4, extended])), true);
+});
+
+test('Probe rejects a small metadata-only MP4 instead of accepting its MIME and first bytes', async (t) => {
+  const smallUrl = url + '&clen=' + metadataOnlyMp4.length;
+  transport(t, async (_url, init) => {
+    assert.equal(init.headers.Range, `bytes=0-${metadataOnlyMp4.length - 1}`);
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(metadataOnlyMp4.subarray(0, 10));
+          c.enqueue(metadataOnlyMp4.subarray(10));
+          c.close();
+        },
+      }),
+      { status: 206, headers: { 'content-type': 'video/mp4' } },
+    );
+  });
+  assert.deepEqual(await probeYouTubeMedia(smallUrl, 'audio'), {
+    ok: false,
+    reason: 'cdn-response',
+  });
+});
+
+test('Probe accepts small MP4 media and keeps normal files on the cheap range probe', async (t) => {
+  const playable = Buffer.concat([metadataOnlyMp4, box('mdat', Buffer.from([1, 2, 3]))]);
+  transport(t, async () => new Response(playable, { headers: { 'content-type': 'audio/mp4' } }));
+  const smallUrl = url + '&clen=' + playable.length;
+  assert.deepEqual(await probeYouTubeMedia(smallUrl, 'audio'), { ok: true, url: smallUrl });
+  YouTubeMusicTransport.fetch = async (_url, init) => {
+    assert.equal(init.headers.Range, 'bytes=0-1023');
+    return new Response(playable, { headers: { 'content-type': 'audio/mp4' } });
+  };
+  const largeUrl = url + '&clen=10000000';
+  assert.equal((await probeYouTubeMedia(largeUrl, 'audio')).ok, true);
+});
 
 const url = 'https://rr1.googlevideo.com/videoplayback?token=synthetic';
 function transport(t, fetcher) {

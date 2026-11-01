@@ -18,19 +18,28 @@ import React,{createContext,useContext,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {TrackRow as DesktopRow} from './src/desktop/ui/components/TrackRow';
 import {PlayerBar as DesktopBar} from './src/desktop/ui/components/PlayerBar';
+import {Sidebar} from './src/desktop/ui/components/Sidebar';
+import {QueueDrawer} from './src/shared/components/QueueDrawer';
+import {SearchAlbumResults} from './src/shared/components/SearchAlbumResults';
 import {DiscoverView as DesktopDiscover} from './src/desktop/ui/pages/DiscoverView';
 import {FixtureAudioState} from './src/shared/context/AudioContext';
 const art=color=>'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="'+color+'"/></svg>');
 window.tracks=['First','Second'].map((title,i)=>({id:'sc_'+(i+1),title,source:'soundcloud',artist:{name:'Fixture Artist'},duration:180,album:{title:'Fixture',cover:art(i?'#7b57ce':'#dfb52b')}}));
-const initial={currentTrack:null,isPlaying:false,isLoadingTrack:false,isWaveStarting:false,isWaveActive:false,waveMood:'default',waveSource:'all',queue:window.tracks,likedTrackIds:new Set(),dislikedTrackIds:new Set(),cachedTrackIds:new Set(),savedAlbumIds:new Set(),followedArtistIds:new Set(),snippetTrack:null,isSnippetPlaying:false,volume:.5,isMuted:false,repeatMode:'off',isShuffle:false,isVolumeNormalizationEnabled:true,crossfadeDuration:4,sleepTimerMode:'off',sleepTimerRemaining:null};
+const initial={currentTrack:null,currentTime:0,duration:180,isPlaying:false,isLoadingTrack:false,isWaveStarting:false,isWaveActive:false,waveMood:'default',waveSource:'all',queue:window.tracks,queueIndex:0,shuffledUpcomingIndices:[],likedTrackIds:new Set(),dislikedTrackIds:new Set(),cachedTrackIds:new Set(),savedAlbumIds:new Set(),followedArtistIds:new Set(),snippetTrack:null,isSnippetPlaying:false,volume:.5,isMuted:false,repeatMode:'off',isShuffle:false,isVolumeNormalizationEnabled:true,crossfadeDuration:4,sleepTimerMode:'off',sleepTimerRemaining:null};
+window.fixturePosition=0;
 window.actions=[];
-const bridge=new Proxy({getCharts:async()=>({tracks:{data:[]}}),getLyrics:async()=>[],getChords:async()=>null},{get:(target,key)=>target[key]??(async()=>[])});
+const sleepListeners=new Set();
+window.setAnimationSleep=value=>sleepListeners.forEach(listener=>listener(value));
+const bridge=new Proxy({getAnimationsPaused:async()=>false,onAnimationsPaused:listener=>{sleepListeners.add(listener);return()=>sleepListeners.delete(listener);},listeningRoomRequest:async request=>{if(request.op==='command')window.roomCommands=(window.roomCommands||[]).concat(request.payload);return {status:"idle"};},onListeningRoomSession:listener=>{window.setRoomSession=listener;return()=>{};},getCharts:async()=>({tracks:{data:[]}}),getLyrics:async()=>[],getChords:async()=>null},{get:(target,key)=>target[key]??(async()=>[])});
 window.electronAPI=bridge;
 function Fixture(){
- const [state,setState]=useState(initial),[layout,setLayout]=useState('desktop'),[mode,setMode]=useState('rows');
+ const [state,setState]=useState(initial),[layout,setLayout]=useState('desktop'),[mode,setMode]=useState('rows'),[view,setView]=useState('discover'),[queueOpen,setQueueOpen]=useState(false);
+ window.setQueueOpen=setQueueOpen;
  window.updateFixture=patch=>setState(previous=>({...previous,...patch}));
  window.showFixture=(nextLayout,nextMode='rows')=>{window.actions=[];setState({...initial});setLayout(nextLayout);setMode(nextMode);};
  window.fixtureControls={
+  getPlaybackTime:()=>window.fixturePosition,
+  seek:seconds=>{window.actions.push('seek:'+seconds);window.fixturePosition=seconds;setState(previous=>({...previous,currentTime:seconds}));},
   playTrack:track=>{window.actions.push('play:'+track.id);setState(previous=>({...previous,currentTrack:track,isPlaying:false,isLoadingTrack:true}));},
   togglePlay:()=>{window.actions.push('toggle');setState(previous=>({...previous,isPlaying:previous.isLoadingTrack?false:!previous.isPlaying,isLoadingTrack:false}));},
   startWave:mood=>{window.actions.push('wave:'+mood);setState(previous=>({...previous,isWaveStarting:true,isWaveActive:true,isLoadingTrack:true,waveMood:mood}));},
@@ -40,7 +49,7 @@ function Fixture(){
  };
  const Row=DesktopRow,Bar=DesktopBar,Discover=DesktopDiscover;
  const noop=()=>{};
- return <FixtureAudioState.Provider value={state}><div className="p-5"><button id="press-target" className="rounded-lg px-4 py-2 bg-soso-brand text-black">Control</button><button id="disabled-target" disabled className="ml-4 rounded-lg px-4 py-2">Disabled</button></div><main key={layout+mode} className="soso-view-enter px-4 pb-32">{mode==='wave'?<Discover onNavigate={noop} onNavigateToArtist={noop} onOpenAddToPlaylist={noop}/>:window.tracks.map((track,index)=><Row key={track.id} track={track} index={index} playlistContext={window.tracks} onOpenAddToPlaylist={noop}/>)}</main><Bar onToggleQueue={noop} isQueueOpen={false} onToggleLyrics={noop} onOpenMobilePlayer={noop} onOpenAddToPlaylist={noop}/></FixtureAudioState.Provider>;
+ return <FixtureAudioState.Provider value={state}><div className="p-5"><button id="press-target" className="rounded-lg px-4 py-2 bg-soso-brand text-black">Control</button><button id="disabled-target" disabled className="ml-4 rounded-lg px-4 py-2">Disabled</button></div><main key={layout+mode} className="soso-view-enter px-4 pb-32">{mode==='motion'?<div className="flex gap-6 h-96"><Sidebar currentView={view} onNavigate={setView} onOpenCreatePlaylist={noop} onOpenSettings={noop} refreshPlaylistsTrigger={0}/><div className="flex-1 pt-4"><SearchAlbumResults albums={[{id:'album_1',title:'Measured album',artist:{name:'Fixture'},cover:art('#7b57ce')}]} onOpenAlbum={()=>window.actions.push('album')}/></div></div>:mode==='wave'?<Discover onNavigate={noop} onNavigateToArtist={noop} onOpenAddToPlaylist={noop}/>:window.tracks.map((track,index)=><Row key={track.id} track={track} index={index} playlistContext={window.tracks} onOpenAddToPlaylist={noop}/>)}</main><Bar onToggleQueue={()=>setQueueOpen(value=>!value)} isQueueOpen={queueOpen} onToggleLyrics={noop} onOpenMobilePlayer={noop} onOpenAddToPlaylist={noop}/><QueueDrawer isOpen={queueOpen} onClose={()=>setQueueOpen(false)}/></FixtureAudioState.Provider>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `;
@@ -87,7 +96,7 @@ try {
                 resolveDir: root,
                 loader: 'js',
                 contents:
-                  'import React,{createContext,useContext} from "react";export const FixtureAudioState=createContext({});export const useAudioState=()=>useContext(FixtureAudioState);export const useAudioProgress=()=>({currentTime:0,duration:180,bufferedRanges:[],snippetProgress:0});export const useAudioControls=()=>new Proxy(window.fixtureControls,{get:(target,key)=>target[key]??(()=>{})});',
+                  'import React,{createContext,useContext} from "react";export const FixtureAudioState=createContext({});export const useAudioState=()=>useContext(FixtureAudioState);export const useAudioProgress=()=>({...useContext(FixtureAudioState),bufferedRanges:[],snippetProgress:0});export const useAudioControls=()=>new Proxy(window.fixtureControls,{get:(target,key)=>target[key]??(()=>{})});',
               };
             if (args.path.endsWith('ToastContext'))
               return { loader: 'js', contents: 'export const emitToast=()=>{};' };
@@ -99,7 +108,7 @@ try {
             return {
               loader: 'js',
               contents:
-                'export const isElectron=true;export const platformBridge=new Proxy({getCharts:async()=>({tracks:{data:[]}}),getLyrics:async()=>[],getChords:async()=>null},{get:(target,key)=>target[key]??(async()=>[])});',
+                'export const platformBridge=new Proxy({getCharts:async()=>({tracks:{data:[]}}),getLyrics:async()=>[],getChords:async()=>null},{get:(target,key)=>target[key]??(async()=>[])});',
             };
           });
         },
@@ -115,9 +124,7 @@ try {
   );
   fs.writeFileSync(
     path.join(output, 'fixture.css'),
-    css.css +
-      '\n' +
-      fs.readFileSync(path.join(root, 'src/desktop/ui/components/WaveControl.css'), 'utf8'),
+    css.css + '\n' + fs.readFileSync(path.join(output, 'fixture.css'), 'utf8'),
   );
   fs.cpSync(path.join(root, 'public/fonts'), path.join(output, 'fonts'), { recursive: true });
   fs.writeFileSync(

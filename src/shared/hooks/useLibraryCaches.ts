@@ -102,6 +102,7 @@ const refreshSavedAlbumsGlobal = saved.refresh;
 const refreshFollowedArtistsGlobal = followed.refresh;
 const refreshCachedTracksGlobal = cached.refresh;
 let unsubscribeOfflineChanges: (() => void) | undefined;
+let unsubscribeRecordingChanges: (() => void) | undefined;
 
 export function useLibraryCaches() {
   const [state, setState] = useState<LibraryCachesState>(globalState);
@@ -110,10 +111,14 @@ export function useLibraryCaches() {
     const listener = () => setState({ ...globalState });
     listeners.add(listener);
     listener();
-    if (listeners.size === 1)
+    if (listeners.size === 1) {
+      unsubscribeRecordingChanges = platformBridge.onRecordingAliasesChanged?.(() => {
+        void refreshLikedTracksGlobal();
+      });
       unsubscribeOfflineChanges = subscribeOfflineCacheChanges(() => {
         void refreshCachedTracksGlobal();
       });
+    }
 
     if (!isInitialLoadingStarted) {
       isInitialLoadingStarted = true;
@@ -129,6 +134,8 @@ export function useLibraryCaches() {
       if (listeners.size === 0) {
         unsubscribeOfflineChanges?.();
         unsubscribeOfflineChanges = undefined;
+        unsubscribeRecordingChanges?.();
+        unsubscribeRecordingChanges = undefined;
       }
     };
   }, []);

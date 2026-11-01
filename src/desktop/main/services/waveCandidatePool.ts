@@ -1,3 +1,4 @@
+import { requireRustCompute } from '../../../shared/compute/rustCore.ts';
 import { matchesWaveSource } from '../../../shared/services/waveSource.ts';
 import { isSoundCloudPreviewUrl } from '../../../shared/utils/soundcloudPlayback.ts';
 import { resolveTrackCover } from '../../../shared/utils/formatters.ts';
@@ -18,8 +19,6 @@ import {
   type DislikedWaveTrack,
 } from '../../../shared/utils/waveQueue.ts';
 
-const MIN_RECORDING_SECONDS = 30;
-const MAX_RECORDING_SECONDS = 480;
 interface CandidateOptions {
   source?: MusicSource;
   mood: WaveMood;
@@ -39,6 +38,8 @@ function withFallbackArtwork(track: Track): Track {
 /** Candidate validation is shared by likes, artist searches, radios and empty-profile fallback. */
 export class WaveCandidatePool {
   private tracks = new Map<string, Track>();
+  private uniqueSongs: WaveSongIdentity[] = [];
+  private uniqueRecordingIds = new Set<string>();
   private excluded: Set<string>;
   private playedSongs: WaveSongIdentity[];
   private options: CandidateOptions;
@@ -50,7 +51,7 @@ export class WaveCandidatePool {
     );
   }
   get size(): number {
-    return this.tracks.size;
+    return this.uniqueSongs.length;
   }
   values(): Track[] {
     return [...this.tracks.values()];
@@ -58,6 +59,13 @@ export class WaveCandidatePool {
 
   add(track: Track): boolean {
     if (!this.accepts(track)) return false;
+    const song = buildWaveSongIdentity(track, this.options.familiarArtists);
+    if (
+      !(track.recordingId && this.uniqueRecordingIds.has(track.recordingId)) &&
+      !this.uniqueSongs.some((previous) => areSameWaveSong(previous, song))
+    )
+      this.uniqueSongs.push(song);
+    if (track.recordingId) this.uniqueRecordingIds.add(track.recordingId);
     this.tracks.set(String(track.id), withFallbackArtwork(track));
     return true;
   }
@@ -79,8 +87,7 @@ export class WaveCandidatePool {
     const song = buildWaveSongIdentity(track, this.options.familiarArtists);
     if (this.playedSongs.some((played) => areSameWaveSong(played, song))) return false;
     const duration = Number(track.duration) || 0;
-    if (duration > 0 && (duration < MIN_RECORDING_SECONDS || duration > MAX_RECORDING_SECONDS))
-      return false;
+    if (!requireRustCompute().wave_duration_allowed(duration)) return false;
     return !isWaveMixOrPodcast(track) && !isWaveGarbageRemix(track) && !isWaveNonMusic(track);
   }
 

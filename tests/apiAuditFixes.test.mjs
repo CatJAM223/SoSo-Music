@@ -62,14 +62,8 @@ test('API Audit: ChordsService normalize and cleanQuery handles dirty inputs saf
   assert.equal(isMatch, true);
 });
 
-test('API Audit: SoundCloudService.findBestTrackMatch filters out BLOCK and SUB_HIGH_TIER tracks', async () => {
-  const { SoundCloudService } = await import('../src/desktop/main/services/soundcloud.ts');
-
-  const target = {
-    title: 'Boulevard of Broken Dreams',
-    artist: 'Green Day',
-    duration: 262,
-  };
+test('API Audit: SoundCloud catalog parser rejects BLOCK and SUB_HIGH_TIER tracks', async () => {
+  const { transformSCTrack } = await import('../src/shared/services/parsers/soundCloudParser.ts');
 
   const candidates = [
     {
@@ -99,9 +93,9 @@ test('API Audit: SoundCloudService.findBestTrackMatch filters out BLOCK and SUB_
     },
   ];
 
-  const best = SoundCloudService.findBestTrackMatch(target, candidates);
-  assert.ok(best);
-  assert.equal(best.id, 103);
+  const playable = candidates.map(transformSCTrack).filter(Boolean);
+  assert.equal(playable.length, 1);
+  assert.equal(playable[0].id, 103);
 });
 
 test('API Audit: YouTubeMusicService extractAlbumFromFlexColumns resolves both MPREb and runs-based albums', async () => {

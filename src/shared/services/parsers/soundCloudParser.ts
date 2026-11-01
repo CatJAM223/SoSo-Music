@@ -327,8 +327,3 @@ export function isValidTrackForArtist(track: Track, targetArtist: string): boole
 
   return false;
 }
-
-export function cleanArtistForSearch(rawArtist: string): string {
-  if (!rawArtist) return '';
-  return rawArtist.replace(/\s+(feat\.|ft\.|featuring|with|prod\.)\s+.*/i, '').trim();
-}

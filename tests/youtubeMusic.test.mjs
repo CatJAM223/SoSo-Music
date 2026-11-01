@@ -186,23 +186,6 @@ test('YouTube Music Search: Headplate and Sevendust official tracks parsing', ()
   assert.equal(sd.duration, 210);
 });
 
-test('YouTube Music & Aggregator: getFullStreamUrl duration tolerance rejects SeregaMP (185s) for Earshot - Wait (213s)', () => {
-  const targetDuration = 213; // 3:33 (Earshot - Wait)
-  const candidates = [
-    { id: 1, title: 'Earshot - Wait (cut by SeregaMP)', artist: 'Earshot', duration: 185 }, // 3:05 (diff: 28s -> reject)
-    { id: 2, title: 'Earshot - Wait (Radio Edit)', artist: 'Earshot', duration: 195 }, // 3:15 (diff: 18s -> reject)
-    { id: 3, title: 'Earshot - Wait', artist: 'Earshot', duration: 213 }, // 3:33 (diff: 0s -> MATCH)
-  ];
-
-  const valid = candidates.filter((c) =>
-    YouTubeMusicService.isDurationAcceptable(targetDuration, c.duration),
-  );
-  assert.equal(valid.length, 1);
-  assert.equal(valid[0].id, 3);
-  assert.equal(valid[0].duration, 213);
-  assert.equal(valid[0].title, 'Earshot - Wait');
-});
-
 test('YouTube Music Parser: Extracts duration from fixedColumns (runs and simpleText)', () => {
   const itemWithRuns = {
     playlistItemData: { videoId: 'abc123vid01' },

@@ -5,7 +5,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
 import { isCurrentPlaybackRequest } from '../src/shared/utils/playbackRecovery.ts';
 const source = readFileSync(
-  new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
+  new URL('../src/shared/services/playbackEngine.ts', import.meta.url),
   'utf8',
 );
 function stalledFixture(readyState = 2) {
@@ -72,8 +72,8 @@ function hlsFixture({
   throws = false,
   destroyThrows = false,
 } = {}) {
-  const begin = source.indexOf('        const recoveryBudget = new HlsRecoveryBudget();');
-  const end = source.indexOf('\n      } else {', begin);
+  const begin = source.indexOf('      const recoveryBudget = new HlsRecoveryBudget();');
+  const end = source.indexOf('\n    } else {', begin);
   assert.ok(begin >= 0 && end > begin);
   const callbacks = new Map();
   let timeout;
@@ -115,11 +115,13 @@ function hlsFixture({
       };
     },
     playbackAbortRef: { current: new AbortController() },
+    pendingPositionRef: { current: null },
     streamUrl: 'https://fixture.invalid/playlist.m3u8',
     trackId: 'fixture',
     loadOwner: undefined,
     isStaleLoad: () => stale,
     isSnippet: snippet,
+    prepareOnly: false,
     audio: {
       currentTime: 42,
       pause() {

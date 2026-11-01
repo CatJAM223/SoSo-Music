@@ -7,7 +7,8 @@ import type { Track, WaveMood } from '../types/index.ts';
 export function waveMusicMetadata(value: {
   genre?: unknown;
   tags?: unknown;
-}): Pick<Track, 'genre' | 'tags'> {
+  waveMetadataScope?: unknown;
+}): Pick<Track, 'genre' | 'tags' | 'waveMetadataScope'> {
   const genre = typeof value.genre === 'string' ? value.genre.trim().slice(0, 100) : '';
   const tags = Array.isArray(value.tags)
     ? [
@@ -20,7 +21,11 @@ export function waveMusicMetadata(value: {
         ),
       ]
     : [];
-  return { ...(genre ? { genre } : {}), ...(tags.length ? { tags } : {}) };
+  return {
+    ...(value.waveMetadataScope === 'artist' ? { waveMetadataScope: 'artist' as const } : {}),
+    ...(genre ? { genre } : {}),
+    ...(tags.length ? { tags } : {}),
+  };
 }
 
 const STYLE_ALIASES: [string, RegExp][] = [
@@ -67,7 +72,9 @@ export interface WaveMusicProfile {
   energy: number;
 }
 
-export function waveMusicProfile(track: Pick<Track, 'genre' | 'tags'>): WaveMusicProfile {
+export function waveMusicProfile(
+  track: Pick<Track, 'genre' | 'tags' | 'waveMetadataScope'>,
+): WaveMusicProfile {
   const metadata = waveMusicMetadata(track);
   const labels = [metadata.genre || '', ...(metadata.tags || [])]
     .map((label) =>
@@ -89,7 +96,7 @@ export function waveMusicProfile(track: Pick<Track, 'genre' | 'tags'>): WaveMusi
       ? Number(active) - Number(calm)
       : Number(labels.some((label) => ACTIVE_STYLE.test(label))) -
         Number(labels.some((label) => CALM_STYLE.test(label)));
-  return { styles, energy };
+  return { styles, energy: metadata.waveMetadataScope === 'artist' ? energy * 0.25 : energy };
 }
 
 /** Numeric mood scoring is shared with the Rust queue implementation. */

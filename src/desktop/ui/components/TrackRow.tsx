@@ -1,10 +1,13 @@
+import { requestRoom, roomError, useRoomTrackState } from '../services/listeningRoomClient';
+import { emitToast } from '../../../shared/context/ToastContext';
+import { roomSong } from '../services/roomTracks';
 import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
 import { useYouTubeAvailability } from '../../../shared/hooks/useYouTubeAvailability';
 import { youtubeDisabledProps } from '../../../shared/services/youtubeAvailability';
 import React from 'react';
 import { TasteContextMenu } from '../../../shared/components/TasteContextMenu';
-import { Play, Pause, Download, CheckCircle2, Loader2 } from 'lucide-react';
+import { Play, Pause, ListMusic, Check, Download, CheckCircle2, Loader2 } from 'lucide-react';
 import { Track } from '../../../shared/types';
 import type { PlaybackOrigin } from '../../../shared/types/tastePolicy';
 import {
@@ -94,6 +97,23 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
     hideAlbumColumn = false,
   }) => {
     useLocale();
+    const roomTrackState = useRoomTrackState(track?.id ?? '', detectTrackSource(track));
+    const roomConnection = roomTrackState !== 'offline';
+    const inRoomQueue = roomTrackState === 'queued' || roomTrackState === 'current';
+    const [addingToRoom, setAddingToRoom] = React.useState(false);
+    const addToRoom = async () => {
+      const song = roomSong(track);
+      if (!song || addingToRoom || inRoomQueue) return;
+      setAddingToRoom(true);
+      try {
+        await requestRoom({ op: 'command', payload: { action: 'enqueue', song } });
+        emitToast(t('Трек добавлен в общую очередь'), 'success');
+      } catch (error) {
+        emitToast(roomError(error), 'error');
+      } finally {
+        setAddingToRoom(false);
+      }
+    };
     const {
       currentTrack,
       isPlaying,
@@ -142,6 +162,10 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
       likedTrackIds.has(`dz_${cleanId}`);
 
     const handleFullPlay = () => {
+      if (roomConnection) {
+        void addToRoom();
+        return;
+      }
       if (isCurrentFullTrack && !isSnippetPlaying) {
         togglePlay();
       } else {
@@ -183,6 +207,7 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
         }}
         onClick={handleFullPlay}
         data-track-id={String(track.id)}
+        data-room-state={roomConnection ? roomTrackState : undefined}
         data-playback-state={
           isCurrentlyLoadingFull
             ? 'loading'
@@ -234,11 +259,15 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
           <button
             type="button"
             aria-label={
-              isCurrentlyLoadingFull
-                ? t('Отменить загрузку ') + track.title
-                : isCurrentlyPlayingFull
-                  ? t('Приостановить ') + track.title
-                  : t('Воспроизвести ') + track.title
+              roomConnection
+                ? inRoomQueue
+                  ? t('Уже в общей очереди')
+                  : t('Добавить в общую очередь')
+                : isCurrentlyLoadingFull
+                  ? t('Отменить загрузку ') + track.title
+                  : isCurrentlyPlayingFull
+                    ? t('Приостановить ') + track.title
+                    : t('Воспроизвести ') + track.title
             }
             onClick={(e) => {
               e.stopPropagation();
@@ -250,7 +279,13 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
                 : 'bg-black/40 opacity-0 group-hover/cover:opacity-100 group-hover:opacity-100'
             }`}
           >
-            {isCurrentlyLoadingFull ? (
+            {roomConnection ? (
+              inRoomQueue ? (
+                <Check className="w-4 h-4 text-white" />
+              ) : (
+                <ListMusic className="w-4 h-4 text-white" />
+              )
+            ) : isCurrentlyLoadingFull ? (
               <Loader2 className="w-4 h-4 md:w-5 md:h-5 text-soso-brand animate-spin" />
             ) : isCurrentlyPlayingFull ? (
               <Pause className="w-4 h-4 md:w-5 md:h-5 text-soso-brand fill-current" />
@@ -387,13 +422,24 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
           </div>
         )}
 
-        {/* 10-Second Midpoint Snippet Button (Сниппет) */}
-        <SnippetButton
-          isSnippetActive={isSnippetActive}
-          isSnippetPlaying={isSnippetPlaying}
-          onSnippetClick={handleSnippetClick}
-        />
-
+        {/* Keep one shared action column so duration stays aligned with the header. */}
+        {roomConnection ? (
+          <div className="w-8 sm:w-20 shrink-0 flex justify-center" aria-live="polite">
+            {addingToRoom && (
+              <Loader2
+                size={17}
+                className="animate-spin text-slate-400"
+                aria-label={t('Добавление в очередь')}
+              />
+            )}
+          </div>
+        ) : (
+          <SnippetButton
+            isSnippetActive={isSnippetActive}
+            isSnippetPlaying={isSnippetPlaying}
+            onSnippetClick={handleSnippetClick}
+          />
+        )}
         {/* Like Button */}
         <div className="w-8 shrink-0 flex justify-center">
           <AnimatedLikeButton

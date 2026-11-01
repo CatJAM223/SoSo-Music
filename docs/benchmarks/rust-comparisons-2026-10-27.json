@@ -1,0 +1,51 @@
+{
+  "node": "v24.19.0",
+  "platform": "win32",
+  "arch": "x64",
+  "method": "31 paired alternating warm samples, 5 complete deduplication calls per sample. Previous individual production Rust comparisons vs current production batched deduplicator on the same WASM binary. Includes accepted-list traversal, packet encoding, WASM, copying and output mapping. Unchanged text identity preparation and WASM initialization excluded. At most 96 candidates: previous dense-matrix threshold cannot trigger. Deterministic synthetic metadata; not provider or whole-player latency.",
+  "rows": [
+    {
+      "name": "small-distinct",
+      "count": 24,
+      "retained": 24,
+      "previous": {
+        "medianMs": 1.1220800000000053,
+        "p95Ms": 1.6891599999999982
+      },
+      "current": {
+        "medianMs": 0.635699999999997,
+        "p95Ms": 1.3887800000000028
+      },
+      "medianSpeedup": 1.765109328299529
+    },
+    {
+      "name": "catalog-distinct",
+      "count": 96,
+      "retained": 96,
+      "previous": {
+        "medianMs": 16.692540000000008,
+        "p95Ms": 17.28144000000011
+      },
+      "current": {
+        "medianMs": 5.993000000000029,
+        "p95Ms": 6.311179999999877
+      },
+      "medianSpeedup": 2.7853395628232818
+    },
+    {
+      "name": "reuploads",
+      "count": 96,
+      "retained": 12,
+      "previous": {
+        "medianMs": 2.2526599999999233,
+        "p95Ms": 2.324779999999919
+      },
+      "current": {
+        "medianMs": 1.934020000000055,
+        "p95Ms": 2.0037599999999656
+      },
+      "medianSpeedup": 1.1647552765741096
+    }
+  ],
+  "abi": 5
+}

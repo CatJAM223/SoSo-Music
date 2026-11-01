@@ -19,6 +19,7 @@ export function mapLikedTracks(likedList: LikedTrack[]): Track[] {
     }
     return {
       id: item.deezer_id,
+      ...(item.recordingId ? { recordingId: item.recordingId } : {}),
       title: item.title,
       artist: {
         id: artistId,

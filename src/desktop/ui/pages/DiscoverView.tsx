@@ -57,8 +57,12 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
     useAudioControls();
 
   const youtubeDisabled = useYouTubeAvailability();
-  const daily = useDailyRecommendations(dislikedTrackIds);
-  const recommendedTracks = daily.tracks.filter((track) => !dislikedTrackIds.has(String(track.id)));
+  const daily = useDailyRecommendations(dislikedTrackIds, youtubeDisabled ? 'soundcloud' : 'all');
+  const recommendedTracks = daily.tracks.filter(
+    (track) =>
+      !dislikedTrackIds.has(String(track.id)) &&
+      (!youtubeDisabled || detectTrackSource(track) !== 'youtube'),
+  );
   const [likedTracks, setLikedTracks] = useState<LikedTrack[]>([]);
   const [savedAlbums, setSavedAlbums] = useState<SavedAlbum[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -232,7 +236,8 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
                 <article
                   {...youtubeDisabledProps(track, youtubeDisabled)}
                   key={track.id}
-                  className="min-w-0 rounded-xl border border-slate-200 bg-white/50 p-3 dark:border-white/10 dark:bg-zinc-900/60"
+                  data-active={active || undefined}
+                  className="soso-music-card min-w-0 rounded-xl border border-slate-200 bg-white/50 p-3 dark:border-white/10 dark:bg-zinc-900/60"
                 >
                   <button
                     type="button"

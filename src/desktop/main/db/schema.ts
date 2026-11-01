@@ -1,3 +1,4 @@
+import { createRecordingSchema } from './recordingCatalog.ts';
 import type { Database } from 'sql.js';
 import { createLibraryTasteSchema } from '../services/libraryTasteStore.ts';
 import { createTastePolicySchema } from '../services/tastePolicyStore.ts';
@@ -128,6 +129,9 @@ function migrateLibrarySchema(db: Database): void {
       db.run('CREATE INDEX IF NOT EXISTS idx_scrobbles_played ON track_scrobbles(last_played_at);');
       db.run('PRAGMA user_version = 1;');
     }
+    if (version < 3) {
+      createRecordingSchema(db);
+    }
     if (version < 2) {
       ensureTextColumn(db, 'playlists', 'cover_url');
       db.run('PRAGMA user_version = 2;');
@@ -156,4 +160,7 @@ FROM playback_sessions
 WHERE NOT EXISTS (SELECT 1 FROM listening_daily_time)
 GROUP BY date(started_at, 'localtime')`);
   migrateLibrarySchema(db);
+  createRecordingSchema(db);
+  if ((Number(db.exec('PRAGMA user_version;')[0]?.values[0]?.[0]) || 0) < 3)
+    db.run('PRAGMA user_version = 3;');
 }

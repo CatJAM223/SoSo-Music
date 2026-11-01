@@ -238,40 +238,4 @@ export class LastFmService {
     const info = await this.getArtistInfo(artistName, signal);
     return info?.similarArtists?.slice(0, limit) || [];
   }
-
-  /**
-   * Get album metadata (release summary, tracks, cover)
-   */
-  public static async getAlbumInfo(artistName: string, albumTitle: string): Promise<any | null> {
-    if (!artistName || !albumTitle) return null;
-    const cacheKey = `album:${artistName.toLowerCase()}:${albumTitle.toLowerCase()}`;
-
-    if (this.cache.has(cacheKey)) {
-      const cached = this.cache.get(cacheKey);
-      if (cached && Date.now() < cached.expiresAt) {
-        return cached.value;
-      }
-    }
-
-    const json = await this.fetchJson('album.getinfo', { artist: artistName, album: albumTitle });
-    const album = json?.album;
-    if (!album) return null;
-
-    const result = {
-      title: album.title,
-      artist: album.artist,
-      cover: this.extractImageUrl(album.image),
-      summary: this.cleanBioText(album.wiki?.summary || album.wiki?.content),
-      releaseDate: album.releasedate || '',
-      tracks: Array.isArray(album.tracks?.track)
-        ? album.tracks.track.map((t: any) => ({
-            name: t.name,
-            duration: Number(t.duration) || 0,
-          }))
-        : [],
-    };
-
-    this.setCache(cacheKey, result);
-    return result;
-  }
 }

@@ -644,11 +644,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       {/* Tab 4: Listening History */}
       {activeTab === 'history' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-700 dark:text-zinc-300">
-              {t('Недавно прослушанные треки')}
-            </h2>
-            {historyItems.length > 0 && (
+          {historyItems.length > 0 && (
+            <div className="flex items-center justify-end">
               <button
                 onClick={handleClearHistory}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200/80 dark:bg-zinc-800/80 text-rose-500 hover:bg-rose-500 hover:text-white text-xs font-bold transition-all shadow-xs"
@@ -656,8 +653,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{t('Очистить историю')}</span>
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {loadingHistory ? (
             <CatLoader message={t('Загружаем историю...')} size="md" className="py-20" />
@@ -689,6 +686,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             <TrackTable
               tracks={filteredHistoryItems.map((h) => ({
                 id: h.track_id,
+                ...(h.recordingId ? { recordingId: h.recordingId } : {}),
                 title: h.title,
                 artist: { name: h.artist },
                 album: { id: 0, title: h.album || '', cover: h.cover_url || '' },
@@ -707,12 +705,6 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       {/* Tab 5: Offline Cached Tracks */}
       {activeTab === 'offline' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
-              {t('Скачанные треки (Офлайн)')}
-            </h2>
-          </div>
-
           {loadingOffline ? (
             <CatLoader message={t('Загружаем офлайн треки...')} size="md" className="py-20" />
           ) : filteredOfflineTracks.length === 0 && searchQuery ? (

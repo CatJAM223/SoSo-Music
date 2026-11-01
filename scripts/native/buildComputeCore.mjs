@@ -62,6 +62,7 @@ for (const file of [
   'src/lib.rs',
   'src/ranking.rs',
   'src/sequence.rs',
+  'src/search.rs',
   'src/import_match.rs',
   'src/loudness.rs',
   'src/demux.rs',
@@ -79,7 +80,7 @@ fs.writeFileSync(
   path.join(output, 'soso-core.json'),
   JSON.stringify(
     {
-      abi: 4,
+      abi: 7,
       workletSha256: crypto
         .createHash('sha256')
         .update(fs.readFileSync(path.join(output, 'soso-normalization.js')))

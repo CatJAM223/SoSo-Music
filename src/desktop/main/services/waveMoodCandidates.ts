@@ -1,4 +1,5 @@
 import type { Track, WaveMood } from '../../../shared/types/index.ts';
+import { requireRustCompute } from '../../../shared/compute/rustCore.ts';
 import {
   getWaveArtistNames,
   getWaveArtistKeys,
@@ -56,9 +57,27 @@ export interface WaveMoodCandidates {
   pool: WaveCandidatePool;
   catalog: WaveCatalog;
   rotate: (artists: string[]) => string[];
+  searchAttempt?: number;
+  searchHasMore?: boolean;
 }
 
 type ArtistReplies = Awaited<ReturnType<typeof fetchArtists>>;
+
+async function searchCatalog(
+  options: WaveMoodCandidates,
+  kind: 'both' | 'fallback' | 'youtube' | 'soundcloud',
+  query: string,
+  base: number,
+  artist = query,
+) {
+  const limit = artistSearchLimit(options, artist, base);
+  const reply = await options.catalog[kind](query, limit);
+  const sources = new Map<string, number>();
+  for (const track of reply.data || [])
+    sources.set(track.source || '', (sources.get(track.source || '') || 0) + 1);
+  if ([...sources.values()].some((count) => count >= limit)) options.searchHasMore = true;
+  return reply;
+}
 
 /** Look past familiar top hits as a personal catalog is gradually heard or offered. */
 function artistSearchLimit(options: WaveMoodCandidates, artist: string, limit: number): number {
@@ -67,7 +86,7 @@ function artistSearchLimit(options: WaveMoodCandidates, artist: string, limit: n
       .filter((track) => matchesWaveArtist(track, artist))
       .map((track) => String(track.id)),
   ).size;
-  return Math.min(40, limit + exposed * 2);
+  return requireRustCompute().wave_search_limit(limit, exposed, options.searchAttempt || 0);
 }
 
 async function fetchArtists(options: WaveMoodCandidates, artists: string[], limit: number) {
@@ -75,8 +94,8 @@ async function fetchArtists(options: WaveMoodCandidates, artists: string[], limi
     artists,
     (artist) =>
       Promise.allSettled([
-        options.catalog.soundcloud(artist, artistSearchLimit(options, artist, limit)),
-        options.catalog.youtube(artist, artistSearchLimit(options, artist, limit)),
+        searchCatalog(options, 'soundcloud', artist, limit),
+        searchCatalog(options, 'youtube', artist, limit),
       ]),
     SEARCH_CONCURRENCY,
   );
@@ -115,8 +134,9 @@ async function searchCombinedArtists(
     artists,
     async (artist) => {
       const query = artist + (options.mood === 'energy' ? ' energetic' : ' chill');
-      const limit = artistSearchLimit(options, artist, 10);
-      const reply = await options.catalog.both(query, limit).catch(() => ({ data: [] }));
+      const reply = await searchCatalog(options, 'both', query, 10, artist).catch(() => ({
+        data: [],
+      }));
       // A small catalog may not support qualified searches. Keep personal music available.
       if (
         !reply.data?.some(
@@ -126,7 +146,7 @@ async function searchCombinedArtists(
             waveMoodScore(waveMusicProfile(track), options.mood) >= 0,
         )
       )
-        return options.catalog.both(artist, limit);
+        return searchCatalog(options, 'both', artist, 10);
       return reply;
     },
     SEARCH_CONCURRENCY,
@@ -174,7 +194,7 @@ async function fillMix(options: WaveMoodCandidates): Promise<void> {
   if (options.hasTaste)
     return searchArtists(options, options.rotate(options.artists).slice(0, 7), 10, 3);
   const replies = await Promise.allSettled(
-    MIX_QUERIES.map((query) => options.catalog.fallback(query, 10)),
+    MIX_QUERIES.map((query) => searchCatalog(options, 'fallback', query, 10)),
   );
   for (const reply of replies)
     if (reply.status === 'fulfilled') reply.value.data?.forEach((track) => options.pool.add(track));
@@ -193,7 +213,11 @@ async function fillEnergyOrChill(options: WaveMoodCandidates): Promise<void> {
       );
   const [, replies] = await Promise.all([
     searchCombinedArtists(options, artists),
-    mapConcurrentSettled(queries, (query) => options.catalog.both(query, 8), SEARCH_CONCURRENCY),
+    mapConcurrentSettled(
+      queries,
+      (query) => searchCatalog(options, 'both', query, 8),
+      SEARCH_CONCURRENCY,
+    ),
   ]);
   for (const reply of replies)
     if (reply.status === 'fulfilled') options.pool.addRanked(reply.value.data || [], 3);
@@ -208,7 +232,8 @@ async function fillDiscover(options: WaveMoodCandidates): Promise<void> {
   const targets = similar.length ? shuffled(similar).slice(0, 4) : anchors;
   const replies = await mapConcurrentSettled(
     targets,
-    (artist) => options.catalog.both(similar.length ? artist : artist + ' similar', 12),
+    (artist) =>
+      searchCatalog(options, 'both', similar.length ? artist : artist + ' similar', 12, artist),
     SEARCH_CONCURRENCY,
   );
   replies.forEach((reply, index) => {
@@ -222,7 +247,7 @@ async function fillDiscover(options: WaveMoodCandidates): Promise<void> {
   if (options.pool.size >= 15 || options.hasTaste) return;
   const fallback = await mapConcurrentSettled(
     shuffled(DISCOVERY_QUERIES).slice(0, 3),
-    (query) => options.catalog.fallback(query, 10),
+    (query) => searchCatalog(options, 'fallback', query, 10),
     SEARCH_CONCURRENCY,
   );
   for (const reply of fallback)
@@ -233,7 +258,7 @@ async function fillArtistRadio(options: WaveMoodCandidates): Promise<void> {
   if (options.pool.size >= 20) return;
   const artists = options.rotate(options.artists).slice(0, 3);
   const replies = await Promise.allSettled(
-    artists.map((artist) => options.catalog.fallback(artist + ' radio', 8)),
+    artists.map((artist) => searchCatalog(options, 'fallback', artist + ' radio', 8, artist)),
   );
   replies.forEach((reply, index) => {
     if (reply.status === 'fulfilled')
@@ -260,7 +285,7 @@ async function fillFlow(options: WaveMoodCandidates): Promise<void> {
 export async function fillEmptyWaveCandidates(options: WaveMoodCandidates): Promise<void> {
   const queries = shuffled(CURATED_WAVE_FALLBACK_QUERIES).slice(0, 6);
   const replies = await Promise.allSettled(
-    queries.map((query) => options.catalog.fallback(query, 8)),
+    queries.map((query) => searchCatalog(options, 'fallback', query, 8)),
   );
   replies.forEach((reply, index) => {
     if (reply.status === 'fulfilled')

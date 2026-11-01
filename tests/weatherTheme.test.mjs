@@ -4,8 +4,6 @@ import {
   THEME_OPTIONS,
   ACCENT_COLOR_OPTIONS,
   EASTER_EGG_THEME_OPTION,
-  getWeatherThemePalette,
-  getEffectiveThemeMode,
   resolveAdaptiveTheme,
 } from '../src/shared/context/themeData.ts';
 
@@ -29,7 +27,6 @@ test('Theme System: Active UI presets include both listening scenes on desktop a
   ]);
   for (const id of ['nighttrain', 'cassette']) {
     assert.notStrictEqual(THEME_OPTIONS.find((t) => t.id === id).desktopOnly, true);
-    assert.strictEqual(getEffectiveThemeMode(id, 'light'), 'dark');
   }
   assert.strictEqual(ACCENT_COLOR_OPTIONS.length, 8);
 });
@@ -54,24 +51,6 @@ test('Theme System: Black Hole preset is registered as a secret easter egg theme
     EASTER_EGG_THEME_OPTION.badge?.includes('Event Horizon'),
     'Badge should indicate the event horizon',
   );
-});
-
-test('Theme System: Weather clear mode uses emerald palette and rain mode uses storm cyan', () => {
-  const clearPalette = getWeatherThemePalette('clear');
-  assert.strictEqual(clearPalette.accent, '#10b981');
-  assert.strictEqual(clearPalette.accentRgb, '16, 185, 129');
-  assert.strictEqual(clearPalette.bgLight, '#f5f9f6');
-
-  const rainPalette = getWeatherThemePalette('rain');
-  assert.strictEqual(rainPalette.accent, '#38bdf8');
-  assert.strictEqual(rainPalette.accentRgb, '56, 189, 248');
-  assert.strictEqual(rainPalette.bgDark, '#090e14');
-
-  // Effective mode resolution
-  assert.strictEqual(getEffectiveThemeMode('weather', 'dark', 'clear'), 'light');
-  assert.strictEqual(getEffectiveThemeMode('weather', 'light', 'rain'), 'dark');
-  assert.strictEqual(getEffectiveThemeMode('sakura'), 'light');
-  assert.strictEqual(getEffectiveThemeMode('blackhole'), 'dark');
 });
 
 test('Theme System: Adaptive theme resolution maps tracks to aesthetic presets', () => {

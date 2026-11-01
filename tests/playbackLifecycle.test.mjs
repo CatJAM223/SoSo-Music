@@ -1,7 +1,8 @@
+import { WaveQualityEpisode } from '../src/shared/services/waveQuality.ts';
 import { BoundedMap, BoundedSet } from '../src/shared/utils/boundedCache.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hookRuntime } from './helpers/hookRuntime.mjs';
+import { playbackEngineRuntime } from './helpers/playbackEngineRuntime.mjs';
 import * as urls from '../src/shared/utils/audioUrlValidator.ts';
 import * as volume from '../src/shared/utils/audioVolume.ts';
 import * as buffering from '../src/shared/utils/audioBuffer.ts';
@@ -90,7 +91,8 @@ function fixture({
 } = {}) {
   const nativeLoads = [],
     nativePlans = [],
-    statistics = [];
+    statistics = [],
+    qualityEvents = [];
   let nativeListener;
   const transport = {
     addListener: async (_, listener) => {
@@ -156,13 +158,27 @@ function fixture({
     playTrackRef: ref(null),
   };
   const bindings = {
+    './waveQuality.ts': {
+      WaveQualityEpisode: class extends WaveQualityEpisode {
+        constructor(track, id) {
+          super(track, id, (event) => qualityEvents.push(event));
+        }
+      },
+    },
+    '../types/musicDomain.ts': {
+      source: new URL('../src/shared/types/musicDomain.ts', import.meta.url),
+    },
     '../utils/playbackIntent.ts': playbackIntent,
+    '../utils/playbackDiagnostics.ts': {
+      source: new URL('../src/shared/utils/playbackDiagnostics.ts', import.meta.url),
+    },
     '../utils/playbackQueueOrder': queueOrder,
     '../utils/tastePolicy': tastePolicy,
     '../utils/boundedCache': { BoundedMap, BoundedSet },
     './shuffleCycle.ts': shuffle,
     './queueEntry.ts': queueEntries,
     '../utils/queueEntry': queueEntries,
+    '../utils/queueEntry.ts': queueEntries,
     '../utils/audioProgressWatchdog': { AudioProgressWatchdog },
     '../services/playerStreamResolution': {
       source: new URL('../src/shared/services/playerStreamResolution.ts', import.meta.url),
@@ -173,12 +189,13 @@ function fixture({
     '../services/playerCachedSource': {
       source: new URL('../src/shared/services/playerCachedSource.ts', import.meta.url),
     },
-    './usePlaybackTaskScope': {
-      source: new URL('../src/shared/hooks/usePlaybackTaskScope.ts', import.meta.url),
+    './playbackTaskScope': {
+      source: new URL('../src/shared/services/playbackTaskScope.ts', import.meta.url),
     },
     './useYouTubeAvailability': { useYouTubeAvailability: () => false },
     '../services/youtubeAvailability': {
       isYouTubePlaybackDisabled: () => false,
+      subscribeYouTubeAvailability: () => noop,
       isYouTubeItemDisabled: () => false,
       availableQueueIndex: (q, i) => (i >= 0 && i < q.length ? i : -1),
     },
@@ -237,6 +254,10 @@ function fixture({
         };
         return current;
       },
+    },
+    '../utils/formatters.ts': {
+      detectTrackSource: (t) =>
+        t.source || (String(t.id).startsWith('yt_') ? 'youtube' : 'soundcloud'),
     },
     '../utils/formatters': { detectTrackSource: (t) => t.source, resolveTrackCover: () => '' },
     '../utils/youtubeAccessHint': { emitYouTubeAccessIssue: () => false },
@@ -299,8 +320,8 @@ function fixture({
   });
   const connectivity = { onLine: true },
     window = new EventTarget();
-  const h = hookRuntime(
-    new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
+  const h = playbackEngineRuntime(
+    new URL('../src/shared/services/playbackEngine.ts', import.meta.url),
     bindings,
     { window, navigator: connectivity, performance: { now }, AbortSignal },
   );
@@ -320,6 +341,7 @@ function fixture({
     nativeLoads,
     nativePlans,
     statistics,
+    qualityEvents,
     nativeEmit(event, state = {}) {
       nativeListener({
         audioId: audio.audioId,
@@ -1323,6 +1345,68 @@ test('switching tracks while an empty lookup is pending cannot start a stale fre
   f.h.unmount();
 });
 
+test('silent progressive startup is bounded, preserves pending seek and cannot drain the queue', async () => {
+  const f = fixture();
+  f.audio.playResult = () => new Promise(() => {});
+  await f.h.api().playTrack(f.props.queueRef.current[0], undefined, false, 37);
+  await f.h.flush();
+  // The provider returned a URL, but no DOM media event or play settlement follows.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    f.h.fireTimers(8000);
+    await f.h.flush();
+  }
+  assert.equal(f.h.api().currentTrack.id, 'yt_one');
+  assert.equal(f.h.api().playbackIssue.kind, 'timeout');
+  assert.equal(f.h.api().getPlaybackPosition(), 37);
+  assert.ok(!f.toasts.some((message) => message.includes('Включаем следующий')));
+  f.h.api().pauseMainAudio();
+  await f.h.flush();
+  assert.equal(f.h.timers(), 0);
+  f.h.unmount();
+});
+
+test('online media network errors retain the recording after bounded source refreshes', async () => {
+  const f = fixture();
+  await f.h.api().playTrack(f.props.queueRef.current[0]);
+  await f.h.flush();
+  f.audio.currentTime = 53;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    f.audio.error = { code: 2, message: 'transport failed' };
+    f.audio.dispatchEvent(new Event('error'));
+    await f.h.flush();
+    // Distinguish successive real loads from duplicate DOM error delivery.
+    f.audio.error = null;
+  }
+  assert.equal(f.h.api().currentTrack.id, 'yt_one');
+  assert.equal(f.h.api().playbackIssue.kind, 'network');
+  assert.equal(f.h.api().getPlaybackPosition(), 53);
+  f.h.api().pauseMainAudio();
+  await f.h.flush();
+  assert.equal(f.h.timers(), 0);
+  f.h.unmount();
+});
+
+test('Brief progress during network starvation rearms recovery rather than disabling its watchdog', async () => {
+  const f = fixture();
+  await f.h.api().playTrack(f.props.queueRef.current[0]);
+  await f.h.flush();
+  f.audio.paused = false;
+  f.audio.readyState = 2;
+  f.audio.currentTime = 10;
+  f.audio.dispatchEvent(new Event('waiting'));
+  f.audio.currentTime = 10.5;
+  f.h.fireTimers(8000);
+  await f.h.flush();
+  assert.equal(f.bridgeCalls.length, 1);
+  f.h.fireTimers(8000);
+  await f.h.flush();
+  assert.equal(f.bridgeCalls.length, 2);
+  assert.equal(f.h.api().currentTrack.id, 'yt_one');
+  f.h.api().pauseMainAudio();
+  assert.equal(f.h.timers(), 0);
+  f.h.unmount();
+});
+
 test('playback logs distinguish first start from buffer recovery and correlate source failures', async () => {
   const logs = [];
   const f = fixture();
@@ -1995,4 +2079,77 @@ test('offline audio starts before delayed artwork; a late cover cannot overwrite
       f.h.unmount();
     }
   }
+});
+
+test('Engine phase reports selection, real playback, buffering, pause and exhausted queue', async () => {
+  const f = fixture({ queue: [track('phase')] });
+  const engine = f.h.engine();
+  assert.equal(engine.getSnapshot().playbackPhase, 'idle');
+  await f.h.api().playTrack(f.props.queueRef.current[0]);
+  await f.h.flush();
+  assert.equal(engine.getSnapshot().playbackPhase, 'preparing');
+  f.audio.paused = false;
+  f.audio.dispatchEvent(new Event('playing'));
+  assert.equal(engine.getSnapshot().playbackPhase, 'playing');
+  f.audio.dispatchEvent(new Event('waiting'));
+  assert.equal(engine.getSnapshot().playbackPhase, 'buffering');
+  f.h.api().pauseMainAudio();
+  assert.equal(engine.getSnapshot().playbackPhase, 'paused');
+  await f.h.api().nextTrack();
+  assert.equal(engine.getSnapshot().playbackPhase, 'ended');
+  f.h.unmount();
+});
+
+test('Engine snapshots are stable until a change and disposal/remount own all resources', async () => {
+  const f = fixture();
+  const engine = f.h.engine();
+  assert.strictEqual(engine.getSnapshot(), engine.getSnapshot());
+  let notifications = 0;
+  const off = engine.subscribe(() => notifications++);
+  f.h.unmount();
+  await Promise.resolve();
+  const afterDispose = notifications;
+  f.audio.paused = false;
+  f.audio.dispatchEvent(new Event('playing'));
+  engine.transition('playing');
+  await Promise.resolve();
+  assert.equal(notifications, afterDispose);
+  assert.equal(f.h.timers(), 0);
+  f.h.remount();
+  await f.h.api().playTrack(f.props.queueRef.current[0]);
+  await f.h.flush();
+  assert.equal(engine.getSnapshot().currentTrack.id, 'yt_one');
+  f.h.unmount();
+  off();
+});
+
+test('Engine attributes one measured Wave episode across playback, repeated playing events and next', async () => {
+  const recommendation = {
+    id: 'recommendation:one',
+    ranker: 'rust-sequence-v1',
+    mood: 'default',
+    rank: 0,
+    familiar: false,
+  };
+  const first = {
+    ...track('wave-quality'),
+    waveRecommendation: recommendation,
+    recordingId: 'rec:youtube:canonical',
+  };
+  const f = fixture({ queue: [first, track('next')] });
+  await f.h.api().playTrack(first);
+  await f.h.flush();
+  assert.equal(f.h.api().getCurrentRecording().id, first.recordingId);
+  assert.equal(f.h.api().getPlayableSource().recordingId, first.recordingId);
+  f.audio.paused = false;
+  f.audio.dispatchEvent(new Event('playing'));
+  f.audio.dispatchEvent(new Event('playing'));
+  await f.h.api().nextTrack();
+  await f.h.flush();
+  const events = f.qualityEvents;
+  assert.equal(events.filter((e) => e.event === 'selected').length, 1);
+  assert.equal(events.filter((e) => e.event === 'started').length, 1);
+  assert.equal(events.filter((e) => e.event === 'outcome').length, 1);
+  assert.equal(events.find((e) => e.event === 'outcome').reason, 'skip');
+  f.h.unmount();
 });

@@ -1,3 +1,44 @@
+.soso-queue-drawer {
+  transform: translateX(0);
+  opacity: 1;
+  transition:
+    transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms ease-out;
+}
+.soso-queue-drawer[data-open='false'] {
+  transform: translateX(100%);
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: 180ms;
+}
+.soso-queue-backdrop {
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+}
+.soso-queue-backdrop[data-open='false'] {
+  opacity: 0;
+  pointer-events: none;
+}
+@starting-style {
+  .soso-queue-drawer {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  .soso-queue-backdrop {
+    opacity: 0;
+  }
+}
+@media (max-width: 767px) {
+  .soso-queue-drawer[data-open='false'] {
+    transform: translateY(100%);
+  }
+  @starting-style {
+    .soso-queue-drawer {
+      transform: translateY(100%);
+    }
+  }
+}
+
 .queue-row {
   gap: 8px;
   min-height: 76px;

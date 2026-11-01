@@ -12,6 +12,9 @@ import { youtubeAccountMediaUserAgent } from './youtubeWatchPage.ts';
 import { isYouTubeStreamUrl } from './youtubeAccountStream.ts';
 import { YouTubeMusicTransport } from './youtubeMusicTransport.ts';
 import { PlaybackLogger } from './playbackLogger.ts';
+import { hasMp4MediaData } from '../../../shared/utils/mp4MediaData.ts';
+
+const MAX_SMALL_MP4_PROBE_BYTES = 256 * 1024;
 
 export type YouTubeMediaProbeResult =
   | { ok: true; url: string }
@@ -45,9 +48,19 @@ export async function probeYouTubeMedia(
   try {
     for (let redirects = 0; redirects <= 2; redirects++) {
       const userAgent = youtubeAccountMediaUserAgent(url);
+      const declaredSize = Number(new URL(url).searchParams.get('clen'));
+      // Some progressive renditions contain only moov/sample tables, without any samples.
+      // Their metadata looks valid, but Chromium immediately jumps to the track's end.
+      const inspectSmallFile =
+        Number.isSafeInteger(declaredSize) &&
+        declaredSize > 0 &&
+        declaredSize <= MAX_SMALL_MP4_PROBE_BYTES;
       const response = await streamWait(
         YouTubeMusicTransport.fetch(url, {
-          headers: { Range: 'bytes=0-1023', ...(userAgent ? { 'User-Agent': userAgent } : {}) },
+          headers: {
+            Range: `bytes=0-${inspectSmallFile ? declaredSize - 1 : 1023}`,
+            ...(userAgent ? { 'User-Agent': userAgent } : {}),
+          },
           cache: 'no-store',
           credentials: 'omit',
           redirect: 'manual',
@@ -100,7 +113,27 @@ export async function probeYouTubeMedia(
       if (!reader) return { ok: false, reason: 'cdn-response' };
       try {
         const chunk = await streamWait(reader.read());
-        if (!chunk.done && chunk.value?.byteLength) return { ok: true, url };
+        if (!chunk.done && chunk.value?.byteLength) {
+          if (inspectSmallFile && /\/mp4$/i.test(mime)) {
+            const bytes = new Uint8Array(declaredSize);
+            let part: ReadableStreamReadResult<Uint8Array> = chunk;
+            let received = 0;
+            while (!part.done && part.value?.byteLength) {
+              if (received + part.value.byteLength > declaredSize) return { ok: true, url };
+              bytes.set(part.value, received);
+              received += part.value.byteLength;
+              if (received === declaredSize) break;
+              part = await streamWait(reader.read());
+            }
+            if (received === declaredSize && hasMp4MediaData(bytes, true) === false) {
+              PlaybackLogger.warn(
+                '[YouTubeMusic:MediaProbe] media=' + kind + ' failure=missing-media-data',
+              );
+              return { ok: false, reason: 'cdn-response' };
+            }
+          }
+          return { ok: true, url };
+        }
         return { ok: false, reason: 'cdn-response' };
       } finally {
         await streamWait(reader.cancel().catch(() => {}));

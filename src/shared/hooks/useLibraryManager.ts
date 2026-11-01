@@ -126,13 +126,14 @@ export function useLibraryManager({
           }
         }
 
+        void refreshLikedTracks();
         return isNowLiked;
       } catch (e) {
         console.error('Error toggling like:', e);
         return false;
       }
     },
-    [likedTrackIds, onLike, setLikedTrackIds, setDislikedTrackIds],
+    [likedTrackIds, onLike, setLikedTrackIds, setDislikedTrackIds, refreshLikedTracks],
   );
 
   // Toggle Save Album

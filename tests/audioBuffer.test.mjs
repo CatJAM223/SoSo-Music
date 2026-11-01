@@ -114,7 +114,7 @@ test('Unchanged snapshots bail out; eviction or partial replacement updates the 
 
 function subscriptionHarness(audio) {
   const source = readFileSync(
-    new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
+    new URL('../src/shared/services/playbackEngine.ts', import.meta.url),
     'utf8',
   );
   const subscriber = extractStatementsBetween(source, 'handleBufferUpdate', 'handleTimeUpdate');
@@ -234,13 +234,12 @@ test('Old crossfade element events are ignored; hook cleanup removes all native 
 
 test('HLS attachment marks the blob source and ignores stale loads and snippets', () => {
   const source = readFileSync(
-    new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
+    new URL('../src/shared/services/playbackEngine.ts', import.meta.url),
     'utf8',
   );
-  const start = source.indexOf('        hls.on(Hls.Events.MEDIA_ATTACHED');
+  const start = source.indexOf('      hls.on(Hls.Events.MEDIA_ATTACHED');
   const end =
-    source.indexOf('        hls.attachMedia(audio);', start) +
-    '        hls.attachMedia(audio);'.length;
+    source.indexOf('      hls.attachMedia(audio);', start) + '      hls.attachMedia(audio);'.length;
   const registration = source.slice(start, end);
   for (const [isSnippet, stale] of [
     [false, false],

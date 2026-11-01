@@ -35,6 +35,17 @@ export function compareWaveSongs(left: WaveSongIdentity, right: WaveSongIdentity
   if (flags.length !== 1) throw Error('Invalid Rust comparison');
   return (flags[0] & 1) !== 0;
 }
+
+/** Preserve left-to-right matching while amortizing packet encoding and WASM crossings. */
+export function compareWaveSongBatch(
+  left: readonly WaveSongIdentity[],
+  right: WaveSongIdentity,
+): Uint8Array<ArrayBuffer> {
+  if (!left.length || left.length > 64) throw Error('Invalid Rust comparison batch size');
+  const flags = runRustCompute('compare_songs', encodeSongs([...left, right]));
+  if (flags.length !== left.length) throw Error('Invalid Rust comparison batch');
+  return flags;
+}
 export function compareRecordings(left: TrackPrint, right: TrackPrint): boolean {
   const flags = runRustCompute(
     'compare_songs',
@@ -92,10 +103,18 @@ export function createSongDeduplicator<T>(
       if (matrix) return accepted.some((i) => matrix!.sameSong(i, index));
       const song = at(index);
       pending = index;
-      return accepted.some((i) => {
+      // Common early duplicates still short-circuit without packing the remaining rows.
+      const prefix = Math.min(4, accepted.length);
+      for (let i = 0; i < prefix; i++) {
         comparisons++;
-        return compareWaveSongs(at(i), song);
-      });
+        if (compareWaveSongs(at(accepted[i]), song)) return true;
+      }
+      for (let start = prefix; start < accepted.length; start += 64) {
+        const left = accepted.slice(start, start + 64).map(at);
+        comparisons += left.length;
+        if (compareWaveSongBatch(left, song).some((flags) => (flags & 1) !== 0)) return true;
+      }
+      return false;
     },
     accept(index) {
       accepted.push(index);

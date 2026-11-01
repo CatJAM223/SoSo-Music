@@ -33,6 +33,7 @@ function isolate(t) {
     'audioAccessFailures',
     'cachedVisitorData',
     'visitorDataRequest',
+    'visitorRetryAfter',
     'sessionEpoch',
     'sessionRecoveryRequest',
     'lastSessionRecoveryAt',
@@ -50,6 +51,7 @@ function isolate(t) {
   Object.assign(yt, {
     cachedVisitorData: null,
     visitorDataRequest: null,
+    visitorRetryAfter: 0,
     sessionEpoch: 0,
     sessionRecoveryRequest: null,
     lastSessionRecoveryAt: -Infinity,

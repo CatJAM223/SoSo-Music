@@ -1,4 +1,5 @@
 import { useAppUpdateNotice } from './hooks/useAppUpdateNotice';
+import { useListeningRoomPlayback } from './hooks/useListeningRoomPlayback';
 import { AppUpdateNotice } from './components/AppUpdateNotice';
 import { useLocale } from '../../shared/i18n/useLocale';
 import { t } from '../../shared/i18n/locale';
@@ -66,6 +67,9 @@ const PlaylistView = lazy(() =>
 const GenresView = lazy(() =>
   import('./pages/GenresView').then((module) => ({ default: module.GenresView })),
 );
+const ListeningRoomView = lazy(() =>
+  import('./pages/ListeningRoomView').then((module) => ({ default: module.ListeningRoomView })),
+);
 const ArtistView = lazy(() =>
   import('./pages/ArtistView').then((module) => ({ default: module.ArtistView })),
 );
@@ -74,6 +78,7 @@ const AlbumView = lazy(() =>
 );
 
 export const DesktopApp: React.FC = () => {
+  useListeningRoomPlayback();
   useLocale();
   const { themePreset } = useTheme();
   const { currentTrack } = useAudioState();
@@ -400,6 +405,10 @@ export const DesktopApp: React.FC = () => {
                       onOpenAddToPlaylist={handleOpenAddToPlaylist}
                       onNavigate={handleNavigate}
                     />
+                  )}
+
+                  {currentView === 'listening-room' && (
+                    <ListeningRoomView onNavigate={handleNavigate} />
                   )}
 
                   {(currentView === 'my-music' || currentView === 'liked') && (

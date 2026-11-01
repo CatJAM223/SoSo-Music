@@ -25,27 +25,38 @@ function desktop(t) {
   });
   return values;
 }
-function callback(name, file = 'useAudioPlayerCore.ts') {
+function callback(name, file = '../services/playbackEngine.ts') {
   const source = fs.readFileSync(new URL('../src/shared/hooks/' + file, import.meta.url), 'utf8');
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   let found;
   function visit(node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      node.name.getText(tree) === name &&
-      node.initializer &&
-      ts.isCallExpression(node.initializer)
-    )
-      found = node.initializer.arguments[0];
+    if (ts.isVariableDeclaration(node) && node.name.getText(tree) === name && node.initializer)
+      found = ts.isCallExpression(node.initializer)
+        ? node.initializer.arguments[0]
+        : node.initializer;
     ts.forEachChild(node, visit);
   }
   visit(tree);
   assert.ok(found, 'Missing actual callback ' + name);
   // Mutations affect only this test extraction, never the production file.
   if (process.env.SOSO_CALLBACK_TEST_MUTATION === name) return '(()=>{})';
-  return ts.transpileModule('(' + found.getText(tree) + ')', {
-    compilerOptions: { target: ts.ScriptTarget.ES2022 },
-  }).outputText;
+  const expression = file.includes('playbackEngine')
+    ? found.getText(tree).replace('if (!engine.isMounted) return;', '')
+    : found.getText(tree);
+  return ts.transpileModule(
+    '(' +
+      expression
+        .replaceAll(/engine\.transition\([^;]+;/g, '')
+        .replace('playableSource = null;', '')
+        .replace(
+          /if \(audioRef.current\) finishPlaybackSession\(audioRef.current, false, false, ['"]skip['"]\);/,
+          '',
+        ) +
+      ')',
+    {
+      compilerOptions: { target: ts.ScriptTarget.ES2022 },
+    },
+  ).outputText;
 }
 test('YouTube opt-out persists, notifies only changes and leaves SoundCloud available', (t) => {
   const values = desktop(t);
@@ -94,6 +105,7 @@ function playGateFixture() {
     ...playbackIntent,
     ...tastePolicy,
     AbortController,
+    performance,
     retryingTemporaryFailureRef: ref(false),
     temporaryRecoveryRef: ref(null),
     temporaryRetryAttemptRef: ref(0),

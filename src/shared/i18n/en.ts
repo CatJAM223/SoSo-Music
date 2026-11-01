@@ -1,5 +1,117 @@
 // Russian source phrases are stable translation keys. Never translate catalog or user data.
 export const english: Record<string, string> = {
+  'Одна сеть / VPN': 'Same network / VPN',
+  'Отправьте приглашение другу — плеер подключится автоматически. Используется публичная сеть iroh; её доступность может зависеть от провайдера.':
+    'Send an invitation to your friend — the player connects automatically. Uses the public iroh network; availability may depend on your ISP.',
+  'Для устройств в одной домашней сети или уже настроенной VPN. Для друзей из разных мест выберите «Через интернет».':
+    'For devices on the same home network or an existing VPN. For friends in different locations, choose “Over the internet”.',
+  'Не удалось подключиться к сети комнат. Проверьте интернет и попробуйте снова.':
+    'Could not reach the room network. Check your internet connection and try again.',
+  'Не удалось соединиться с ведущим через интернет. Проверьте, что комната открыта и оба плеера обновлены.':
+    'Could not reach the host over the internet. Make sure the room is open and both players are updated.',
+  'Добавить в общую очередь': 'Add to the shared queue',
+  'Трек добавлен в общую очередь': 'Track added to the shared queue',
+  'Общая очередь': 'Shared queue',
+  'Участники добавляют треки в общую очередь. Вы управляете воспроизведением.':
+    'Everyone adds tracks to the shared queue. You control playback.',
+  'Очередь пока пуста. Добавьте треки — это может сделать каждый участник.':
+    'The queue is empty. Every participant can add tracks.',
+  'В общей очереди уже 20 треков.': 'The shared queue already contains 20 tracks.',
+  'Управлять воспроизведением может только ведущий.': 'Only the host can control playback.',
+  'Этот трек уже удалён из очереди.': 'This track has already been removed from the queue.',
+  'Сервер не подтвердил действие. Проверьте состояние комнаты.':
+    'The server did not confirm the action. Check the room state.',
+  'Этот трек нельзя добавить в комнату.': 'This track cannot be added to the room.',
+  'Подключение заняло слишком много времени. Проверьте адрес и попробуйте снова.':
+    'The connection timed out. Check the address and try again.',
+  'Совместное прослушивание': 'Listen together',
+  'Слушайте вместе': 'Listen together',
+  'Одна комната, одна очередь и любимая музыка. Создайте свою комнату или присоединитесь к друзьям.':
+    'One room, one queue and your favorite music. Create a room or join your friends.',
+  'Создать комнату': 'Create a room',
+  'Подключиться к комнате': 'Join a room',
+  'Выбирайте треки и приглашайте друзей слушать вместе.':
+    'Pick tracks and invite friends to listen together.',
+  'Вставьте приглашение и присоединяйтесь к музыке друзей.':
+    'Paste an invitation and join your friends.',
+  'Ваше имя': 'Your name',
+  'Как вас представить друзьям?': 'What should your friends call you?',
+  'Название комнаты': 'Room name',
+  'Комната друзей': 'Friends’ room',
+  'Способ подключения': 'Connection method',
+  'Через интернет': 'Over the internet',
+  'Локальная сеть': 'Local network',
+  'Адрес ретранслятора': 'Relay address',
+  'Адрес настраивается один раз. Участники получат его вместе с приглашением. Публичный ретранслятор пока не подключён.':
+    'Configure the address once. Invitations include it for other participants. A public relay has not been configured yet.',
+  'Сеть для комнаты': 'Room network',
+  'Сеть не найдена': 'No network found',
+  'Для устройств в одной домашней сети или VPN. Разрешите входящее подключение, если Windows покажет запрос. Используйте доверенную сеть.':
+    'For devices on the same home network or VPN. Allow incoming connections if Windows prompts you. Use a trusted network.',
+  'Приглашение в комнату': 'Room invitation',
+  'Подключаемся…': 'Connecting…',
+  'Каждый участник слушает треки через свой плеер. Доступность музыки зависит от источника.':
+    'Everyone plays tracks through their own player. Music availability depends on the source.',
+  'Вы ведущий. Выбирайте музыку в плеере — участники услышат её вместе с вами.':
+    'You are the host. Pick music in the player and everyone will listen along.',
+  'Музыкой управляет ведущий. Плеер автоматически подстраивает воспроизведение.':
+    'The host controls the music. Your player synchronizes playback automatically.',
+  'Закрыть комнату': 'Close room',
+  'Выйти из комнаты': 'Leave room',
+  'В комнате пока тихо': 'The room is quiet',
+  'Выберите первый трек, чтобы начать слушать вместе.':
+    'Choose the first track to start listening together.',
+  'Выбрать музыку': 'Choose music',
+  'Дальше в очереди': 'Up next',
+  'Следующие треки появятся здесь из очереди ведущего.':
+    'Upcoming tracks from the host’s queue will appear here.',
+  'Пригласить друга': 'Invite a friend',
+  'Отправьте приглашение другу. В плеере он выберет «Подключиться к комнате».':
+    'Send this invitation to a friend. They can select “Join a room” in the player.',
+  'Скопировать приглашение': 'Copy invitation',
+  'Подготовка воспроизведения': 'Preparing playback',
+  'Уже в общей очереди': 'Already in the shared queue',
+  'Добавление в очередь': 'Adding to queue',
+  'Не удалось скопировать приглашение. Попробуйте ещё раз.':
+    'Could not copy the invitation. Try again.',
+  'Не удалось скопировать. Выделите приглашение и нажмите Ctrl+C.':
+    'Could not copy. Select the invitation and press Ctrl+C.',
+  Участники: 'Participants',
+  Вы: 'You',
+  Ведущий: 'Host',
+  Слушатель: 'Listener',
+  'Соединение активно': 'Connected',
+  мс: 'ms',
+  'Введите имя и название длиной до 48 символов.':
+    'Enter a name and room title of up to 48 characters.',
+  'Приглашение не распознано. Скопируйте его целиком.':
+    'Invalid invitation. Copy the entire invitation.',
+  'Проверьте адрес ретранслятора.': 'Check the relay address.',
+  'Для подключения через интернет нужен адрес wss:// с защищённым соединением.':
+    'Internet connections require a secure wss:// address.',
+  'Не удалось связаться с ретранслятором. Проверьте адрес и подключение.':
+    'Could not reach the relay. Check its address and your connection.',
+  'Комната не найдена. Возможно, ведущий уже закрыл её.':
+    'Room not found. The host may have closed it.',
+  'Ведущий закрыл комнату.': 'The host closed the room.',
+  'В комнате уже восемь участников.': 'The room already has eight participants.',
+  'Ретранслятор заполнен. Попробуйте позже.': 'The relay is full. Try again later.',
+  'Связь с комнатой потеряна. Подключитесь повторно.':
+    'Connection to the room was lost. Please rejoin.',
+  'Нативный модуль комнат недоступен. Выполните сборку приложения.':
+    'The native room module is unavailable. Build the application first.',
+  'Локальная сеть не найдена. Проверьте сетевое подключение.':
+    'No local network found. Check your network connection.',
+  'Не удалось создать комнату в выбранной сети.':
+    'Could not create a room on the selected network.',
+  'Сначала выйдите из текущей комнаты.': 'Leave the current room first.',
+  'Не удалось выполнить действие. Попробуйте ещё раз.':
+    'Could not complete the action. Please try again.',
+  'Подготовка плеера…': 'Preparing the player…',
+  'Не удалось подготовить плеер': 'Could not prepare the player',
+  'Медиатека и настройки сохранены. Повторите запуск или перезагрузите окно.':
+    'Your library and settings are preserved. Try again or reload the window.',
+  'Повторить запуск': 'Try starting again',
   Нидерланды: 'Netherlands',
   Индонезия: 'Indonesia',
   'Южная Корея': 'South Korea',
@@ -631,7 +743,6 @@ export const english: Record<string, string> = {
   'на их странице, чтобы они учитывались в': 'on their page to include them in',
   '«Моей волне»': 'My Wave',
   'Отписаться от исполнителя': 'Unfollow artist',
-  'Недавно прослушанные треки': 'Recently played tracks',
   'Очистить историю': 'Clear history',
   'Загружаем историю...': 'Loading history…',
   'В истории ничего не найдено': 'No matches in your history',
@@ -639,7 +750,6 @@ export const english: Record<string, string> = {
   'История прослушиваний пуста': 'Your listening history is empty',
   'Здесь будут появляться треки, которые вы слушали в приложении.':
     'Tracks you listen to in the app will appear here.',
-  'Скачанные треки (Офлайн)': 'Downloaded tracks (offline)',
   'Загружаем офлайн треки...': 'Loading offline tracks…',
   'В офлайн кэше ничего не найдено': 'No matches in the offline cache',
   'Нет сохранённых офлайн треков': 'No offline tracks saved',

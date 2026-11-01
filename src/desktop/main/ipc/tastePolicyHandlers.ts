@@ -1,3 +1,4 @@
+import { waveTasteSnapshot } from '../services/waveTasteSnapshot.ts';
 import type { BrowserWindow, IpcMain } from 'electron';
 import type { DatabaseManager } from '../db/index.ts';
 import { assertMainWindowSender } from './mainWindowHandlers.ts';
@@ -18,14 +19,8 @@ export function registerTastePolicyHandlers(
   });
   ipc.handle('tastePolicy:profile', (event) => {
     assertMainWindowSender(event, getWindow());
-    return {
-      revision: db.getTastePolicy().revision,
-      likes: db.getTasteLikedTracks(),
-      artists: [
-        ...db.getFollowedArtists(),
-        ...db.getScrobbledTopArtists(30).filter((artist) => artist.score > 0),
-      ],
-    };
+    const { revision, likes, artists, waveSeeds } = waveTasteSnapshot(db);
+    return { revision, likes, artists, waveSeeds };
   });
   ipc.handle('tastePolicy:setExcluded', (event, value: unknown) => {
     const window = getWindow();

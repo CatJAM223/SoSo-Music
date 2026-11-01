@@ -1,7 +1,7 @@
 import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
 import { subscribePlaylistUpdates } from '../../../shared/utils/playlistEvents';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Compass,
   Search,
@@ -12,6 +12,7 @@ import {
   TrendingUp,
   Settings,
   Trash2,
+  UsersRound,
 } from 'lucide-react';
 import { Playlist } from '../../../shared/types';
 import { ConfirmDeleteModal } from './modals/ConfirmDeleteModal';
@@ -35,7 +36,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   refreshPlaylistsTrigger,
 }) => {
-  useLocale();
+  const locale = useLocale();
+  const navRef = useRef<HTMLDivElement>(null);
+  const markerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const marker = markerRef.current;
+    if (!nav || !marker) return;
+    const update = () => {
+      const selected = nav.querySelector<HTMLElement>('[aria-current="page"]');
+      marker.style.opacity = selected ? '1' : '0';
+      if (selected) {
+        marker.style.transform = `translateY(${selected.offsetTop}px)`;
+        marker.style.height = `${selected.offsetHeight}px`;
+      }
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [currentView, locale]);
   const { likedTrackIds } = useAudioState();
   const [libraryTrackCount, setLibraryTrackCount] = useState<number | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -100,11 +120,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'search', label: t('Поиск'), icon: Search },
     { id: 'charts', label: t('Топ чарты'), icon: TrendingUp },
     { id: 'genres', label: t('Жанры'), icon: Disc3 },
+    { id: 'listening-room', label: t('Совместное прослушивание'), icon: UsersRound },
     { id: 'liked', label: t('Моя музыка'), icon: Heart },
   ];
 
   return (
-    <aside className="w-64 shrink-0 flex flex-col h-full bg-slate-50/85 dark:bg-[#0a0a0c]/85 backdrop-blur-2xl border-r border-slate-200/70 dark:border-white/[0.05] text-slate-700 dark:text-zinc-300 select-none z-20 transition-colors duration-200">
+    <aside className="app-sidebar w-64 shrink-0 flex flex-col h-full bg-slate-50/85 dark:bg-[#0a0a0c]/85 backdrop-blur-2xl border-r border-slate-200/70 dark:border-white/[0.05] text-slate-700 dark:text-zinc-300 select-none z-20 transition-colors duration-200">
       {/* Seamless Top Brand Header (Window Drag Region with compact h-11 height) */}
       <div
         className="h-11 px-4 flex items-center gap-2.5 border-b border-slate-200/70 dark:border-white/[0.05] cursor-grab active:cursor-grabbing shrink-0"
@@ -121,7 +142,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Main Navigation */}
-      <div data-tour="sidebar-nav" className="px-3 py-3 space-y-0.5">
+      <div
+        ref={navRef}
+        data-tour="sidebar-nav"
+        className="soso-sidebar-nav relative isolate px-3 py-3 space-y-0.5"
+      >
+        <div ref={markerRef} aria-hidden="true" className="soso-nav-marker" />
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive =
@@ -133,9 +159,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               key={item.id}
               data-tour={item.id === 'search' ? 'search-nav' : undefined}
               onClick={() => onNavigate(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-150 group ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`soso-nav-item relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] group ${
                 isActive
-                  ? 'bg-soso-brand/10 text-soso-brand font-semibold'
+                  ? 'text-soso-brand font-semibold'
                   : 'hover:bg-slate-100 dark:hover:bg-white/[0.04] text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white font-medium'
               }`}
             >
@@ -148,7 +175,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 size={18}
               />
               <span className="flex flex-1 min-w-0 items-baseline gap-2 text-left">
-                <span className="truncate">{item.label}</span>
+                <span
+                  className={
+                    item.id === 'listening-room'
+                      ? 'text-[12px] leading-snug whitespace-normal'
+                      : 'truncate'
+                  }
+                >
+                  {item.label}
+                </span>
                 {item.id === 'liked' && libraryTrackCount !== null && (
                   <span className="shrink-0 text-[11px] font-medium tabular-nums text-slate-400 dark:text-zinc-500">
                     {libraryTrackCount}

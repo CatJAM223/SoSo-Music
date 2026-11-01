@@ -72,6 +72,28 @@ app.whenReady().then(async () => {
   });
   try {
     await win.loadFile(path.join(output, 'index.html'));
+    const roomLayout = await win.webContents.executeJavaScript(`(async()=>{
+      for(let i=0;i<100&&!window.setRoomSession;i++) await new Promise(r=>setTimeout(r,10));
+      window.setRoomSession({status:'connected',role:'host',selfId:'layout-test',playback:{track:null,playing:false,position:0,queue:[window.tracks[0]]}});
+      for(let i=0;i<100&&!document.querySelector('[data-room-state="queued"]');i++) await new Promise(r=>setTimeout(r,10));
+      if(document.querySelector('.room-track-status'))throw Error('Unexpected shared queue text badge');
+      if(getComputedStyle(document.querySelector('[data-room-state="queued"]')).boxShadow==='none')throw Error('Missing shared queue highlight');
+      if(document.querySelector('.soso-track-row button svg.lucide-plus'))throw Error('Orange row plus is still present');
+      const queued=document.querySelector('[data-room-state="queued"]');
+      queued.click();
+      await new Promise(r=>setTimeout(r,30));
+      if(window.roomCommands?.length)throw Error('Queued song was added twice');
+      const row=document.querySelector('.soso-track-row'), duration=row.lastElementChild, cover=row.children[1];
+      const a=duration.getBoundingClientRect(), b=cover.getBoundingClientRect();
+      const result={columns:row.children.length, aligned:Math.abs((a.top+a.height/2)-(b.top+b.height/2))<2, durationRight:a.right};
+      window.setRoomSession({status:'idle'});
+      await new Promise(r=>setTimeout(r,40));
+      return result;
+    })()`);
+    assert.equal(roomLayout.columns, 9);
+    assert.equal(roomLayout.aligned, true, JSON.stringify(roomLayout));
+    console.log('ROOM_TRACK_DURATION_ALIGNMENT_OK');
+
     win.webContents.debugger.attach('1.3');
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
@@ -181,6 +203,44 @@ app.whenReady().then(async () => {
               throw Error('Broken previous artwork hid the new cover');
             if (document.documentElement.scrollWidth > innerWidth + 1)
               throw Error('Horizontal overflow');
+            window.fixturePosition = 10;
+            window.updateFixture({ currentTime: 10, isPlaying: true });
+            await tick();
+            const timeline = document.querySelector(
+              '[role="slider"][aria-label="Позиция воспроизведения"]',
+            );
+            const fill = timeline.firstElementChild.lastElementChild;
+            const before = fill.getBoundingClientRect().width;
+            window.fixturePosition = 11;
+            await tick();
+            const advanced = fill.getBoundingClientRect().width - before;
+            if (advanced < (timeline.getBoundingClientRect().width / 180) * 0.8)
+              throw Error(
+                'Timeline waits for timeupdate instead of following the media clock: ' + advanced,
+              );
+            await tick();
+            if (Math.abs(fill.getBoundingClientRect().width - before - advanced) > 0.1)
+              throw Error('Timeline invented progress while media clock is stalled');
+            window.setAnimationSleep(true);
+            await tick();
+            const sleepingWidth = fill.getBoundingClientRect().width;
+            window.fixturePosition = 14;
+            await tick();
+            if (Math.abs(fill.getBoundingClientRect().width - sleepingWidth) > 0.1)
+              throw Error('Background timeline still schedules visual frames');
+            window.setAnimationSleep(false);
+            await tick();
+            if (fill.getBoundingClientRect().width <= sleepingWidth)
+              throw Error('Timeline failed to catch up to audio time after focus returns');
+            window.fixturePosition = 11;
+            await tick();
+
+            timeline.dispatchEvent(
+              new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+            );
+            await tick();
+            if (window.fixturePosition !== 16)
+              throw Error('Keyboard seek used an old timeupdate position');
             window.showFixture(layout, 'wave');
             await until(() => document.querySelector('button[aria-label="Включить волну"]'));
             document.querySelector('button[aria-label="Включить волну"]').click();
@@ -231,6 +291,112 @@ app.whenReady().then(async () => {
         ).toPNG(),
       );
     }
+    const motion = await win.webContents.executeJavaScript(`(async()=>{
+      const frame=()=>new Promise(requestAnimationFrame), wait=ms=>new Promise(r=>setTimeout(r,ms));
+      window.showFixture('desktop','motion');
+      await frame(); await wait(300); await frame();
+      const nav=document.querySelector('.soso-sidebar-nav'), marker=nav.querySelector('.soso-nav-marker');
+      const old=marker.getBoundingClientRect().top;
+      nav.querySelectorAll('button')[4].click();
+      await frame(); await wait(60); await frame();
+      const middle=marker.getBoundingClientRect().top, selected=nav.querySelector('[aria-current="page"]');
+      if(!(middle>old+1 && middle<selected.getBoundingClientRect().top-1)) throw Error('Navigation highlight did not travel between sections');
+      await wait(300); await frame();
+      if(Math.abs(marker.getBoundingClientRect().top-selected.getBoundingClientRect().top)>1) throw Error('Navigation highlight is misaligned');
+      window.setQueueOpen(true);
+      await frame(); await wait(50); await frame();
+      let drawer=document.querySelector('[data-queue-drawer]');
+      const entering=drawer.getBoundingClientRect().left;
+      await wait(300); await frame();
+      const resting=drawer.getBoundingClientRect().left;
+      if(entering<=resting+1) throw Error('Queue appeared without sliding in');
+      window.setQueueOpen(false); await frame();
+      drawer=document.querySelector('[data-queue-drawer]');
+      if(!drawer || !drawer.inert || drawer.getAttribute('aria-hidden')!=='true') throw Error('Closing queue remains interactive');
+      await wait(60); window.setQueueOpen(true); await wait(300); await frame();
+      drawer=document.querySelector('[data-queue-drawer]');
+      if(!drawer || drawer.inert || Math.abs(drawer.getBoundingClientRect().left-resting)>1) throw Error('Quick queue reopen was lost');
+      window.setQueueOpen(false); await wait(260); await frame();
+      if(document.querySelector('[data-queue-drawer]')) throw Error('Closed queue was retained');
+      return {navigationTravels:true,queueEnterAndExit:true,quickReopen:true};
+    })()`);
+    console.log('UI_MOTION_OK ' + JSON.stringify(motion));
+    const cardPoint = await win.webContents.executeJavaScript(
+      '(()=>{const r=document.querySelector(".soso-music-card").getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2};})()',
+    );
+    win.webContents.sendInputEvent({
+      type: 'mouseMove',
+      x: Math.round(cardPoint.x),
+      y: Math.round(cardPoint.y),
+    });
+    const cardMotion = await win.webContents.executeJavaScript(
+      '(async()=>{await new Promise(r=>setTimeout(r,260));await new Promise(requestAnimationFrame);return getComputedStyle(document.querySelector(".soso-music-card")).translate;})()',
+    );
+    assert.equal(cardMotion, '0px -3px');
+    fs.writeFileSync(
+      path.join(path.dirname(output), 'ui-motion-navigation.png'),
+      (await win.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG(),
+    );
+    await win.webContents.executeJavaScript(
+      'window.showFixture("desktop");window.updateFixture({currentTrack:window.tracks[0],isPlaying:false});new Promise(r=>setTimeout(r,300))',
+    );
+    const seekRect = await win.webContents.executeJavaScript(
+      '(()=>{const r=document.querySelector(".soso-timeline").getBoundingClientRect();return{x:r.x,y:r.y+r.height/2,width:r.width};})()',
+    );
+    const seekInput = (type, fraction, button = 'left') =>
+      win.webContents.sendInputEvent({
+        type,
+        x: Math.round(seekRect.x + seekRect.width * fraction),
+        y: Math.round(seekRect.y),
+        ...(type === 'mouseMove' ? {} : { button, clickCount: 1 }),
+      });
+    seekInput('mouseMove', 0.6);
+    const preview = await win.webContents.executeJavaScript(
+      '(async()=>{for(let i=0;i<20&&!document.querySelector("[data-seek-preview]");i++)await new Promise(r=>setTimeout(r,10));return document.querySelector("[data-seek-preview]")?.textContent ?? JSON.stringify({rect:document.querySelector(".soso-timeline").getBoundingClientRect().toJSON(),active:document.querySelector(".soso-timeline").getAttribute("aria-disabled")});})()',
+    );
+    assert.match(preview, /1:4[78]/);
+    seekInput('mouseDown', 0.6);
+    await win.webContents.executeJavaScript(
+      '(async()=>{for(let i=0;i<20&&!document.querySelector("[data-seeking]");i++)await new Promise(r=>setTimeout(r,10));})()',
+    );
+    seekInput('mouseMove', 0.75);
+    const dragging = await win.webContents.executeJavaScript(
+      '(async()=>{for(let i=0;i<20&&Math.abs(Number(document.querySelector(".soso-timeline").getAttribute("aria-valuenow"))-135)>1;i++)await new Promise(r=>setTimeout(r,10));return {value:document.querySelector(".soso-timeline").getAttribute("aria-valuenow"),actions:window.actions};})()',
+    );
+    assert.ok(Math.abs(Number(dragging.value) - 135) <= 1, JSON.stringify(dragging));
+    assert.deepEqual(dragging.actions, [], 'Dragging should preview without repeatedly seeking');
+    fs.writeFileSync(
+      path.join(path.dirname(output), 'ui-motion-seek.png'),
+      (await win.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG(),
+    );
+    seekInput('mouseUp', 0.75);
+    const committed = await win.webContents.executeJavaScript(
+      '(async()=>{for(let i=0;i<20&&!window.actions.length;i++)await new Promise(r=>setTimeout(r,10));return {actions:window.actions,value:document.querySelector(".soso-timeline").getAttribute("aria-valuenow")};})()',
+    );
+    assert.equal(committed.actions.length, 1);
+    assert.ok(Math.abs(Number(committed.value) - 135) <= 1);
+    seekInput('mouseDown', 0.2);
+    await win.webContents.executeJavaScript(
+      '(async()=>{for(let i=0;i<20&&!document.querySelector("[data-seeking]");i++)await new Promise(r=>setTimeout(r,10));})()',
+    );
+    await win.webContents.executeJavaScript(
+      '(()=>{const s=document.querySelector(".soso-timeline");s.dispatchEvent(new PointerEvent("pointercancel",{pointerId:1,bubbles:true}));})()',
+    );
+    seekInput('mouseUp', 0.2);
+    assert.equal(
+      await win.webContents.executeJavaScript('window.actions.length'),
+      1,
+      'Cancelled scrub must not commit',
+    );
+    console.log(
+      'UI_SEEK_PREVIEW_OK ' +
+        JSON.stringify({ hover: true, dragPreview: true, singleCommit: true, cancel: true }),
+    );
+    // Leave the upcoming wave disc clear of the real mouse so its independent
+    // keyboard-focus checks are not overridden by a hovered slice.
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: 5, y: 5 });
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
       enabled: true,
     });
@@ -654,6 +820,23 @@ app.whenReady().then(async () => {
       'getComputedStyle(document.querySelector(".soso-track-enter")).animationDuration',
     );
     assert.ok(parseFloat(reduced) <= 0.001, reduced);
+    const reducedControls = await win.webContents.executeJavaScript(`(async()=>{
+      window.showFixture('desktop','motion'); window.setQueueOpen(true);
+      await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
+      const selectors=['.soso-nav-marker','.soso-transport-play','.soso-control-icon','[data-queue-drawer]'];
+      const result=selectors.map(selector=>{
+        const style=getComputedStyle(document.querySelector(selector));
+        return {selector,durations:[...style.transitionDuration.split(','),...style.animationDuration.split(',')].map(parseFloat)};
+      });
+      window.setQueueOpen(false);
+      return result;
+    })()`);
+    for (const result of reducedControls) {
+      assert.ok(
+        result.durations.every((value) => value <= 0.001),
+        JSON.stringify(result),
+      );
+    }
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
     });

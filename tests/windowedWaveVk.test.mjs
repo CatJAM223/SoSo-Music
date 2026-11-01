@@ -101,7 +101,7 @@ test('VK login allows VK ID and rejects external, spoofed and non-HTTPS navigati
 });
 
 test('Wave does not infer title words, numeric credits or producers as performers', () => {
-  assert.deepEqual(getWaveArtistKeys(make('a', 'Strah i Trepet', 'Rasta и Link'), ['trepet']), [
+  assert.deepEqual(getWaveArtistKeys(make('a', 'Strah i Trepet', 'Rasta feat. Link'), ['trepet']), [
     'rasta',
     'link',
   ]);

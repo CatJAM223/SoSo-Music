@@ -106,7 +106,7 @@ test('The main-process logger connects a real playing event to cached route meta
 
 test('Actual audio playing callback sends structured route metadata instead of printing its source code', () => {
   const source = readFileSync(
-    new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
+    new URL('../src/shared/services/playbackEngine.ts', import.meta.url),
     'utf8',
   );
   const begin = source.indexOf('    const handlePlaying = () => {');
@@ -115,6 +115,8 @@ test('Actual audio playing callback sends structured route metadata instead of p
   const captured = [];
   const audio = { paused: false, src: 'https://rr1.googlevideo.com/videoplayback', duration: 106 };
   const context = {
+    engine: { transition() {} },
+    qualityEpisode: null,
     audio,
     audioRef: { current: audio },
     pendingResolutionRef: { current: false },
@@ -127,6 +129,7 @@ test('Actual audio playing callback sends structured route metadata instead of p
     consecutivePlaybackErrorsRef: { current: 0 },
     streamRequestIdRef: { current: 1 },
     lastLoggedPlaybackRequestRef: { current: null },
+    diagnosticsRef: { current: null },
     bufferingStartedAtRef: { current: 0 },
     setPlaybackIssue() {},
     clearStalledRecoveryTimer() {},

@@ -1,7 +1,3 @@
-export function clampCrossfadeDuration(sec: number): number {
-  return Math.max(0, Math.min(12, sec));
-}
-
 export function calculateFadeInVolume(targetVol: number, progress: number): number {
   const p = Math.max(0, Math.min(1, progress));
   return targetVol * Math.sin(p * (Math.PI / 2));

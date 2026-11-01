@@ -1,6 +1,28 @@
 import { logger } from '../utils/logger.ts';
 export const MAX_COMPUTE_INPUT = 8 * 1024 * 1024;
 interface ComputeExports {
+  wave_search_limit: (base: number, exposed: number, attempt: number) => number;
+  wave_search_retry: (count: number, attempt: number) => number;
+  taste_age_weight: (ageMs: number) => number;
+  taste_history_score: (raw: number, known: number, weighted: number, legacyAge: number) => number;
+  album_match_score: (
+    valid: number,
+    exact: number,
+    contained: number,
+    wantedVersion: number,
+    actualVersion: number,
+  ) => number;
+  daily_accepts: (size: number) => number;
+  daily_cache_fresh: (count: number, ageMs: number) => number;
+  daily_artist_feedback: (count: number) => number;
+  wave_duration_allowed: (duration: number) => number;
+  wave_memory_ttl: (seconds: number, duration: number) => number;
+  daily_refill: (count: number, attempt: number, added: number) => number;
+  daily_select: (size: number) => number;
+  daily_rejections: (size: number) => number;
+  wave_feedback: (played: number, duration: number, reason: number, mood: number) => number;
+  rank_search: (size: number) => number;
+  recording_match: (size: number) => number;
   memory: WebAssembly.Memory;
   abi_version: () => number;
   reserve: (size: number) => number;
@@ -37,9 +59,25 @@ export function initializeRustCompute(bytes: BufferSource): Promise<boolean> {
       const result = await WebAssembly.instantiate(copy, {});
       const exports = result.instance.exports as unknown as ComputeExports;
       if (
-        exports.abi_version?.() !== 4 ||
+        exports.abi_version?.() !== 7 ||
         !(exports.memory instanceof WebAssembly.Memory) ||
         [
+          'wave_search_limit',
+          'wave_search_retry',
+          'taste_age_weight',
+          'taste_history_score',
+          'album_match_score',
+          'daily_accepts',
+          'daily_cache_fresh',
+          'daily_artist_feedback',
+          'wave_duration_allowed',
+          'wave_memory_ttl',
+          'daily_refill',
+          'daily_select',
+          'daily_rejections',
+          'rank_search',
+          'wave_feedback',
+          'recording_match',
           'match_import',
           'demux_push',
           'demux_reset',
@@ -66,7 +104,7 @@ export function initializeRustCompute(bytes: BufferSource): Promise<boolean> {
         throw Error('Unsupported Rust compute ABI');
       core = exports;
       localBytes = copy;
-      logger.info('[Compute:Rust] Required local compute core ready (ABI 4)');
+      logger.info('[Compute:Rust] Required local compute core ready (ABI 7)');
       return true;
     } catch (error) {
       core = null;
@@ -75,7 +113,11 @@ export function initializeRustCompute(bytes: BufferSource): Promise<boolean> {
       return false;
     }
   })();
-  return initialization;
+  const attempt = initialization;
+  void attempt.then((ready) => {
+    if (!ready && initialization === attempt) initialization = null;
+  });
+  return attempt;
 }
 export function requireRustCompute(): ComputeExports {
   if (!core) throw Error('Вычислительный модуль Rust не загружен. Перезапустите приложение.');
@@ -87,6 +129,11 @@ export function rustComputeBytes(): Uint8Array<ArrayBuffer> {
 }
 export function runRustCompute(
   operation:
+    | 'daily_accepts'
+    | 'daily_select'
+    | 'daily_rejections'
+    | 'rank_search'
+    | 'recording_match'
     | 'calculate'
     | 'compare_songs'
     | 'sequence_wave'

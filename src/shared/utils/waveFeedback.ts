@@ -12,23 +12,12 @@ export function getWavePlaybackFeedback(
   reason: WavePlaybackReason = 'skip',
   mood: WaveMood = 'default',
 ): number {
-  if (
-    !Number.isFinite(playedSeconds) ||
-    playedSeconds < 2 ||
-    reason === 'error' ||
-    reason === 'interrupted'
-  )
-    return 0;
-  const knownDuration = Number.isFinite(durationSeconds) && durationSeconds > 0;
-  const fraction = knownDuration ? playedSeconds / durationSeconds : 0;
-  if (knownDuration && fraction >= 0.95) return 0.35;
-  if (knownDuration && fraction >= 0.8) return 0.2;
-  if (reason === 'ended') return 0;
-  const threshold = knownDuration ? Math.min(25, durationSeconds * 0.15) : 15;
-  if (playedSeconds >= threshold) return 0;
-  const immediate = knownDuration ? Math.min(10, durationSeconds * 0.05) : 5;
-  const rejection = playedSeconds < immediate ? -0.6 : -0.35;
-  return mood === 'discover' ? rejection * 0.5 : rejection;
+  return requireRustCompute().wave_feedback(
+    playedSeconds,
+    durationSeconds,
+    ['skip', 'ended', 'interrupted', 'error'].indexOf(reason),
+    waveMoodId(mood),
+  );
 }
 
 /** The ratio is a ranking target, bounded to preserve the selected station's intent. */

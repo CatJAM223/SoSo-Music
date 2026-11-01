@@ -1,4 +1,5 @@
 import { libraryGenreAffinity } from '../../../shared/utils/libraryTaste.ts';
+import { requireRustCompute } from '../../../shared/compute/rustCore.ts';
 import { waveMusicProfile } from '../../../shared/utils/waveMusicProfile.ts';
 import type { LibraryTasteService } from './libraryTaste.ts';
 import type { Track, WaveBatchContext, WaveMood } from '../../../shared/types/index.ts';
@@ -35,14 +36,6 @@ import {
 } from './waveMoodCandidates.ts';
 
 export type { WaveMood } from '../../../shared/types/index.ts';
-export const SUPPORTED_WAVE_MOODS: WaveMood[] = [
-  'default',
-  'energy',
-  'chill',
-  'discover',
-  'mix',
-  'favorites',
-];
 const SESSION_TTL_MS = 10 * 60 * 1000;
 const SESSION_LIMIT = 800;
 const OFFERED_LIMIT = 80;
@@ -86,16 +79,6 @@ export class WaveEngine {
     this.sessionPrints = this.sessionPrints
       .filter((entry) => entry.at >= oldest)
       .slice(-SESSION_LIMIT);
-  }
-
-  public static filterWaveTracks(tracks: Track[], excludeIds: (string | number)[]): Track[] {
-    const excluded = new Set(excludeIds.map(String)),
-      unique = new Map<string, Track>();
-    for (const track of tracks) {
-      if (!track?.id || excluded.has(String(track.id)) || unique.has(String(track.id))) continue;
-      unique.set(String(track.id), track);
-    }
-    return [...unique.values()];
   }
 
   private static includeLikes(options: WaveMoodCandidates): void {
@@ -178,7 +161,7 @@ export class WaveEngine {
     };
     const result = sequenceWaveTracks(candidates, options.mood, options.artists, BATCH_SIZE, {
       ...waveQueueContext(rankingContext),
-      tasteTracks: seeds,
+      tasteTracks: context.tasteTracks || seeds,
       libraryGenres: genres,
     });
     if (remember) {
@@ -264,9 +247,11 @@ export class WaveEngine {
           ),
       };
       this.includeLikes(options);
-      await this.includeRelated(options, context, rememberSession, signal);
       await Promise.all([
-        this.fillCandidates(options, rememberSession, signal),
+        (async () => {
+          await this.includeRelated(options, context, rememberSession, signal);
+          await this.fillCandidates(options, rememberSession, signal);
+        })(),
         includeWaveGenreDiscovery(
           options,
           this.tasteProvider?.report().genres || [],
@@ -274,6 +259,16 @@ export class WaveEngine {
           signal,
         ),
       ]);
+      for (
+        let attempt = 0;
+        options.searchHasMore && requireRustCompute().wave_search_retry(pool.size, attempt);
+        attempt++
+      ) {
+        signal?.throwIfAborted();
+        options.searchAttempt = attempt + 1;
+        options.searchHasMore = false;
+        await this.fillCandidates(options, rememberSession, signal);
+      }
       signal?.throwIfAborted();
       const candidates = this.tasteProvider
         ? await this.tasteProvider.enrichCandidates(pool.values(), signal)

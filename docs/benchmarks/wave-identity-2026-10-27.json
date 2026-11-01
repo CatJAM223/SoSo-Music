@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "fixture": "synthetic-verified-alias-metadata-change",
+  "ranker": "same production Rust sequence_wave in both arms",
+  "note": "A deterministic identity regression, not a listener-preference experiment or service-availability benchmark.",
+  "cohorts": [
+    {
+      "mood": "default",
+      "baseline": {
+        "selected": 3,
+        "knownRecordingRepeats": 1,
+        "freshRecordings": 2
+      },
+      "canonical": {
+        "selected": 2,
+        "knownRecordingRepeats": 0,
+        "freshRecordings": 2
+      }
+    },
+    {
+      "mood": "energy",
+      "baseline": {
+        "selected": 3,
+        "knownRecordingRepeats": 1,
+        "freshRecordings": 2
+      },
+      "canonical": {
+        "selected": 2,
+        "knownRecordingRepeats": 0,
+        "freshRecordings": 2
+      }
+    },
+    {
+      "mood": "chill",
+      "baseline": {
+        "selected": 3,
+        "knownRecordingRepeats": 1,
+        "freshRecordings": 2
+      },
+      "canonical": {
+        "selected": 2,
+        "knownRecordingRepeats": 0,
+        "freshRecordings": 2
+      }
+    },
+    {
+      "mood": "discover",
+      "baseline": {
+        "selected": 3,
+        "knownRecordingRepeats": 1,
+        "freshRecordings": 2
+      },
+      "canonical": {
+        "selected": 2,
+        "knownRecordingRepeats": 0,
+        "freshRecordings": 2
+      }
+    },
+    {
+      "mood": "mix",
+      "baseline": {
+        "selected": 3,
+        "knownRecordingRepeats": 1,
+        "freshRecordings": 2
+      },
+      "canonical": {
+        "selected": 2,
+        "knownRecordingRepeats": 0,
+        "freshRecordings": 2
+      }
+    },
+    {
+      "mood": "favorites",
+      "baseline": {
+        "selected": 3,
+        "knownRecordingRepeats": 1,
+        "freshRecordings": 2
+      },
+      "canonical": {
+        "selected": 2,
+        "knownRecordingRepeats": 0,
+        "freshRecordings": 2
+      }
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import { WAVE_HISTORY_LIMIT } from './waveHistoryLimits.ts';
 
 /** Taste storage exposes both provider tracks and database rows. Keep the provider identity. */
 export function normalizeWaveSeed(seed: any): Track | null {
+  if (!seed || typeof seed !== 'object' || Array.isArray(seed)) return null;
   const id = String(seed?.track_deezer_id || seed?.deezer_id || seed?.id || '');
   if (!id || id === 'undefined' || id === 'null') return null;
   const artist = String(
@@ -37,6 +38,12 @@ export function normalizeWaveBatchContext(value: unknown): WaveBatchContext {
       .filter((track): track is Track => Boolean(track))
       .map((track) => ({
         id: String(track.id).slice(0, 128),
+        ...(typeof track.recordingId === 'string' &&
+        track.recordingId.startsWith('rec:') &&
+        track.recordingId.length <= 1024
+          ? { recordingId: track.recordingId }
+          : {}),
+        waveSeedWeight: track.waveSeedWeight === 2 ? 2 : track.waveSeedWeight === 0.25 ? 0.25 : 1,
         queueOrigin: normalizePlaybackOrigin(track.queueOrigin),
         title: track.title.slice(0, 500),
         artist: { name: track.artist.name.slice(0, 500) },
@@ -61,6 +68,9 @@ export function normalizeWaveBatchContext(value: unknown): WaveBatchContext {
     source: normalizeWaveSource(input.source),
     recentTracks,
     offeredTracks,
+    tasteTracks: Array.isArray(input.tasteTracks)
+      ? normalizeTracks(input.tasteTracks, 54)
+      : undefined,
     artistFeedback,
     positiveTracks: normalizeTracks(
       Array.isArray(input.positiveTracks) ? input.positiveTracks.slice(0, 12) : [],

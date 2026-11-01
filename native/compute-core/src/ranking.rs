@@ -40,18 +40,17 @@ fn overlap(left: &[usize], right: &[usize]) -> bool {
 }
 pub(super) fn transition(a: &Profile, b: Option<&Profile>, mood: usize) -> f64 {
     let Some(b) = b else { return 0.0 };
-    let opposite = a.energy * b.energy < 0.0;
+    let opposition = (-a.energy * b.energy).clamp(0.0, 1.0);
     let similarity = if a.styles.is_empty() || b.styles.is_empty() {
         0.0
     } else {
         let shared = a.styles.iter().filter(|id| b.styles.contains(id)).count();
-        shared as f64 / ((a.styles.len() * b.styles.len()) as f64).sqrt()
-            * if opposite { 0.2 } else { 1.0 }
+        shared as f64 / ((a.styles.len() * b.styles.len()) as f64).sqrt() * (1.0 - 0.8 * opposition)
     };
     if mood == 4 {
         -similarity * 3.0
     } else {
-        similarity * 1.5 - if opposite { 1.0 } else { 0.0 }
+        similarity * 1.5 - opposition
     }
 }
 pub(super) fn calculate(mut job: Job) -> Vec<u8> {
@@ -156,4 +155,26 @@ pub(super) fn calculate(mut job: Job) -> Vec<u8> {
         .iter()
         .flat_map(|&id| (id as u32).to_le_bytes())
         .collect()
+}
+
+#[cfg(test)]
+mod confidence_tests {
+    use super::*;
+    #[test]
+    fn uncertain_opposition_has_a_smaller_transition_penalty() {
+        let strong = Profile {
+            energy: 1.0,
+            styles: vec![1],
+        };
+        let opposite = Profile {
+            energy: -1.0,
+            styles: vec![1],
+        };
+        let weak = Profile {
+            energy: -0.25,
+            styles: vec![1],
+        };
+        assert!((transition(&strong, Some(&opposite), 0) + 0.7).abs() < 1e-10);
+        assert!(transition(&strong, Some(&weak), 0) > transition(&strong, Some(&opposite), 0));
+    }
 }

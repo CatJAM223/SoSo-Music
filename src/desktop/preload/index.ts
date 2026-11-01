@@ -3,6 +3,15 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { ElectronAPI } from '../../shared/types';
 
 const api: ElectronAPI = {
+  listeningRoomRequest: (request) => ipcRenderer.invoke('rooms:request', request),
+  onListeningRoomSession: (callback) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      session: import('../../shared/types/listeningRoom').RoomSession,
+    ) => callback(session);
+    ipcRenderer.on('rooms:session', handler);
+    return () => ipcRenderer.removeListener('rooms:session', handler);
+  },
   getAvailableAppUpdate: () => ipcRenderer.invoke('app:getAvailableUpdate'),
   onAppUpdateAvailable: (callback) => {
     const handler = (
@@ -42,6 +51,11 @@ const api: ElectronAPI = {
   getTastePolicy: () => ipcRenderer.invoke('tastePolicy:get'),
   setTasteExcluded: (value) => ipcRenderer.invoke('tastePolicy:setExcluded', value),
   getTasteProfile: () => ipcRenderer.invoke('tastePolicy:profile'),
+  onRecordingAliasesChanged: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('library:recordingAliasesChanged', handler);
+    return () => ipcRenderer.removeListener('library:recordingAliasesChanged', handler);
+  },
   onTastePolicyChanged: (callback) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
@@ -108,6 +122,8 @@ const api: ElectronAPI = {
     };
   },
 
+  getAnimationsPaused: () => ipcRenderer.invoke('ui:getAnimationsPaused'),
+
   // Theme animation freeze (window minimized / hidden to tray)
   onAnimationsPaused: (callback: (paused: boolean) => void) => {
     const handler = (_event: any, paused: boolean) => callback(paused);
@@ -137,8 +153,8 @@ const api: ElectronAPI = {
   getWaveBatch: (mood, seedTracks, excludeIds, context, requestId) =>
     ipcRenderer.invoke('music:getWaveBatch', mood, seedTracks, excludeIds, context, requestId),
   cancelWaveBatch: (requestId) => ipcRenderer.invoke('music:cancelWaveBatch', requestId),
-  getRecommendedTracks: (previousIds) =>
-    ipcRenderer.invoke('music:getRecommendedTracks', previousIds),
+  getRecommendedTracks: (previousIds, previousTracks, options) =>
+    ipcRenderer.invoke('music:getRecommendedTracks', previousIds, previousTracks, options),
   getFullStreamUrl: (track, options, requestId) =>
     ipcRenderer.invoke('music:getFullStreamUrl', track, options, requestId),
   cancelStreamResolve: (requestId) => ipcRenderer.invoke('music:cancelStreamResolve', requestId),
@@ -311,4 +327,12 @@ const api: ElectronAPI = {
   selectZapretFile: () => ipcRenderer.invoke('app:selectZapretFile'),
 };
 
-contextBridge.exposeInMainWorld('electronAPI', api);
+const exposed =
+  typeof process !== 'undefined' && process.argv.includes('--soso-widget')
+    ? {
+        toggleWidget: api.toggleWidget,
+        sendWidgetCommand: api.sendWidgetCommand,
+        onWidgetStateUpdate: api.onWidgetStateUpdate,
+      }
+    : api;
+contextBridge.exposeInMainWorld('electronAPI', exposed);

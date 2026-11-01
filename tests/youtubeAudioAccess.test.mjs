@@ -31,6 +31,7 @@ function isolate(t) {
     'audioAccessFailures',
     'cachedVisitorData',
     'visitorDataRequest',
+    'visitorRetryAfter',
   ];
   const previous = Object.fromEntries(fields.map((key) => [key, YouTubeMusicService[key]]));
   YouTubeMusicService.streamCache = new Map();
@@ -38,6 +39,7 @@ function isolate(t) {
   YouTubeMusicService.audioAccessFailures = new Map();
   YouTubeMusicService.cachedVisitorData = null;
   YouTubeMusicService.visitorDataRequest = null;
+  YouTubeMusicService.visitorRetryAfter = 0;
   t.after(() => Object.assign(YouTubeMusicService, previous));
 }
 
@@ -220,7 +222,7 @@ test('YouTube audio: a successful shared resolution keeps the original video and
 
 function runResolutionFailure(error) {
   const source = fs.readFileSync(
-    new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
+    new URL('../src/shared/services/playbackEngine.ts', import.meta.url),
     'utf8',
   );
   const begin = source.indexOf(
@@ -228,7 +230,7 @@ function runResolutionFailure(error) {
     source.indexOf('[Track:Stream] No playable stream URL'),
   );
   assert.ok(begin >= 0);
-  const end = source.indexOf('\n        });', begin);
+  const end = source.indexOf('\n      });', begin);
   const body = source.slice(begin + '.catch((err) => {'.length, end).trim();
   const events = [];
   const audio = {
@@ -238,9 +240,11 @@ function runResolutionFailure(error) {
     src: 'old-stream',
   };
   const sandbox = {
+    engine: { transition() {} },
     err: error,
     console: { error() {} },
     currentRequestId: 1,
+    diagnosticsRef: { current: null },
     effectiveSource: 'youtube',
     clickStartTime: Date.now(),
     handleUnavailableStreamRef: {

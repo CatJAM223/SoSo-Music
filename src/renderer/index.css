@@ -477,7 +477,7 @@ html[data-theme='sakura'] .dark\:bg-\[\#121212\] {
   background-color: var(--bg-app) !important;
 }
 
-html[data-theme='sakura'] aside {
+html[data-theme='sakura'] .app-sidebar {
   background-color: var(--bg-sidebar) !important;
 }
 
@@ -685,7 +685,7 @@ html[data-theme='weather'] .dark\:bg-\[\#121212\] {
   background-color: var(--bg-app) !important;
 }
 
-html[data-theme='weather'] aside {
+html[data-theme='weather'] .app-sidebar {
   background-color: var(--bg-sidebar) !important;
 }
 
@@ -762,7 +762,7 @@ html[data-theme='blackhole'] .dark\:bg-\[\#121212\]:not(body) {
   background-color: var(--bg-app) !important;
 }
 
-html[data-theme='blackhole'] aside {
+html[data-theme='blackhole'] .app-sidebar {
   background-color: var(--bg-sidebar) !important;
 }
 
@@ -875,7 +875,7 @@ html[data-theme='wallpaper'] .dark\:bg-\[\#121212\] {
   background-color: var(--bg-app) !important;
 }
 
-html[data-theme='wallpaper'] aside {
+html[data-theme='wallpaper'] .app-sidebar {
   background-color: var(--bg-sidebar) !important;
   backdrop-filter: blur(16px);
 }
@@ -1231,6 +1231,161 @@ html:not(.dark) .soso-search-input:focus {
 }
 
 /* Shared press response independent of existing translate/rotate transforms. */
+.soso-timeline-fill {
+  transform: scaleX(var(--playback-progress, 0));
+  transform-origin: left;
+}
+.soso-timeline-rail {
+  transition: height 140ms ease-out;
+}
+.soso-timeline:hover .soso-timeline-rail,
+.soso-timeline:focus-visible .soso-timeline-rail,
+.soso-timeline[data-seeking] .soso-timeline-rail {
+  height: 8px;
+}
+.soso-timeline-thumb {
+  left: calc(var(--playback-progress, 0) * 100%);
+  transform: translate(-50%, -50%) scale(0.6);
+  opacity: 0;
+  transition:
+    opacity 100ms ease-out,
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.soso-timeline:hover .soso-timeline-thumb,
+.soso-timeline:focus-visible .soso-timeline-thumb {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+.soso-timeline[data-seeking] .soso-timeline-thumb {
+  transform: translate(-50%, -50%) scale(1.25);
+  opacity: 1;
+  box-shadow: 0 0 0 5px rgba(var(--theme-accent-rgb), 0.14);
+}
+.soso-seek-preview {
+  position: absolute;
+  bottom: calc(100% + 48px);
+  transform: translateX(-50%);
+  pointer-events: none;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: #202024;
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  box-shadow: 0 3px 12px #0003;
+  animation: sosoSeekPreview 100ms ease-out;
+}
+.soso-transport .soso-transport-skip {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out,
+    scale 180ms ease-out;
+}
+.soso-transport-skip:hover:not(:disabled) {
+  background: #8882;
+}
+.soso-transport-skip svg {
+  transition: transform 160ms ease-out;
+}
+.soso-transport-back:active:not(:disabled) svg {
+  transform: translateX(-3px);
+}
+.soso-transport-forward:active:not(:disabled) svg {
+  transform: translateX(3px);
+}
+.soso-transport .soso-transport-play {
+  transition:
+    scale 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+.soso-transport-play:hover:not(:disabled) {
+  scale: 1.07;
+}
+.soso-transport .soso-transport-play:active:not(:disabled),
+.soso-transport .soso-transport-skip:active:not(:disabled) {
+  scale: 0.9;
+  transition-duration: 60ms;
+}
+.soso-control-icon {
+  display: flex;
+  animation: sosoControlIcon 160ms ease-out;
+}
+.soso-nav-marker {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  z-index: -1;
+  border-radius: 9px;
+  background: rgba(var(--theme-accent-rgb), 0.1);
+  box-shadow: inset 2px 0 0 rgba(var(--theme-accent-rgb), 0.8);
+  pointer-events: none;
+  transition:
+    transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 240ms ease-out,
+    opacity 140ms ease-out;
+}
+.soso-sidebar-nav .soso-nav-item {
+  transition:
+    color 140ms ease-out,
+    background-color 140ms ease-out,
+    scale 180ms ease-out;
+}
+.soso-nav-item > svg {
+  transition: transform 180ms ease-out;
+}
+.soso-nav-item:hover > svg {
+  transform: translateX(2px);
+}
+.soso-nav-item[aria-current='page'] > svg {
+  transform: scale(1.08);
+}
+.soso-music-card {
+  transition:
+    translate 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 160ms ease-out,
+    border-color 160ms ease-out,
+    box-shadow 220ms ease-out,
+    scale 140ms ease-out;
+}
+.soso-music-card[data-active='true'] {
+  border-color: rgba(var(--theme-accent-rgb), 0.55);
+}
+@media (hover: hover) {
+  .soso-music-card:hover:not([aria-disabled='true']),
+  .soso-music-card:focus-within {
+    translate: 0 -3px;
+    box-shadow: 0 8px 22px #0002;
+    border-color: rgba(var(--theme-accent-rgb), 0.4);
+  }
+}
+@keyframes sosoSeekPreview {
+  from {
+    opacity: 0;
+    translate: 0 3px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes sosoControlIcon {
+  from {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 :where(button):not(:disabled):not([aria-disabled='true']) {
   transition-property: color, background-color, border-color, opacity, box-shadow, transform, scale;
   transition-duration: 140ms;
@@ -1252,6 +1407,11 @@ html:not(.dark) .soso-search-input:focus {
 }
 .soso-track-row[data-playback-state='loading'] {
   background-color: rgba(var(--theme-accent-rgb), 0.09);
+}
+.soso-track-row[data-room-state='queued'],
+.soso-track-row[data-room-state='current'] {
+  background-color: rgba(var(--theme-accent-rgb), 0.08);
+  box-shadow: inset 2px 0 rgba(var(--theme-accent-rgb), 0.55);
 }
 .soso-track-row > button:focus-visible,
 .soso-track-row .group\/cover > button:focus-visible {
@@ -1301,5 +1461,12 @@ html:not(.dark) .soso-search-input:focus {
 html[data-anim-paused] .soso-view-enter,
 html[data-anim-paused] .soso-track-enter,
 html[data-anim-paused] .soso-art-enter {
+  animation-play-state: paused !important;
+}
+
+/* Pause decoration, including pseudo-elements, when another window owns focus. */
+html[data-anim-paused] *,
+html[data-anim-paused] *::before,
+html[data-anim-paused] *::after {
   animation-play-state: paused !important;
 }

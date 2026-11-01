@@ -3,7 +3,7 @@
   <h1>SoSo Music</h1>
   <p>Your favorites, new discoveries and lyrics. Together in a Windows music player.</p>
   <p><a href="https://github.com/CatJAM223/SoSo-Music/releases">Download</a> · <a href="README.ru.md">Русский</a> · <a href="https://github.com/CatJAM223/SoSo-Music/issues">Report an issue</a></p>
-  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-3.3.4-eab308" alt="Version 3.3.4"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
+  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-4.0.0-eab308" alt="Version 4.0.0"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
 </div>
 
 Search SoundCloud and YouTube Music, build a personal library, and let **My Wave** find your next track. Switch between listening, karaoke and guitar practice without leaving the player.
@@ -12,6 +12,7 @@ Search SoundCloud and YouTube Music, build a personal library, and let **My Wave
 
 ## Features
 
+- **Listen together.** Internet rooms for up to eight people, invitations, a shared queue and synchronized track starts. Everyone can add songs; the host controls playback.
 - **Two music catalogs.** Search tracks, artists and albums on SoundCloud and YouTube Music.
 - **My Wave.** Flow, Energy, Chill, Discover and Mix respond to likes, skips and listening history. Choose one catalog or combine both sources.
 - **Your library.** Liked tracks, playlists, saved albums, followed artists and listening statistics. Import public playlists from Yandex Music or VK Music and review matches before saving.
@@ -25,7 +26,7 @@ Search SoundCloud and YouTube Music, build a personal library, and let **My Wave
 
 1. Open [GitHub Releases](https://github.com/CatJAM223/SoSo-Music/releases) and choose a Windows x64 ZIP or 7z archive.
 2. Extract the **entire archive** into a writable folder.
-3. Run **SoSo Music.exe** inside the extracted application folder (usually `win-unpacked`). Keep its resources and DLLs alongside it.
+3. Run **SoSo Music.exe** directly inside the extracted folder. Keep its resources and DLLs alongside it.
 
 The current distribution is a portable Windows build. Moving only the executable will break it. Downloadable builds are distributed through Releases, separately from the source repository.
 
@@ -109,7 +110,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Some checks la
 
 GitHub Actions runs `test:all`, including formatting, types, architecture, Node, Electron UI and deliberate regression sensitivity checks. Built main/preload and the production YouTube adapter are checked after building. Per-step logs are written to `scratch/check-logs` and uploaded on CI failures. Documentation-only and empty pushes do not start CI; newer runs cancel outdated ones.
 
-Use the **Windows release** workflow manually to download a build artifact, or push a tag matching the package version (for example, v3.3.4) to build and publish a GitHub Release with ZIP and 7z archives and their SHA-256 checksums. Desktop builds are not produced for every commit.
+Use the **Windows release** workflow manually to download a build artifact, or push a tag matching the package version (for example, v4.0.0) to build and publish a GitHub Release with ZIP and 7z archives and their SHA-256 checksums. Desktop builds are not produced for every commit.
 
 ### Project layout
 
@@ -125,7 +126,11 @@ tests/             Regression tests and fixtures
 docs/              Focused technical documentation
 ```
 
-Built with Electron, React, TypeScript, Vite, SQLite (sql.js), Rust/WASM and hls.js. Lyrics and metadata depend on external services. The local compute module has a JavaScript fallback.
+Built with Electron, React, TypeScript, Vite, SQLite (sql.js), Rust/WASM and hls.js. Lyrics and metadata depend on external services. The local Rust module is required. Failed initialization or a startup exceeding 15 seconds shows retry and window-reload actions without resetting data.
+
+Generate a local startup, buffering and recovery report with `npm run report:playback -- "path/playback.log" "path/playback.old.log"`. Open the logs through data settings. Reports use the new `[Playback:Quality]` events, omit track titles and URLs, and count user cancellations separately. See [player reliability and Rust measurements](docs/reliability-2026-10-27.md).
+
+Wave outcome report: `npm run report:wave -- "path/playback.log" "path/playback.old.log"`. Run `npm run eval:wave-identity` for a deterministic canonical-identity check using the production Rust ranker. See [engine, recording model and Wave measurement](docs/player-engine-domain-wave-2026-10-27.md); synthetic checks do not establish listener-preference gains.
 
 ## Troubleshooting
 

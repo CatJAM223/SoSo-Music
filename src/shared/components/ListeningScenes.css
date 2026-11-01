@@ -28,10 +28,10 @@ html:is([data-theme='nighttrain'], [data-theme='cassette'])
   :is(.bg-\[\#f8fafc\], .bg-\[\#ffffff\], .dark\:bg-\[\#18181b\], .dark\:bg-\[\#121212\]) {
   background: transparent !important;
 }
-html:is([data-theme='nighttrain'], [data-theme='cassette']) aside {
+html:is([data-theme='nighttrain'], [data-theme='cassette']) .app-sidebar {
   background: var(--bg-sidebar) !important;
 }
-html:is([data-theme='nighttrain'], [data-theme='cassette']) footer {
+html:is([data-theme='nighttrain'], [data-theme='cassette']) .soso-player-bar {
   background: var(--bg-player) !important;
   border-color: var(--border-color) !important;
 }

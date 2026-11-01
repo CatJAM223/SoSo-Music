@@ -73,4 +73,9 @@ jobs:
           if (!(Test-Path -LiteralPath $releaseNotes)) {
             throw "Release notes are missing: $releaseNotes"
           }
+          gh release view $env:GITHUB_REF_NAME --json url 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'Release already exists; preserving its verified assets.'
+            exit 0
+          }
           gh release create $env:GITHUB_REF_NAME @releaseAssets --verify-tag --notes-file $releaseNotes --title "SoSo Music $env:GITHUB_REF_NAME"

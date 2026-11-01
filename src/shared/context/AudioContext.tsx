@@ -45,6 +45,10 @@ export const AudioContext = createContext<AudioContextType | undefined>(undefine
 export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [initialPlayback] = useState(readPlaybackSession);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const roomFollowerRef = useRef(false);
+  const setRoomFollower = useCallback((enabled: boolean) => {
+    roomFollowerRef.current = enabled;
+  }, []);
   const playTrackRef = useRef<
     ((track: Track, newQueue?: Track[], fromWave?: boolean) => Promise<void> | void) | null
   >(null);
@@ -102,6 +106,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // 6. Core audio player (HTML5 Audio, HLS, streams, events, queue progression)
   const playerCore = useAudioPlayerCore({
+    roomFollowerRef,
     initialPlayback,
     repeatMode: queueManager.repeatMode,
     isShuffle: queueManager.isShuffle,
@@ -217,6 +222,32 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
     getCurrentTime: () => audioRef.current?.currentTime || playerCore.currentTime,
   });
 
+  const roomControlHandler = useRef<((action: string, position?: number) => void) | null>(null);
+  const setRoomControlHandler = useCallback(
+    (handler: ((action: string, position?: number) => void) | null) => {
+      roomControlHandler.current = handler;
+    },
+    [],
+  );
+  const userToggle = useCallback(() => {
+    if (roomControlHandler.current) roomControlHandler.current('toggle');
+    else playerCore.togglePlay();
+  }, [playerCore.togglePlay]);
+  const userNext = useCallback(() => {
+    if (roomControlHandler.current) roomControlHandler.current('next');
+    else playerCore.nextTrack();
+  }, [playerCore.nextTrack]);
+  const userPrev = useCallback(() => {
+    if (roomControlHandler.current) roomControlHandler.current('previous');
+    else playerCore.prevTrack();
+  }, [playerCore.prevTrack]);
+  const userSeek = useCallback(
+    (position: number) => {
+      if (roomControlHandler.current) roomControlHandler.current('seek', position);
+      else playerCore.seek(position);
+    },
+    [playerCore.seek],
+  );
   // 9. Media Session & Android Native Notification Integration
   useMediaSessionIntegration({
     currentTrack: playerCore.currentTrack,
@@ -224,11 +255,17 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
     isLoadingTrack: playerCore.isLoadingTrack,
     duration: playerCore.duration,
     getCurrentTime: () => audioRef.current?.currentTime || 0,
-    onPlay: playerCore.resumeMainAudio,
-    onPause: playerCore.pauseMainAudio,
-    onNext: () => playerCore.nextTrack(),
-    onPrev: () => playerCore.prevTrack(),
-    onSeek: (position: number) => playerCore.seek(position),
+    onPlay: () =>
+      roomControlHandler.current
+        ? roomControlHandler.current('play')
+        : playerCore.resumeMainAudio(),
+    onPause: () =>
+      roomControlHandler.current
+        ? roomControlHandler.current('pause')
+        : playerCore.pauseMainAudio(),
+    onNext: userNext,
+    onPrev: userPrev,
+    onSeek: userSeek,
     isTransitioningTrackRef: playerCore.isTransitioningTrackRef,
     trackTransitionTimestampRef: playerCore.trackTransitionTimestampRef,
   });
@@ -250,22 +287,22 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
     likedTrackIds: libraryManager.likedTrackIds,
     volume: audioSettings.volume,
     audioRef,
-    togglePlay: playerCore.togglePlay,
-    nextTrack: playerCore.nextTrack,
-    prevTrack: playerCore.prevTrack,
-    seek: playerCore.seek,
+    togglePlay: userToggle,
+    nextTrack: userNext,
+    prevTrack: userPrev,
+    seek: userSeek,
     setVolume: audioSettings.setVolume,
     toggleLike: libraryManager.toggleLike,
   });
 
   // 11. Global Keyboard Shortcuts
   useAudioKeyboardShortcuts({
-    togglePlay: playerCore.togglePlay,
-    seek: playerCore.seek,
+    togglePlay: userToggle,
+    seek: userSeek,
     setVolume: audioSettings.setVolume,
     volume: audioSettings.volume,
-    nextTrack: playerCore.nextTrack,
-    prevTrack: playerCore.prevTrack,
+    nextTrack: userNext,
+    prevTrack: userPrev,
     audioRef,
   });
 
@@ -288,6 +325,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const stateValue = useMemo<AudioStateContextType>(
     () => ({
       currentTrack: playerCore.currentTrack,
+      playbackPhase: playerCore.playbackPhase,
       isPlaying: playerCore.isPlaying,
       isLoadingTrack: playerCore.isLoadingTrack || waveEngine.isWaveStarting,
       volume: audioSettings.volume,
@@ -316,6 +354,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }),
     [
       playerCore.currentTrack,
+      playerCore.playbackPhase,
       playerCore.isPlaying,
       playerCore.isLoadingTrack,
       waveEngine.isWaveStarting,
@@ -354,13 +393,21 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
       isTrackDisliked: libraryManager.isTrackDisliked,
       refreshDislikedTracks: libraryManager.refreshDislikedTracks,
       playTrack: playerCore.playTrack,
-      togglePlay: playerCore.togglePlay,
+      togglePlay: userToggle,
+      pausePlayback: playerCore.pauseMainAudio,
+      selectPausedTrack: playerCore.selectPausedTrack,
+      preparePlayback: playerCore.preparePlayback,
+      isPlaybackReady: playerCore.isPlaybackReady,
+      resumePlayback: playerCore.resumeMainAudio,
+      setRoomFollower,
+      setRoomControlHandler,
+      seekPlayback: playerCore.seek,
       getPlaybackTime,
-      seek: playerCore.seek,
+      seek: userSeek,
       setVolume: audioSettings.setVolume,
       toggleMute: audioSettings.toggleMute,
-      nextTrack: playerCore.nextTrack,
-      prevTrack: playerCore.prevTrack,
+      nextTrack: userNext,
+      prevTrack: userPrev,
       setRepeatMode: queueManager.setRepeatMode,
       cycleRepeatMode: queueManager.cycleRepeatMode,
       toggleShuffle: queueManager.toggleShuffle,
@@ -371,6 +418,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
       clearQueue,
       reorderQueue: queueManager.reorderQueue,
       shuffleUpcomingQueue: queueManager.shuffleUpcomingQueue,
+      replaceUpcomingQueue: queueManager.replaceUpcomingQueue,
       previewSnippet: snippetController.previewSnippet,
       toggleSnippetPlay: snippetController.toggleSnippetPlay,
       seekSnippet: snippetController.seekSnippet,
@@ -401,7 +449,19 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
       libraryManager.isTrackDisliked,
       libraryManager.refreshDislikedTracks,
       playerCore.playTrack,
+      userToggle,
+      userNext,
+      userPrev,
+      userSeek,
+      setRoomControlHandler,
       playerCore.togglePlay,
+      playerCore.pauseMainAudio,
+      playerCore.selectPausedTrack,
+      playerCore.preparePlayback,
+      playerCore.isPlaybackReady,
+      playerCore.resumeMainAudio,
+      setRoomFollower,
+
       getPlaybackTime,
       playerCore.seek,
       audioSettings.setVolume,
@@ -418,6 +478,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
       clearQueue,
       queueManager.reorderQueue,
       queueManager.shuffleUpcomingQueue,
+      queueManager.replaceUpcomingQueue,
       snippetController.previewSnippet,
       snippetController.toggleSnippetPlay,
       snippetController.seekSnippet,

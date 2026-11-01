@@ -1,3 +1,5 @@
+import { timeYouTubeResolve } from './youtubeResolveTiming.ts';
+import { recordResolvedAlias } from './recordingCatalog.ts';
 import {
   assertStreamResolveActive,
   currentStreamResolveSignal,
@@ -47,7 +49,6 @@ import {
 import {
   parseDuration,
   cleanYTTitle,
-  isDurationClose,
   extractAlbumFromFlexColumns,
   parseInnerTubeShelfItem,
   parseYouTubeRadioResponse,
@@ -74,7 +75,10 @@ function containsAnyPhrase(value: string, phrases: string[]): boolean {
 }
 
 export class YouTubeMusicService {
-  private static searchCache = new Map<string, { data: Track[]; total: number }>();
+  private static searchCache = new Map<
+    string,
+    { data: Track[]; total: number; expiresAt?: number }
+  >();
   private static discoverySongsCache = new BoundedMap<string, { data: Track[]; expiresAt: number }>(
     64,
     (value) => value.expiresAt,
@@ -169,6 +173,7 @@ export class YouTubeMusicService {
     this.sessionEpoch++;
     sharedStreamResolver.invalidate();
     this.cachedVisitorData = null;
+    this.visitorRetryAfter = 0;
     this.visitorDataRequest = null;
     this.streamCache.clear();
     this.videoStreamCache.clear();
@@ -216,11 +221,6 @@ export class YouTubeMusicService {
       .trim();
   }
 
-  public static getVideoDuration(videoId: string): number | undefined {
-    const clean = this.cleanVideoId(videoId);
-    return this.videoDurationCache.get(clean);
-  }
-
   // Innertube search filters (from Kopuz & ytmusicapi protobuf specs)
   public static PARAMS = {
     SONGS: 'EgWKAQIIAWoMEAMQBBAJEAoQDhAV',
@@ -230,6 +230,7 @@ export class YouTubeMusicService {
   };
 
   private static cachedVisitorData: { visitorData: string; expiresAt: number } | null = null;
+  private static visitorRetryAfter = 0;
 
   /**
    * Retrieves or refreshes YouTube InnerTube visitorData
@@ -239,6 +240,8 @@ export class YouTubeMusicService {
     if (!forceRefresh && this.cachedVisitorData && now < this.cachedVisitorData.expiresAt) {
       return this.cachedVisitorData.visitorData;
     }
+    if (!forceRefresh && now < this.visitorRetryAfter)
+      return this.cachedVisitorData?.visitorData || '';
 
     if (this.visitorDataRequest) return this.visitorDataRequest;
     const request = this.requestVisitorData();
@@ -287,6 +290,7 @@ export class YouTubeMusicService {
         }
         if (visitorData && typeof visitorData === 'string') {
           this.cachedVisitorData = { visitorData, expiresAt: now + 12 * 60 * 60 * 1000 };
+          this.visitorRetryAfter = 0;
           return visitorData;
         }
       }
@@ -294,6 +298,7 @@ export class YouTubeMusicService {
       console.warn('[YouTubeMusicService] Failed to fetch visitorData:', e);
     }
 
+    if (epoch === this.sessionEpoch) this.visitorRetryAfter = Date.now() + 30000;
     return this.cachedVisitorData?.visitorData || '';
   }
 
@@ -310,7 +315,6 @@ export class YouTubeMusicService {
     assertStreamResolveActive();
     const cleanVid = this.cleanVideoId(videoId);
     if (!cleanVid) return '';
-    if (this.sessionRecoveryRequest) await streamShared(() => this.sessionRecoveryRequest);
     // A working cached stream remains usable even if another video requires sign-in.
     const cached = this.streamCache.get(cleanVid);
     if (
@@ -322,6 +326,10 @@ export class YouTubeMusicService {
       this.logStreamRoute(cleanVid, 'hit');
       return cached.url;
     }
+    if (this.sessionRecoveryRequest)
+      await timeYouTubeResolve(cleanVid, 'session-wait', () =>
+        streamShared(() => this.sessionRecoveryRequest),
+      );
     if (forceRefresh) this.audioAccessFailures.delete(cleanVid);
     const blocked = this.audioAccessFailures.get(cleanVid);
     const key = JSON.stringify([
@@ -456,7 +464,9 @@ export class YouTubeMusicService {
     if (this.accountResolver) {
       let accountStream: YouTubeAccountStream | null = null;
       try {
-        accountStream = await streamWait(this.accountResolver(cleanVid, formatOptions));
+        accountStream = await timeYouTubeResolve(cleanVid, 'account', () =>
+          this.accountResolver!(cleanVid, formatOptions),
+        );
       } catch (error) {
         assertStreamResolveActive();
         if (getStreamResolveFailure(error)) throw error;
@@ -530,8 +540,10 @@ export class YouTubeMusicService {
         this.videoStreamCache.delete(cleanVid);
         await streamShared(() => recoverDesktopNetwork());
       }
-      const visitorData = await streamShared(() =>
-        this.getVisitorData(isRetry || (forceRefresh && !!formatOptions.preferAlternateFormat)),
+      const visitorData = await timeYouTubeResolve(cleanVid, 'visitor', () =>
+        streamShared(() =>
+          this.getVisitorData(isRetry || (forceRefresh && !!formatOptions.preferAlternateFormat)),
+        ),
       );
 
       const payload = {
@@ -566,7 +578,9 @@ export class YouTubeMusicService {
         headers['X-Goog-Visitor-Id'] = visitorData;
       }
 
-      const res = await streamWait(YouTubeMusicTransport.postPlayer(payload, headers));
+      const res = await timeYouTubeResolve(cleanVid, 'player-request', () =>
+        YouTubeMusicTransport.postPlayer(payload, headers),
+      );
 
       if (!res.ok) {
         PlaybackLogger.warn(
@@ -582,7 +596,7 @@ export class YouTubeMusicService {
         return '';
       }
 
-      const json = await streamWait(res.json());
+      const json = await timeYouTubeResolve(cleanVid, 'player-body', () => res.json());
       const status = json?.playabilityStatus?.status;
       const reason = json?.playabilityStatus?.reason || '';
       if (status !== 'OK') {
@@ -625,6 +639,19 @@ export class YouTubeMusicService {
             cleanVid,
         );
         return '';
+      }
+      const responseVisitor = json?.responseContext?.visitorData;
+      if (
+        epoch === this.sessionEpoch &&
+        typeof responseVisitor === 'string' &&
+        responseVisitor.trim() &&
+        responseVisitor.length <= 8192
+      ) {
+        this.cachedVisitorData = {
+          visitorData: responseVisitor,
+          expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+        };
+        this.visitorRetryAfter = 0;
       }
       const providerLoudness = json?.playerConfig?.audioConfig?.loudnessDb;
       if (typeof providerLoudness === 'number' && Number.isFinite(providerLoudness)) {
@@ -985,14 +1012,6 @@ export class YouTubeMusicService {
     return null;
   }
 
-  public static isDurationAcceptable(
-    targetDuration: number,
-    candidateDuration: number,
-    toleranceSec: number = 15,
-  ): boolean {
-    return isDurationClose(targetDuration, candidateDuration, toleranceSec);
-  }
-
   public static extractAlbumFromFlexColumns(flexColumns: any[]): {
     albumTitle: string;
     albumBrowseId?: string;
@@ -1047,9 +1066,9 @@ export class YouTubeMusicService {
 
     const cleanQ = query.trim();
     const cacheKey = `${cleanQ.toLowerCase()}_${limit}`;
-    if (this.searchCache.has(cacheKey)) {
-      return this.searchCache.get(cacheKey)!;
-    }
+    const cached = this.searchCache.get(cacheKey);
+    if (cached && cached.expiresAt! > Date.now()) return cached;
+    this.searchCache.delete(cacheKey);
 
     try {
       const clientContext = this.getClientContext();
@@ -1259,7 +1278,10 @@ export class YouTubeMusicService {
       }
       // Keep real empty searches, but never cache a network/provider failure indefinitely.
       if (receivedSearchResponse && (!failedSearchResponse || result.data.length))
-        this.searchCache.set(cacheKey, result);
+        this.searchCache.set(cacheKey, {
+          ...result,
+          expiresAt: Date.now() + (result.data.length ? 10 * 60_000 : 30_000),
+        });
       return result;
     } catch (e) {
       assertStreamResolveActive();
@@ -1364,6 +1386,7 @@ export class YouTubeMusicService {
           this.resolveDirectAudioStream(id, false, options.forceRefresh, options),
         );
         if (!url) continue;
+        recordResolvedAlias(track, candidate);
         this.replacementRecordings.set(originalId, {
           track: candidate,
           expiresAt: Date.now() + 5 * 60 * 1000,

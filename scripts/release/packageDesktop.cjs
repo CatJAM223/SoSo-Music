@@ -22,9 +22,9 @@ const archiver = fs.existsSync(installed7z) ? installed7z : require('7zip-bin').
   let published = false;
   try {
     const result = sevenZip
-      ? spawnSync(archiver, ['a', '-t7z', '-mx=5', '-md=32m', '-mmt=2', temporary, 'win-unpacked'],
-          { cwd: release, stdio: 'inherit', windowsHide: true })
-      : spawnSync('tar.exe', ['-a', '-c', '-f', temporary, '-C', release, 'win-unpacked'],
+      ? spawnSync(archiver, ['a', '-t7z', '-mx=5', '-md=32m', '-mmt=2', temporary, '.'],
+          { cwd: packed, stdio: 'inherit', windowsHide: true })
+      : spawnSync('tar.exe', ['-a', '-c', '-f', temporary, '-C', packed, '.'],
           { cwd: root, stdio: 'inherit', windowsHide: true });
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error('Не удалось упаковать сборку: ' + result.status);

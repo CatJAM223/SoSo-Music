@@ -1,20 +1,57 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { hookRuntime } from './helpers/hookRuntime.mjs';
+import * as audioVolume from '../src/shared/utils/audioVolume.ts';
+import * as crossfade from '../src/shared/utils/crossfade.ts';
 
 import {
-  clampCrossfadeDuration,
   calculateFadeInVolume,
   calculateFadeOutVolume,
   shouldTriggerNearEndFade,
 } from '../src/shared/utils/crossfade.ts';
 
-test('Crossfade: Duration clamping between 0 and 12 seconds', () => {
-  assert.equal(clampCrossfadeDuration(-5), 0);
-  assert.equal(clampCrossfadeDuration(0), 0);
-  assert.equal(clampCrossfadeDuration(3), 3);
-  assert.equal(clampCrossfadeDuration(8), 8);
-  assert.equal(clampCrossfadeDuration(12), 12);
-  assert.equal(clampCrossfadeDuration(25), 12);
+test('Playback settings clamp crossfade, persist it and restore the actual player setting', () => {
+  const saved = new Map();
+  const create = () => {
+    const runtime = hookRuntime(
+      new URL('../src/shared/hooks/useAudioSettings.ts', import.meta.url),
+      {
+        '../services/trackVolumeNormalization': {
+          trackVolumeNormalization: () => ({ setEnabled() {} }),
+        },
+        '../utils/logger': { logger: { debug() {} } },
+        '../utils/audioVolume': audioVolume,
+        '../utils/crossfade': crossfade,
+      },
+      {
+        window: new EventTarget(),
+        document: new EventTarget(),
+        localStorage: {
+          getItem: (key) => saved.get(key) ?? null,
+          setItem: (key, value) => saved.set(key, value),
+        },
+      },
+    );
+    runtime.render({ audioRef: { current: null } });
+    return runtime;
+  };
+  const current = create();
+  for (const [input, expected] of [
+    [25, 12],
+    [-4, 0],
+    [4, 4],
+  ]) {
+    current.api().setCrossfadeDuration(input);
+    current.render();
+    assert.equal(current.api().crossfadeDuration, expected);
+    assert.equal(current.api().crossfadeDurationRef.current, expected);
+    assert.equal(saved.get('soso_crossfade_duration'), String(expected));
+  }
+  current.unmount();
+  const restored = create();
+  assert.equal(restored.api().crossfadeDuration, 4);
+  assert.equal(restored.api().crossfadeDurationRef.current, 4);
+  restored.unmount();
 });
 
 test('Crossfade: Smooth Sinusoidal Fade-In curve starts at 0 and reaches target volume', () => {

@@ -13,8 +13,8 @@
       "sc_512374628"
     ],
     "counters": {
-      "soundcloud": 6,
-      "youtube": 6,
+      "soundcloud": 9,
+      "youtube": 9,
       "similar": 3,
       "radio": 3
     }
@@ -113,33 +113,33 @@
   "empty:default": {
     "ids": [
       "sc_805732131",
-      "sc_808905740",
+      "yt_3036ec0c945",
       "sc_2995134892",
-      "sc_3433266914",
+      "yt_cca37ee277c",
       "sc_2428756957",
-      "sc_1494544139"
+      "yt_5914ef0bbac"
     ],
     "counters": {
       "soundcloud": 6,
-      "youtube": 0,
+      "youtube": 6,
       "similar": 0,
       "radio": 0
     }
   },
   "empty:mix": {
-    "ids": ["sc_3824396422", "sc_3533609215", "sc_2990833779", "sc_685233501"],
+    "ids": ["sc_3824396422", "yt_d29e98ff7df", "sc_2990833779", "yt_28d7d55dc62"],
     "counters": {
       "soundcloud": 4,
-      "youtube": 0,
+      "youtube": 4,
       "similar": 0,
       "radio": 0
     }
   },
   "empty:favorites": {
-    "ids": ["sc_3824396422", "sc_3533609215", "sc_2990833779", "sc_685233501"],
+    "ids": ["sc_3824396422", "yt_d29e98ff7df", "sc_2990833779", "yt_28d7d55dc62"],
     "counters": {
       "soundcloud": 4,
-      "youtube": 0,
+      "youtube": 4,
       "similar": 0,
       "radio": 0
     }
@@ -163,10 +163,10 @@
     }
   },
   "empty:discover": {
-    "ids": ["sc_1379897471", "sc_3052726839", "sc_1302775671"],
+    "ids": ["sc_1379897471", "yt_b5f4ea37e35", "sc_1302775671"],
     "counters": {
       "soundcloud": 3,
-      "youtube": 0,
+      "youtube": 3,
       "similar": 0,
       "radio": 0
     }
@@ -175,7 +175,7 @@
     "ids": ["sc_2524101684"],
     "counters": {
       "soundcloud": 6,
-      "youtube": 3,
+      "youtube": 6,
       "similar": 3,
       "radio": 3
     }

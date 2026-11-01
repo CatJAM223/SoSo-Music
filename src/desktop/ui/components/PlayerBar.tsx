@@ -33,6 +33,7 @@ import { formatTime, detectTrackSource, resolveTrackCover } from '../../../share
 import { parseArtists } from '../../../shared/utils/artistParser';
 import { bufferedPercentRanges } from '../../../shared/utils/audioBuffer';
 import { useLyricsAvailability } from '../../../shared/hooks/useLyricsAvailability';
+import { usePlaybackTimeline } from '../../../shared/hooks/usePlaybackTimeline';
 import { SourceBadge } from './SourceBadge';
 import { SleepTimerControl } from './SleepTimerControl';
 import { AnimatedLikeButton } from '../../../shared/components/BrokenHeartEffect';
@@ -51,171 +52,206 @@ interface PlayerBarProps {
   onOpenAddToPlaylist?: (track: import('../../../shared/types').Track) => void;
 }
 
-const PlayerProgressBar: React.FC<{ fallbackDuration?: number; isActive: boolean }> = React.memo(
-  ({ fallbackDuration, isActive }) => {
-    useLocale();
-    const { currentTime, duration, bufferedRanges = [] } = useAudioProgress();
-    const { seek } = useAudioControls();
-    const [isSeeking, setIsSeeking] = useState(false);
-    const [seekValue, setSeekValue] = useState(0);
-    const seekBarRef = useRef<HTMLDivElement>(null);
+const PlayerProgressBar: React.FC<{
+  fallbackDuration?: number;
+  isActive: boolean;
+  playing: boolean;
+}> = React.memo(({ fallbackDuration, isActive, playing }) => {
+  useLocale();
+  const { currentTime, duration, bufferedRanges = [] } = useAudioProgress();
+  const { seek, getPlaybackTime } = useAudioControls();
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekValue, setSeekValue] = useState(0);
+  const seekBarRef = useRef<HTMLDivElement>(null);
+  const pointerRef = useRef<number | null>(null);
+  const [hoverValue, setHoverValue] = useState<number | null>(null);
 
-    const currentDisplayTime = isActive ? (isSeeking ? seekValue : currentTime) : 0;
-    const effectiveDuration = isActive ? (duration > 0 ? duration : fallbackDuration || 180) : 0;
-    const progressPercent =
-      effectiveDuration > 0
-        ? Math.min(100, Math.max(0, (currentDisplayTime / effectiveDuration) * 100))
-        : 0;
+  const currentDisplayTime = isActive ? (isSeeking ? seekValue : currentTime) : 0;
+  const effectiveDuration = isActive ? (duration > 0 ? duration : fallbackDuration || 180) : 0;
+  usePlaybackTimeline(seekBarRef, {
+    position: isActive ? currentTime : 0,
+    duration: effectiveDuration,
+    playing: isActive && playing,
+    preview: isSeeking ? seekValue : null,
+  });
+  const previewTime = isSeeking ? seekValue : hoverValue;
+  const previewPercent =
+    effectiveDuration > 0 && previewTime !== null
+      ? Math.max(0, Math.min(100, (previewTime / effectiveDuration) * 100))
+      : 0;
 
-    const handleSeekPointerUpdate = (
-      e: React.PointerEvent<HTMLDivElement>,
-      isFinal: boolean = false,
-    ) => {
-      if (!isActive || !seekBarRef.current) return;
-      const rect = seekBarRef.current.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const targetSeconds = frac * effectiveDuration;
-      setSeekValue(targetSeconds);
+  const handleSeekPointerUpdate = (
+    e: React.PointerEvent<HTMLDivElement>,
+    isFinal: boolean = false,
+  ) => {
+    if (!isActive || !seekBarRef.current) return;
+    const rect = seekBarRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetSeconds = frac * effectiveDuration;
+    setSeekValue(targetSeconds);
+    setHoverValue(targetSeconds);
 
-      if (isFinal) {
-        seek(targetSeconds);
-        setIsSeeking(false);
-      }
-    };
-
-    const handleSeekPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!isActive) return;
-      e.currentTarget.setPointerCapture(e.pointerId);
-      setIsSeeking(true);
-      handleSeekPointerUpdate(e, false);
-    };
-
-    const handleSeekPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-      if (isSeeking) {
-        handleSeekPointerUpdate(e, false);
-      }
-    };
-
-    const handleSeekPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!isActive) return;
-      handleSeekPointerUpdate(e, true);
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {}
-    };
-
-    const handleSeekPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isFinal) {
+      seek(targetSeconds);
       setIsSeeking(false);
-      if (e.currentTarget.hasPointerCapture(e.pointerId))
-        e.currentTarget.releasePointerCapture(e.pointerId);
-    };
+    }
+  };
 
-    const handleSeekKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (!isActive) return;
-      const base = isSeeking ? seekValue : currentTime;
-      const target =
-        e.key === 'Home'
-          ? 0
-          : e.key === 'End'
-            ? effectiveDuration
-            : e.key === 'ArrowLeft' || e.key === 'ArrowDown'
-              ? base - 5
-              : e.key === 'ArrowRight' || e.key === 'ArrowUp'
-                ? base + 5
-                : null;
-      if (target === null) return;
-      e.preventDefault();
-      seek(Math.max(0, Math.min(effectiveDuration, target)));
-    };
+  const handleSeekPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isActive || e.button !== 0 || pointerRef.current !== null) return;
+    e.preventDefault();
+    e.currentTarget.focus({ preventScroll: true });
+    e.currentTarget.setPointerCapture(e.pointerId);
+    pointerRef.current = e.pointerId;
+    setIsSeeking(true);
+    handleSeekPointerUpdate(e, false);
+  };
 
-    return (
-      <div className="w-full flex items-center gap-3 text-xs text-slate-600 dark:text-zinc-400 font-sans tabular-nums">
-        <span className="w-10 text-right select-none font-medium">
-          {formatTime(currentDisplayTime)}
-        </span>
+  const handleSeekPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerRef.current === e.pointerId) {
+      handleSeekPointerUpdate(e, false);
+    } else if (isActive && pointerRef.current === null) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      if (rect.width > 0)
+        setHoverValue(
+          Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * effectiveDuration,
+        );
+    }
+  };
 
-        <div
-          ref={seekBarRef}
-          onPointerDown={handleSeekPointerDown}
-          onPointerMove={handleSeekPointerMove}
-          onPointerUp={handleSeekPointerUp}
-          onPointerCancel={handleSeekPointerCancel}
-          onKeyDown={handleSeekKeyDown}
-          role="slider"
-          tabIndex={isActive ? 0 : -1}
-          aria-label={t('Позиция воспроизведения')}
-          aria-disabled={!isActive}
-          aria-valuemin={0}
-          aria-valuemax={effectiveDuration}
-          aria-valuenow={Math.round(currentDisplayTime)}
-          aria-valuetext={t(
-            '{0} из {1}',
-            formatTime(currentDisplayTime),
-            formatTime(effectiveDuration),
-          )}
-          className={`relative flex-1 group flex items-center h-5 touch-none select-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-soso-brand rounded-full ${isActive ? 'cursor-pointer' : 'cursor-default opacity-60'}`}
-        >
-          <div className="relative w-full h-1.5 bg-slate-200 dark:bg-zinc-700/80 rounded-full overflow-hidden group-hover:h-2 transition-all shadow-inner pointer-events-none">
-            {bufferedPercentRanges(isActive ? bufferedRanges : [], effectiveDuration).map(
-              (range) => (
-                <div
-                  key={range.start}
-                  aria-hidden="true"
-                  data-audio-buffer-range
-                  className="absolute inset-y-0 bg-slate-400/50 dark:bg-white/25"
-                  style={{ left: range.start + '%', width: range.end - range.start + '%' }}
-                />
-              ),
-            )}
+  const handleSeekPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isActive || pointerRef.current !== e.pointerId) return;
+    pointerRef.current = null;
+    handleSeekPointerUpdate(e, true);
+    if (e.pointerType !== 'mouse') setHoverValue(null);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const handleSeekPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerRef.current !== e.pointerId) return;
+    pointerRef.current = null;
+    setIsSeeking(false);
+    setHoverValue(null);
+    if (e.currentTarget.hasPointerCapture(e.pointerId))
+      e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
+  const handleSeekKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!isActive) return;
+    const clock = getPlaybackTime();
+    const base = isSeeking ? seekValue : Number.isFinite(clock) ? clock : currentTime;
+    const target =
+      e.key === 'Home'
+        ? 0
+        : e.key === 'End'
+          ? effectiveDuration
+          : e.key === 'ArrowLeft' || e.key === 'ArrowDown'
+            ? base - 5
+            : e.key === 'ArrowRight' || e.key === 'ArrowUp'
+              ? base + 5
+              : null;
+    if (target === null) return;
+    e.preventDefault();
+    seek(Math.max(0, Math.min(effectiveDuration, target)));
+  };
+
+  return (
+    <div className="w-full flex items-center gap-3 text-xs text-slate-600 dark:text-zinc-400 font-sans tabular-nums">
+      <span className="w-10 text-right select-none font-medium">
+        {formatTime(currentDisplayTime)}
+      </span>
+
+      <div
+        ref={seekBarRef}
+        onPointerDown={handleSeekPointerDown}
+        onPointerMove={handleSeekPointerMove}
+        onPointerUp={handleSeekPointerUp}
+        onPointerCancel={handleSeekPointerCancel}
+        onLostPointerCapture={handleSeekPointerCancel}
+        onPointerLeave={() => setHoverValue(null)}
+        onKeyDown={handleSeekKeyDown}
+        role="slider"
+        tabIndex={isActive ? 0 : -1}
+        aria-label={t('Позиция воспроизведения')}
+        aria-disabled={!isActive}
+        aria-valuemin={0}
+        aria-valuemax={effectiveDuration}
+        aria-valuenow={Math.round(currentDisplayTime)}
+        aria-valuetext={t(
+          '{0} из {1}',
+          formatTime(currentDisplayTime),
+          formatTime(effectiveDuration),
+        )}
+        data-seeking={isSeeking || undefined}
+        className={`soso-timeline relative flex-1 group flex items-center h-6 touch-none select-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-soso-brand rounded-full ${isActive ? 'cursor-pointer' : 'cursor-default opacity-60'}`}
+      >
+        <div className="soso-timeline-rail relative w-full h-1.5 bg-slate-200 dark:bg-zinc-700/80 rounded-full overflow-hidden shadow-inner pointer-events-none">
+          {bufferedPercentRanges(isActive ? bufferedRanges : [], effectiveDuration).map((range) => (
             <div
-              className="relative z-[1] h-full bg-soso-brand rounded-full shadow-xs"
-              style={{ width: `${progressPercent}%` }}
+              key={range.start}
+              aria-hidden="true"
+              data-audio-buffer-range
+              className="absolute inset-y-0 bg-slate-400/50 dark:bg-white/25"
+              style={{ left: range.start + '%', width: range.end - range.start + '%' }}
             />
-          </div>
-
-          <div
-            className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white border-2 border-soso-brand rounded-full shadow-md pointer-events-none transition-transform ${
-              isSeeking ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'
-            }`}
-            style={{ left: `calc(${progressPercent}% - 7px)` }}
-          />
+          ))}
+          <div className="soso-timeline-fill relative z-[1] h-full bg-soso-brand rounded-full shadow-xs" />
         </div>
 
-        <span className="w-10 select-none font-medium">{formatTime(effectiveDuration)}</span>
-      </div>
-    );
-  },
-);
-
-const PlayerMiniProgressBar: React.FC<{ fallbackDuration?: number; isActive: boolean }> =
-  React.memo(({ fallbackDuration, isActive }) => {
-    useLocale();
-    const { currentTime, duration, bufferedRanges = [] } = useAudioProgress();
-    const effectiveDuration = isActive ? (duration > 0 ? duration : fallbackDuration || 180) : 0;
-    const progressPercent =
-      effectiveDuration > 0
-        ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100))
-        : 0;
-
-    return (
-      <div className="absolute top-0 left-3 right-3 h-[2.5px] bg-slate-200 dark:bg-white/10 rounded-full overflow-hidden">
-        {bufferedPercentRanges(isActive ? bufferedRanges : [], effectiveDuration).map((range) => (
-          <div
-            key={range.start}
+        <div className="soso-timeline-thumb absolute top-1/2 w-3.5 h-3.5 bg-white border-2 border-soso-brand rounded-full shadow-md pointer-events-none" />
+        {previewTime !== null && isActive && (
+          <span
+            data-seek-preview
             aria-hidden="true"
-            data-audio-buffer-range
-            className="absolute inset-y-0 bg-slate-400/50 dark:bg-white/25"
-            style={{ left: range.start + '%', width: range.end - range.start + '%' }}
-          />
-        ))}
-        <div
-          className="relative z-[1] h-full bg-soso-brand transition-[width] duration-200 ease-linear rounded-full"
-          style={{ width: `${progressPercent}%` }}
-        />
+            className="soso-seek-preview"
+            style={{ left: `${previewPercent}%` }}
+          >
+            {formatTime(previewTime)}
+          </span>
+        )}
       </div>
-    );
+
+      <span className="w-10 select-none font-medium">{formatTime(effectiveDuration)}</span>
+    </div>
+  );
+});
+
+const PlayerMiniProgressBar: React.FC<{
+  fallbackDuration?: number;
+  isActive: boolean;
+  playing: boolean;
+}> = React.memo(({ fallbackDuration, isActive, playing }) => {
+  useLocale();
+  const { currentTime, duration, bufferedRanges = [] } = useAudioProgress();
+  const effectiveDuration = isActive ? (duration > 0 ? duration : fallbackDuration || 180) : 0;
+  const progressRef = useRef<HTMLDivElement>(null);
+  usePlaybackTimeline(progressRef, {
+    position: isActive ? currentTime : 0,
+    duration: effectiveDuration,
+    playing: isActive && playing,
   });
+
+  return (
+    <div
+      ref={progressRef}
+      className="absolute top-0 left-3 right-3 h-[2.5px] bg-slate-200 dark:bg-white/10 rounded-full overflow-hidden"
+    >
+      {bufferedPercentRanges(isActive ? bufferedRanges : [], effectiveDuration).map((range) => (
+        <div
+          key={range.start}
+          aria-hidden="true"
+          data-audio-buffer-range
+          className="absolute inset-y-0 bg-slate-400/50 dark:bg-white/25"
+          style={{ left: range.start + '%', width: range.end - range.start + '%' }}
+        />
+      ))}
+      <div className="soso-timeline-fill relative z-[1] h-full bg-soso-brand rounded-full" />
+    </div>
+  );
+});
 
 export const PlayerBar: React.FC<PlayerBarProps> = ({
   onToggleQueue,
@@ -517,7 +553,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         {/* Center Column: Controls & Seekbar (Stretched to 3xl to balance empty space) */}
         <div className="flex flex-col items-center gap-2 flex-[2_1_0%] max-w-2xl lg:max-w-3xl min-w-[340px] mx-4">
           {/* Buttons Row */}
-          <div className="flex items-center gap-5">
+          <div className="soso-transport flex items-center gap-3">
             {!isWaveActive && (
               <button
                 onClick={toggleShuffle}
@@ -535,7 +571,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               onClick={prevTrack}
               disabled={queue.length === 0}
               aria-label={t('Предыдущий трек (P)')}
-              className="text-slate-700 dark:text-zinc-300 hover:text-slate-950 dark:hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="soso-transport-skip soso-transport-back text-slate-700 dark:text-zinc-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipBack className="w-5 h-5 fill-current" />
             </button>
@@ -551,25 +587,30 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                     ? t('Пауза (Пробел)')
                     : t('Воспроизвести (Пробел)')
               }
-              className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-150 transform hover:scale-105 shadow-md ${
+              className={`soso-transport-play w-11 h-11 rounded-full flex items-center justify-center shadow-md ${
                 isPlaying || isSnippetPlaying
                   ? 'bg-soso-brand text-black hover:bg-soso-brand-light shadow-soso-brand/30'
                   : 'bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-slate-800 dark:hover:bg-zinc-200'
               } disabled:opacity-40 disabled:hover:scale-100`}
             >
-              {isLoadingTrack ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : isPlaying || isSnippetPlaying ? (
-                <Pause className="w-5 h-5 fill-current" />
-              ) : (
-                <Play className="w-5 h-5 fill-current ml-0.5" />
-              )}
+              <span
+                key={isLoadingTrack ? 'loading' : isPlaying || isSnippetPlaying ? 'pause' : 'play'}
+                className="soso-control-icon"
+              >
+                {isLoadingTrack ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : isPlaying || isSnippetPlaying ? (
+                  <Pause className="w-5 h-5 fill-current" />
+                ) : (
+                  <Play className="w-5 h-5 fill-current ml-0.5" />
+                )}
+              </span>
             </button>
             <button
               onClick={nextTrack}
               disabled={queue.length === 0}
               aria-label={t('Следующий трек (N)')}
-              className="text-slate-700 dark:text-zinc-300 hover:text-slate-950 dark:hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="soso-transport-skip soso-transport-forward text-slate-700 dark:text-zinc-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipForward className="w-5 h-5 fill-current" />
             </button>
@@ -597,8 +638,10 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
           {/* Timeline / Seekbar */}
           <PlayerProgressBar
+            key={String(currentTrack?.id)}
             fallbackDuration={currentTrack?.duration}
             isActive={Boolean(currentTrack)}
+            playing={isPlaying}
           />
         </div>
 
@@ -748,8 +791,10 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         >
           {/* Top Mini Progress Bar */}
           <PlayerMiniProgressBar
+            key={String(currentTrack?.id)}
             fallbackDuration={currentTrack?.duration}
             isActive={Boolean(currentTrack)}
+            playing={isPlaying}
           />
 
           {/* Left: Artwork + Track Details */}

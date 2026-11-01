@@ -4,12 +4,11 @@ import { fixMojibake } from '../src/shared/utils/formatters.ts';
 import { SoundCloudService } from '../src/desktop/main/services/soundcloud.ts';
 import { YouTubeMusicService } from '../src/desktop/main/services/youtubeMusic.ts';
 import { MusicAggregatorService } from '../src/desktop/main/services/musicAggregator.ts';
+import { cleanDiscoveryTracks } from '../src/shared/utils/discoveryTracks.ts';
 
 const toSoundCloudHdCover = SoundCloudService.toSoundCloudHdCover;
 const extractPlaylistCover = SoundCloudService.extractPlaylistCover;
-const hydratePlaylistTracks = SoundCloudService.hydratePlaylistTracks;
 const deduplicateAlbums = MusicAggregatorService.deduplicateAlbums;
-const mergeArtistTracks = MusicAggregatorService.mergeArtistTracks;
 
 // ---------------------------------------------------------
 // TESTS
@@ -266,7 +265,7 @@ test('Artist Discography: MusicAggregator deduplicates albums and promotes HD co
   assert.equal(dawnFm.cover, 'https://i1.sndcdn.com/artworks-dawnfm-t500x500.jpg');
 });
 
-test('Artist Discography: Preserves Remixes and Edits while deduplicating exact matches', () => {
+test('Discovery cleanup: Keeps the first song family recording and unrelated acoustic songs', () => {
   const scTracks = [
     { id: 'sc_1', title: 'Blinding Lights', duration: 200, source: 'soundcloud' },
     {
@@ -283,58 +282,19 @@ test('Artist Discography: Preserves Remixes and Edits while deduplicating exact 
     { id: 'yt_2', title: 'In Your Eyes', duration: 237, source: 'youtube' },
   ];
 
-  const result = mergeArtistTracks(scTracks, ytTracks);
-  assert.equal(result.length, 4);
+  const result = cleanDiscoveryTracks(
+    [...scTracks, ...ytTracks].map((track) => ({ ...track, artist: { name: 'The Weeknd' } })),
+  );
+  assert.deepEqual(
+    result.map((track) => track.id),
+    ['sc_1', 'sc_3', 'yt_2'],
+  );
   assert.ok(result.some((t) => t.id === 'sc_1'));
-  assert.ok(result.some((t) => t.title.includes('Remix')));
+  assert.ok(!result.some((t) => t.id === 'sc_2'));
   assert.ok(result.some((t) => t.title.includes('Acoustic')));
   assert.ok(result.some((t) => t.id === 'yt_2'));
   // Duplicate YouTube Blinding Lights was cleanly omitted in favor of primary SoundCloud
   assert.ok(!result.some((t) => t.id === 'yt_1'));
-});
-
-test('Artist Discography: Maps tracks with Single to real albums from artist collections', () => {
-  const playlists = [
-    {
-      id: 1853426289,
-      title: 'Реанимация',
-      artwork_url: 'https://i1.sndcdn.com/artworks-reanim-large.jpg',
-      tracks: [
-        { id: 1877877489, title: 'Собаки' },
-        { id: 1877877490, title: 'Родина' },
-        { id: 1877877491, title: 'Хороший Автобус' },
-      ],
-    },
-    {
-      id: 1853433372,
-      title: 'Долгая Счастливая Жизнь',
-      artwork_url: 'https://i1.sndcdn.com/artworks-dszh-large.jpg',
-      tracks: [
-        { id: 1877892006, title: 'Без Меня' },
-        { id: 1877891943, title: 'Белые Солдаты' },
-      ],
-    },
-  ];
-
-  const rawTopTracks = [
-    { id: 1877877489, title: 'Собаки', album: { id: 1877877489, title: 'Single' } },
-    { id: 1877877490, title: 'Родина', album: { id: 1877877490, title: 'Single' } },
-    { id: 1877892006, title: 'Без Меня', album: { id: 1877892006, title: 'Single' } },
-    { id: 9999999999, title: 'Новый Сингл', album: { id: 9999999999, title: 'Single' } },
-  ];
-
-  const resolved = SoundCloudService.resolveTrackAlbums(rawTopTracks, playlists);
-
-  assert.equal(resolved[0].album.title, 'Реанимация');
-  assert.equal(resolved[0].album.id, 1853426289);
-  assert.equal(resolved[0].album.cover, 'https://i1.sndcdn.com/artworks-reanim-t500x500.jpg');
-
-  assert.equal(resolved[1].album.title, 'Реанимация');
-  assert.equal(resolved[2].album.title, 'Долгая Счастливая Жизнь');
-  assert.equal(resolved[2].album.id, 1853433372);
-
-  // Unlinked single stays Single
-  assert.equal(resolved[3].album.title, 'Single');
 });
 
 test('Artist Discography: YouTube Music flexColumns extracts real album and browseId', () => {

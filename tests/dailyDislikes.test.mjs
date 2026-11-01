@@ -63,28 +63,24 @@ test('one daily dislike rejects the song and its copies, but only lowers the art
   );
   assert.equal(policy.artistFeedback['rejected artist'], -0.75);
 });
-test('two distinct songs suppress the artist, including collaborations and credited re-uploads', () => {
+test('two disliked songs reduce artist priority without banning other songs or collaborations', () => {
   const policy = createDailyDislikePolicy(two);
-  assert.equal(policy.acceptsArtist('REJECTED   ARTIST'), false);
-  assert.equal(policy.accepts(song('c', 'Rejected Artist', 'Third planet')), false);
-  assert.equal(
-    policy.accepts(song('collab', 'Other feat. Rejected Artist', 'Third planet')),
-    false,
-  );
-  assert.equal(
-    policy.accepts(
-      song('upload', 'Music Channel', 'Rejected Artist - Third planet (Official Audio)'),
-    ),
-    false,
-  );
-  assert.equal(policy.accepts(song('safe', 'Rejected Artist Junior', 'Third planet')), true);
-  assert.equal(policy.accepts(song('safe2', 'Another artist', 'Third planet')), true);
+  assert.equal(policy.acceptsArtist('Rejected Artist'), true);
+  for (const candidate of [
+    song('c', 'Rejected Artist', 'Third planet'),
+    song('collab', 'Other feat. Rejected Artist', 'Third planet'),
+  ])
+    assert.equal(policy.accepts(candidate), true);
+  assert.equal(policy.accepts(song('a')), false);
+  assert.equal(policy.artistFeedback['rejected artist'], -1.5);
   assert.deepEqual(
-    selectDailyRecommendations([song('c', 'Rejected Artist', 'Third planet')], [], two),
-    [],
-    'Never fill a short daily list with a rejected artist',
+    selectDailyRecommendations([song('c', 'Rejected Artist', 'Third planet')], [], two).map(
+      (t) => t.id,
+    ),
+    ['c'],
   );
 });
+
 test('copies, edits and ID aliases of one rejected song do not count as two artist rejections', () => {
   for (const rows of [
     [dislike('a'), dislike('dz_a', 'Second horizon')],
@@ -103,7 +99,7 @@ test('unknown artists do not suppress unrelated unknown recordings; undo recompu
   ]);
   assert.equal(unknown.accepts(song('u3', 'Unknown Artist', 'Third planet')), true);
   const persisted = JSON.parse(JSON.stringify(two));
-  assert.equal(createDailyDislikePolicy(persisted).acceptsArtist('Rejected Artist'), false);
+  assert.equal(createDailyDislikePolicy(persisted).artistFeedback['rejected artist'], -1.5);
   persisted.pop();
   assert.equal(createDailyDislikePolicy(persisted).acceptsArtist('Rejected Artist'), true);
   assert.equal(dailyDislikeKey(new Set(['dz_a', 'a', 'b'])), dailyDislikeKey(new Set(['b', 'a'])));
@@ -179,7 +175,7 @@ function dailyHandler(db, fetch) {
   });
   return handler;
 }
-test('actual daily IPC removes rejected seed/followed artists and filters returned candidates using stored dislikes', async () => {
+test('daily IPC preserves artists while applying negative preference and exact song dislikes', async () => {
   let rows = JSON.parse(JSON.stringify(two)),
     args;
   const db = {
@@ -204,15 +200,15 @@ test('actual daily IPC removes rejected seed/followed artists and filters return
   });
   assert.deepEqual(
     Array.from(await handler(null, []), (t) => t.id),
-    ['accepted'],
+    ['accepted', 'rejected'],
   );
   assert.equal(
     args[1].some((t) => t.artist.name === 'Rejected Artist'),
-    false,
+    true,
   );
   assert.equal(
     args[3].some((a) => a.name === 'Rejected Artist'),
-    false,
+    true,
   );
   assert.equal(args[5].artistFeedback['rejected artist'], -1.5);
   assert.equal(args[6], false, 'Daily feedback must not mutate the wave session');
@@ -221,6 +217,62 @@ test('actual daily IPC removes rejected seed/followed artists and filters return
   assert.ok(afterUndo.some((t) => t.id === 'rejected'));
   assert.equal(args[5].artistFeedback['rejected artist'], -0.75);
 });
+test('daily IPC refills filtered batches and rejects yesterday reuploads across provider IDs', async () => {
+  const previous = song('old-upload', 'Yesterday artist', 'Yesterday constellation');
+  const db = {
+    getDislikedWaveTracks: () => [],
+    getDislikedTrackIds: () => [],
+    getLikedTracks: () => [song('anchor', 'Favorite artist', 'Taste anchor')],
+    getTasteLikedTracks: () => db.getLikedTracks(),
+    getWaveTasteTracks: () => [],
+    getFollowedArtists: () => [],
+    getScrobbledTopArtists: () => [],
+    getListeningHistory: () => [],
+  };
+  let calls = 0;
+  const handler = dailyHandler(db, async (...args) => {
+    calls++;
+    if (calls === 1)
+      return [1, 2, 3, 4].map((i) => song('new' + i, 'Artist ' + i, 'Fresh orbit ' + i));
+    assert.ok(args[2].includes('new1'));
+    assert.equal(args[5].recentTracks.at(-1).id, previous.id);
+    return [
+      song('other-upload', 'Yesterday artist', 'Yesterday constellation (Official Audio)'),
+      song('fifth', 'Fifth artist', 'Fifth orbit'),
+    ];
+  });
+  const result = await handler(null, [previous.id], [previous]);
+  assert.equal(calls, 2);
+  assert.equal(result.length, 5);
+  assert.ok(!result.some((t) => t.id === 'other-upload'));
+});
+
+test('partial daily snapshots retry after five minutes and carry previous song metadata', async () => {
+  const saved = storage();
+  let stamp = new Date(2026, 9, 31, 12).getTime(),
+    calls = 0;
+  const first = song('first');
+  const load = createDailyRecommendationLoader(
+    saved,
+    async (ids, previous, options) => {
+      calls++;
+      if (calls > 1) {
+        assert.deepEqual(ids, []);
+        assert.deepEqual(previous, []);
+        assert.equal(options.retainedTracks[0].title, first.title);
+      }
+      return [first];
+    },
+    () => new Date(stamp),
+  );
+  await load();
+  await load();
+  assert.equal(calls, 1);
+  stamp += 5 * 60 * 1000;
+  await load();
+  assert.equal(calls, 2);
+});
+
 function dailyHook(fetch) {
   const window = Object.assign(new EventTarget(), {
       localStorage: storage(),

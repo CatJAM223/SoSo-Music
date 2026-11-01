@@ -1,5 +1,58 @@
 # Changelog
 
+### [4.0.0] — 2026-11-01
+
+#### Listen together
+
+- Add internet listening rooms with native Rust networking, invitation copying, a shared queue and up to eight participants. Anyone in the room can add songs; the host controls playback through the main player.
+- Start the first song automatically when the room queue is empty. Prepare audio on connected players before releasing the shared clock so songs start near 0:00 instead of skipping their opening seconds.
+- Add cancellable connection setup, bounded retries, transport keepalive and diagnostic reasons. Pause playback when shared timing becomes stale; allow temporary transport recovery without immediately destroying the room.
+- Replace the large invitation panel with a circular copy button beside the exit button. Move Add tracks into the current-track card and remove duplicate room playback controls.
+- Highlight songs already present in the shared queue in search and My Music, prevent accidental repeated additions, remove orange plus buttons and enlarge participant text. Keep queue highlighting free of redundant status badges.
+
+#### My Wave and daily recommendations
+
+- Move daily selection, recommendation duration decisions, history ageing and additional matching decisions into required Rust compute. Wave accepts songs up to ten minutes and filters duplicate recordings across provider uploads.
+- Share bounded taste snapshots between candidate generation and renderer sorting. Count unique songs when refilling, retain alternate uploads, look deeper into catalogs and limit all producer requests through one cancellable scheduler.
+- Preserve verified recording identities through background worker sorting, taste seeds and learning. Separate briefly auditioned songs from substantial listening and avoid treating errors or interruptions as negative taste evidence.
+- Recognize new songs by familiar artists separately from unfamiliar performers when adjusting exploration. Keep mode-specific session feedback and constrain repeated early-skip refreshes.
+- Preserve track-specific musical evidence when artist tags are used as fallback. Scale musical-transition penalties by the strength of mood evidence; ignore navigation before half a second when deciding to refresh discovery.
+- Bound optional tag enrichment with one batch deadline, expire YouTube search results and record only songs retained by final queue sorting. Include final offered positions and a new ranker cohort in local quality reports.
+- Keep daily picks diverse, respect disliked recording families, retain valid same-day picks, retry partial results and partition selection by the chosen music source.
+
+#### Playback and music catalogs
+
+- Recover short or incomplete YouTube MP4 responses before playback; reject files without usable media data and try a supported alternate route for the same recording.
+- Improve cancellation, stalled-start recovery, HLS preparation and preservation of queue/position during provider errors. Keep offline playback independent of delayed artwork.
+- Add Rust search ranking and improve album edition matching, artist normalization and recording identity handling.
+
+#### Interface and background activity
+
+- Drive the playback timeline from the real media clock, with pointer/keyboard seeking, preview feedback and no invented movement while audio is stalled.
+- Add responsive transport controls, animated navigation selection, queue transitions and restrained track/artwork entry effects with reduced-motion support.
+- Sleep decorative effects when the player loses focus, is minimized or is hidden in the tray. Release wallpaper video, suspend background drawing and cursor glow, then restore decoration and catch the timeline up to actual audio time on return. Music keeps playing.
+
+#### Security and release packaging
+
+- Default IPC handlers to the main frame of the main window, restrict auxiliary-window permissions and expose only the widget methods it needs.
+- Count legacy Wave requests without cancellation IDs, cancel them when their sender closes, validate input before expensive processing and reuse one taste-policy snapshot per request.
+- Validate widget commands and keep room artwork restricted to supported media hosts.
+- Publish Windows x64 portable ZIP and 7z archives with the application directly at the archive root and SHA-256 checksums. Preserve the full application resources beside the executable.
+
+#### Additional engine and maintenance changes
+
+- Extract playback ownership into a standalone engine with explicit phases and a React subscription adapter; retain cancellation, bounded recovery and crossfade behavior.
+- Add recording/provider/source/queue domain identities and durable verified source aliases, preserving likes, legacy libraries and backups. Use canonical IDs to suppress Wave repeats across provider uploads.
+- Add local Wave recommendation attribution and outcome reports. Move imported/canonical recording decisions and listening feedback to Rust ABI 6, removing their former TypeScript rule bodies.
+- Remove redundant downloaded-track and recent-history captions from My Music.
+
+- Remove three disconnected modules and unused service, parser, queue and theme helpers. Retarget catalog deduplication, SoundCloud policy, prefetch and crossfade tests to active production paths; retain diagnostic hooks and Rust utility entry points.
+
+- Bound progressive playback startup and offline-cache reads; preserve the selected recording and position after exhausted network retries. Rearm stalled-stream recovery after brief progress and release watchdogs on pause and teardown.
+- Add retryable, localized startup recovery with a 15-second deadline; allow required Rust initialization to retry after failure without clearing user data.
+- Record structured startup outcomes, cancellations, buffering and source recovery. Include committed library/playlist preparation in startup timing and add a local aggregate report without track titles or stream URLs.
+- Batch directed song comparisons in Rust ABI 5 to reduce repeated packet encoding and WASM calls during catalog deduplication. Preserve matching order, conditional acceptance, dense batching and existing recording rules.
+
 ### [3.3.4]
 
 - Move offline MPEG-TS/PES audio extraction and playlist-import scoring/ranking to required Rust ABI 4. Select audio through PAT/PMT, retain segment boundaries, validate transport integrity and remove the old production TypeScript algorithms.

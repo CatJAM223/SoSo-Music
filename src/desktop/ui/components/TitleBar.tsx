@@ -8,6 +8,7 @@ const PAGE_LABELS: Record<string, string> = {
   search: 'Поиск',
   charts: 'Топ чарты',
   genres: 'Жанры',
+  'listening-room': 'Совместное прослушивание',
   liked: 'Моя музыка',
   'my-music': 'Моя музыка',
   artist: 'Исполнитель',

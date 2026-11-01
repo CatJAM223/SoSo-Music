@@ -15,7 +15,7 @@ export function createWaveRefreshPolicy(now: () => number = Date.now) {
         reason === 'error' ||
         reason === 'interrupted' ||
         !Number.isFinite(seconds) ||
-        seconds < 0
+        seconds < 0.5
       )
         return false;
       const key = String(id);

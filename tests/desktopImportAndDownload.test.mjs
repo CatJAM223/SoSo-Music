@@ -5,7 +5,6 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
 import { readExternalPlaylist } from '../src/shared/services/externalPlaylist.ts';
-import { positionPopover } from '../src/shared/utils/popoverPosition.ts';
 import { downloadAudioBytes } from '../src/desktop/main/services/audioDownload.ts';
 
 const main = readFileSync(new URL('../src/desktop/main/index.ts', import.meta.url), 'utf8');
@@ -69,36 +68,6 @@ test('Yandex iOS liked-playlist link preserves lk prefix and ignores share track
   assert.equal(result.success, true);
   assert.equal(result.data.tracks.length, 1);
   assert.equal(result.data.url.includes('?'), false);
-});
-
-test('Wave help clamps horizontally and opens above when the bottom edge has too little room', () => {
-  const right = positionPopover(
-    { left: 1110, top: 160, bottom: 188, width: 28 },
-    { width: 320, height: 330 },
-    { width: 1200, height: 800 },
-  );
-  assert.equal(right.left, 868);
-  assert.equal(right.top, 198);
-  const left = positionPopover(
-    { left: 4, top: 160, bottom: 188, width: 28 },
-    { width: 320, height: 330 },
-    { width: 950, height: 760 },
-  );
-  assert.equal(left.left, 12);
-  const bottom = positionPopover(
-    { left: 650, top: 680, bottom: 708, width: 28 },
-    { width: 320, height: 330 },
-    { width: 950, height: 760 },
-  );
-  assert.equal(bottom.top, 340);
-  const short = positionPopover(
-    { left: 4, top: 110, bottom: 138, width: 28 },
-    { width: 320, height: 330 },
-    { width: 320, height: 250 },
-  );
-  assert.ok(short.left >= 12);
-  assert.ok(short.top >= 12);
-  assert.ok(short.top + Math.min(330, short.maxHeight) <= 238);
 });
 
 function downloadHarness() {

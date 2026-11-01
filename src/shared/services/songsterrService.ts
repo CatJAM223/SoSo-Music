@@ -45,10 +45,6 @@ export function formatSongsterrTuning(tuning?: number[]): string {
 }
 
 export class SongsterrService {
-  public static formatTuning(tuning?: number[]): string {
-    return formatSongsterrTuning(tuning);
-  }
-
   private static cache = new Map<string, SongsterrTabData | null>();
   private static MAX_CACHE_SIZE = 200;
 

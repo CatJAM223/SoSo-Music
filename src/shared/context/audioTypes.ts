@@ -15,6 +15,7 @@ export interface AudioProgressContextType {
 export interface AudioStateContextType {
   // Current track & playback state (infrequent updates)
   currentTrack: Track | null;
+  playbackPhase: import('../services/playbackEngine').PlaybackPhase;
   isPlaying: boolean;
   isLoadingTrack: boolean;
   volume: number;
@@ -83,6 +84,14 @@ export interface AudioControlsContextType {
     origin?: import('../types/tastePolicy').PlaybackOrigin,
   ) => void;
   togglePlay: () => void;
+  pausePlayback: () => void;
+  selectPausedTrack: (track: Track, queue: Track[], position: number) => void;
+  preparePlayback: (track: Track, queue: Track[], position: number) => void;
+  isPlaybackReady: () => boolean;
+  resumePlayback: () => void | Promise<void>;
+  setRoomFollower: (enabled: boolean) => void;
+  setRoomControlHandler: (handler: ((action: string, position?: number) => void) | null) => void;
+  seekPlayback: (seconds: number) => void;
   getPlaybackTime: () => number;
   seek: (seconds: number) => void;
   setVolume: (vol: number) => void;
@@ -101,6 +110,7 @@ export interface AudioControlsContextType {
   clearQueue: () => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   shuffleUpcomingQueue: () => void;
+  replaceUpcomingQueue: (tracks: Track[]) => void;
 
   // Snippet actions
   previewSnippet: (track: Track) => void;

@@ -27,15 +27,21 @@ const make = (id, title, artist, duration = 200) => ({
 });
 
 test('Wave counts collaborators and embedded credits without splitting band names', () => {
-  assert.deepEqual(getWaveArtistNames('greyrock, tewiq и madk1d'), ['greyrock', 'tewiq', 'madk1d']);
+  assert.deepEqual(getWaveArtistNames('greyrock, tewiq feat. madk1d'), [
+    'greyrock',
+    'tewiq',
+    'madk1d',
+  ]);
   assert.deepEqual(
-    getWaveArtistNames(make('1', 'айсберг (feat. тёмный принц)', 'greyrock и tewiq')),
+    getWaveArtistNames(make('1', 'айсберг (feat. тёмный принц)', 'greyrock feat. tewiq')),
     ['greyrock', 'tewiq', 'тёмный принц'],
   );
   for (const band of [
     'AC/DC',
     'Earth, Wind & Fire',
     'Король и Шут',
+    'Маша и Медведи',
+    'greyrock и tewiq',
     'Taylor Swift',
     'succubus/club',
   ]) {

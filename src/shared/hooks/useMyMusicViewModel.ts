@@ -1,4 +1,4 @@
-import { beginPlaybackIntent } from '../utils/playbackIntent.ts';
+import { beginPlaybackIntent, markPreparedPlayback } from '../utils/playbackIntent.ts';
 import { usePagedLibrary } from './usePagedLibrary';
 import { mapLikedTracks } from '../utils/likedTrackMapping';
 import type {
@@ -293,8 +293,10 @@ export function useMyMusicViewModel({
       const first = selected
         ? context.find((track) => String(track.id) === String(selected.id))
         : context[0];
-      if (first) playTrack(first, context, false, undefined, { kind: 'library' });
-      else if (selected) setPlaybackError('Трек больше не входит в эту подборку.');
+      if (first) {
+        markPreparedPlayback(first);
+        playTrack(first, context, false, undefined, { kind: 'library' });
+      } else if (selected) setPlaybackError('Трек больше не входит в эту подборку.');
     } catch (error) {
       if (mounted.current && generation === playGeneration.current) setPlaybackError(String(error));
     }
@@ -318,6 +320,7 @@ export function useMyMusicViewModel({
       if (pTracks && pTracks.length > 0) {
         const formattedTracks: Track[] = pTracks.map((pt: any) => ({
           id: pt.track_deezer_id,
+          ...(pt.recordingId ? { recordingId: pt.recordingId } : {}),
           title: pt.title,
           artist: { name: pt.artist, picture: pt.cover_url || '' },
           album: {
@@ -332,6 +335,7 @@ export function useMyMusicViewModel({
           preview: pt.preview_url || '',
           source: detectTrackSource(pt),
         }));
+        markPreparedPlayback(formattedTracks[0]);
         playTrack(formattedTracks[0], formattedTracks, false, undefined, {
           kind: 'playlist',
           id: String(playlist.id),

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { stripTypeScriptTypes } from 'node:module';
 import * as context from '../src/desktop/main/services/streamResolveContext.ts';
+import { timeYouTubeResolve } from '../src/desktop/main/services/youtubeResolveTiming.ts';
 const deferred = () => {
   let resolve;
   const promise = new Promise((r) => (resolve = r));
@@ -30,6 +31,7 @@ function load(file, name, dependencies = {}) {
     .replaceAll('import.meta', '({env:{}})');
   const globals = {
     ...context,
+    timeYouTubeResolve,
     AbortSignal,
     AbortController,
     Request,

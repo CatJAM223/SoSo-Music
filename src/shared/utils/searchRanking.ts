@@ -1,256 +1,147 @@
 import type { Track } from '../types/index.ts';
 import { isArtistMatch, isTitleMatch } from './artistParser.ts';
+import { encodeNumbers, numericNames } from '../compute/songPacket.ts';
+import { runRustCompute } from '../compute/rustCore.ts';
 
-/** Shared search relevance and duplicate filtering for desktop and mobile. */
+// Text predicates retain the shared JavaScript normalization and RegExp semantics.
+// Scoring, penalty application, deduplication and ordering live in Rust.
+const noise = [
+  /(\b\d+\s*hours?\b|\b1\s*hour\b|\b10\s*hours\b|\bloop\b)/i,
+  /(\bpodcast\b|\breaction\b|\bvoiceover\b|\bskit\b|\bmeme\b)/i,
+  /(\bkaraoke\b|\bкараоке\b|\bbacking track\b|\btype beat\b|\bминусовка\b|\bминус\b)/i,
+  /(\bbass boosted\b|\bnightcore\b|\bslowed\s*\+\s*reverb\b|\bsped up\b)/i,
+  /(\bmashup\b|\bмешап\b|\bmedley\b|\bmegamix\b|\bsuper mix\b|\bultimate mix\b)/i,
+  /(\bbootleg\b|\bfan.?made\b|\bfan edit\b|\btribute\b|\bunofficial\b|\bunauthorized\b)/i,
+  /(\bcover version\b|\bкавер\b|\bкавер-версия\b|\bcovers\b|\(cover\)|\[cover\])/i,
+  /\bprod\.?\s+by\b|\bprod\.\s*[A-Za-zА-ЯёА-яё]/i,
+];
+const exemptions = [
+  ['hour', 'loop'],
+  ['podcast', 'reaction'],
+  ['karaoke', 'караоке', 'type beat', 'instrumental', 'минус'],
+  ['bass boosted', 'nightcore', 'slowed', 'reverb', 'speed'],
+  ['mashup', 'мешап', 'medley', 'megamix'],
+  ['bootleg', 'fan', 'tribute', 'unofficial'],
+  ['cover', 'кавер'],
+  ['prod.', 'prod '],
+  ['mix', 'set', 'full album'],
+];
 export function rankSearchTracks(tracks: Track[], query: string): Track[] {
-  const qLower = query.toLowerCase().trim();
-  const qTokens = qLower.split(/\s+/).filter(Boolean);
-
-  // Detect artist - title split format, e.g. "madk1d - дырки в штанах"
-  const delimiterMatch = query.match(/\s*[-—–:]\s*/);
-  let queryArtistPart = '';
-  let queryTitlePart = '';
-  if (delimiterMatch && delimiterMatch.index !== undefined) {
-    const idx = delimiterMatch.index;
-    queryArtistPart = query.substring(0, idx).trim().toLowerCase();
-    queryTitlePart = query
-      .substring(idx + delimiterMatch[0].length)
-      .trim()
-      .toLowerCase();
-  }
-
-  const isJunkQuery = (term: string) => qLower.includes(term);
-
-  const scored = tracks.map((track) => {
-    let score = 50;
-    const titleLower = (track.title || '').toLowerCase().trim();
-    const artistLower = (typeof track.artist === 'object' ? track.artist?.name : track.artist || '')
-      .toLowerCase()
-      .trim();
-    const albumLower = (track.album?.title || '').toLowerCase().trim();
-
-    // 0. High-precision split query matching: "artist - title" or "title - artist"
-    if (queryArtistPart && queryTitlePart) {
-      const directMatch =
-        (isArtistMatch(artistLower, queryArtistPart) || artistLower.includes(queryArtistPart)) &&
-        (isTitleMatch(titleLower, queryTitlePart) || titleLower.includes(queryTitlePart));
-      const reverseMatch =
-        (isArtistMatch(artistLower, queryTitlePart) || artistLower.includes(queryTitlePart)) &&
-        (isTitleMatch(titleLower, queryArtistPart) || titleLower.includes(queryArtistPart));
-
-      if (directMatch || reverseMatch) {
-        score += 170;
-        if (
-          (artistLower === queryArtistPart && titleLower === queryTitlePart) ||
-          (artistLower === queryTitlePart && titleLower === queryArtistPart)
-        ) {
-          score += 70;
-        }
-      }
-
-      // Check if track artist is the authentic artist versus a random YouTube channel
-      const artistMatchesTrackArtist =
-        isArtistMatch(artistLower, queryArtistPart) ||
-        artistLower.includes(queryArtistPart) ||
-        isArtistMatch(artistLower, queryTitlePart) ||
-        artistLower.includes(queryTitlePart);
-
-      if (!artistMatchesTrackArtist) {
-        // Channel is e.g. "Sanchez3d19" or "SmokeSipper", while title has artist name - this is a user reupload!
-        if (titleLower.includes(queryArtistPart) && titleLower.includes(queryTitlePart)) {
-          score -= 55;
-        }
-      } else {
-        // Verified authentic artist performing the track
-        score += 65;
-      }
+  if (!tracks.length) return [];
+  if (tracks.length > 65536) throw Error('Search compute limit exceeded');
+  const q = query.toLowerCase().trim();
+  const tokens = q.split(/\s+/).filter(Boolean);
+  const delimiter = query.match(/\s*[-—–:]\s*/);
+  const artistPart = delimiter ? query.substring(0, delimiter.index).trim().toLowerCase() : '';
+  const titlePart = delimiter
+    ? query
+        .substring(delimiter.index! + delimiter[0].length)
+        .trim()
+        .toLowerCase()
+    : '';
+  const split = Boolean(artistPart && titlePart);
+  const exempt = exemptions.reduce(
+    (mask, words, index) => mask | (words.some((word) => q.includes(word)) ? 1 << index : 0),
+    0,
+  );
+  const names = numericNames();
+  const artistMatches = new Map<string, [boolean, boolean]>();
+  const titles = new Map<string, { lower: string; key: string; junk: number; featured: boolean }>();
+  const artists = new Map<string, { lower: string; key: string }>();
+  const words: number[] = [1397900104, 1, tracks.length, Number(split), exempt];
+  for (const track of tracks) {
+    const rawTitle = track.title || '';
+    let titleData = titles.get(rawTitle);
+    if (!titleData) {
+      const lower = rawTitle.toLowerCase();
+      titleData = {
+        lower: lower.trim(),
+        key: lower.replace(/[^a-z0-9а-яё]/gi, ''),
+        junk: noise.reduce(
+          (mask, pattern, index) => mask | (pattern.test(lower.trim()) ? 1 << index : 0),
+          0,
+        ),
+        featured: (lower.trim().match(/\b(ft\.?|feat\.?|featuring)\b/gi) || []).length >= 3,
+      };
+      titles.set(rawTitle, titleData);
     }
-
-    // Check combined strings: "artist - title", "title - artist", "artist title"
-    const combinedA = `${artistLower} - ${titleLower}`;
-    const combinedB = `${titleLower} - ${artistLower}`;
-    const combinedC = `${artistLower} ${titleLower}`;
-    const combinedD = `${titleLower} ${artistLower}`;
+    const rawArtist = (typeof track.artist === 'object' ? track.artist?.name : track.artist) || '';
+    let artistData = artists.get(rawArtist);
+    if (!artistData) {
+      const lower = rawArtist.toLowerCase();
+      artistData = { lower: lower.trim(), key: lower.replace(/[^a-z0-9а-яё]/gi, '') };
+      artists.set(rawArtist, artistData);
+    }
+    const title = titleData.lower;
+    const artist = artistData.lower;
+    const album = (track.album?.title || '').toLowerCase().trim();
+    let flags = 0;
+    if (split) {
+      let matches = artistMatches.get(artist);
+      if (!matches) {
+        matches = [
+          isArtistMatch(artist, artistPart) || artist.includes(artistPart),
+          isArtistMatch(artist, titlePart) || artist.includes(titlePart),
+        ];
+        artistMatches.set(artist, matches);
+      }
+      if (
+        (matches[0] && (isTitleMatch(title, titlePart) || title.includes(titlePart))) ||
+        (matches[1] && (isTitleMatch(title, artistPart) || title.includes(artistPart)))
+      )
+        flags |= 1;
+      if (
+        (artist === artistPart && title === titlePart) ||
+        (artist === titlePart && title === artistPart)
+      )
+        flags |= 2;
+      if (matches[0] || matches[1]) flags |= 4;
+      if (title.includes(artistPart) && title.includes(titlePart)) flags |= 8;
+    }
     if (
-      combinedA === qLower ||
-      combinedB === qLower ||
-      combinedC === qLower ||
-      combinedD === qLower
-    ) {
-      score += 160;
-    }
-
-    // 1. Exact query matches
-    if (titleLower === qLower || artistLower === qLower) {
-      score += 65;
-    } else if (titleLower.startsWith(qLower) || artistLower.startsWith(qLower)) {
-      score += 40;
-    } else if (titleLower.includes(qLower) || artistLower.includes(qLower)) {
-      score += 25;
-    }
-
-    // 2. Token matching (ratio of query words found)
-    let tokensMatched = 0;
-    for (const token of qTokens) {
-      if (titleLower.includes(token) || artistLower.includes(token) || albumLower.includes(token)) {
-        tokensMatched++;
-      }
-    }
-    score += (tokensMatched / Math.max(1, qTokens.length)) * 40;
-
-    // 3. Official album boost
+      [
+        `${artist} - ${title}`,
+        `${title} - ${artist}`,
+        `${artist} ${title}`,
+        `${title} ${artist}`,
+      ].includes(q)
+    )
+      flags |= 16;
+    if (title === q || artist === q) flags |= 32;
+    if (title.startsWith(q) || artist.startsWith(q)) flags |= 64;
+    if (title.includes(q) || artist.includes(q)) flags |= 128;
     if (
       track.album?.title &&
       track.album.title !== 'Single' &&
       track.album.title !== 'Unknown Album'
-    ) {
-      score += 15;
-    }
-
-    // 4. Source / Quality (Favor official YouTube studio recordings)
-    if (track.source === 'youtube') {
-      score += 30;
-    } else if (track.source === 'soundcloud') {
-      if ((track as any).user?.verified) {
-        score += 10;
-      } else {
-        score -= 5;
-      }
-    }
-
-    // 5. Heavy penalties for noise/junk results
-    if (
-      !isJunkQuery('hour') &&
-      !isJunkQuery('loop') &&
-      /(\b\d+\s*hours?\b|\b1\s*hour\b|\b10\s*hours\b|\bloop\b)/i.test(titleLower)
-    ) {
-      score -= 75;
-    }
-
-    if (
-      !isJunkQuery('podcast') &&
-      !isJunkQuery('reaction') &&
-      /(\bpodcast\b|\breaction\b|\bvoiceover\b|\bskit\b|\bmeme\b)/i.test(titleLower)
-    ) {
-      score -= 60;
-    }
-
-    if (
-      !isJunkQuery('karaoke') &&
-      !isJunkQuery('караоке') &&
-      !isJunkQuery('type beat') &&
-      !isJunkQuery('instrumental') &&
-      !isJunkQuery('минус')
-    ) {
-      if (
-        /(\bkaraoke\b|\bкараоке\b|\bbacking track\b|\btype beat\b|\bминусовка\b|\bминус\b)/i.test(
-          titleLower,
-        )
-      ) {
-        score -= 50;
-      }
-    }
-
-    if (
-      !isJunkQuery('bass boosted') &&
-      !isJunkQuery('nightcore') &&
-      !isJunkQuery('slowed') &&
-      !isJunkQuery('reverb') &&
-      !isJunkQuery('speed')
-    ) {
-      if (
-        /(\bbass boosted\b|\bnightcore\b|\bslowed\s*\+\s*reverb\b|\bsped up\b)/i.test(titleLower)
-      ) {
-        score -= 30;
-      }
-    }
-
-    // 6. Penalties for mashups, bootlegs, covers and fan edits
-    if (
-      !isJunkQuery('mashup') &&
-      !isJunkQuery('мешап') &&
-      !isJunkQuery('medley') &&
-      !isJunkQuery('megamix')
-    ) {
-      if (
-        /(\bmashup\b|\bмешап\b|\bmedley\b|\bmegamix\b|\bsuper mix\b|\bultimate mix\b)/i.test(
-          titleLower,
-        )
-      ) {
-        score -= 65;
-      }
-    }
-
-    if (
-      !isJunkQuery('bootleg') &&
-      !isJunkQuery('fan') &&
-      !isJunkQuery('tribute') &&
-      !isJunkQuery('unofficial')
-    ) {
-      if (
-        /(\bbootleg\b|\bfan.?made\b|\bfan edit\b|\btribute\b|\bunofficial\b|\bunauthorized\b)/i.test(
-          titleLower,
-        )
-      ) {
-        score -= 60;
-      }
-    }
-
-    if (!isJunkQuery('cover') && !isJunkQuery('кавер')) {
-      if (
-        /(\bcover version\b|\bкавер\b|\bкавер-версия\b|\bcovers\b|\(cover\)|\[cover\])/i.test(
-          titleLower,
-        )
-      ) {
-        score -= 55;
-      }
-    }
-
-    // 7. Penalty for excessive featured artists / producer tags (sign of garbage compilations)
-    if (!isJunkQuery('prod.') && !isJunkQuery('prod ')) {
-      if (/\bprod\.?\s+by\b|\bprod\.\s*[A-Za-zА-ЯёА-яё]/i.test(titleLower)) {
-        score -= 25;
-      }
-    }
-
-    // Count ft./feat. tokens — 3+ usually means a mashup or garbage compilation
-    const featMatches = (titleLower.match(/\b(ft\.?|feat\.?|featuring)\b/gi) || []).length;
-    if (featMatches >= 3) {
-      score -= 45;
-    }
-
-    const dur = track.duration || 0;
-    if (dur > 900) {
-      if (!isJunkQuery('mix') && !isJunkQuery('set') && !isJunkQuery('full album')) {
-        score -= 50;
-      }
-    } else if (dur > 0 && dur < 35) {
-      score -= 40;
-    }
-
-    // 8. Bonus for typical studio single duration (150–360 seconds)
-    if (dur >= 150 && dur <= 360) {
-      score += 10;
-    }
-
-    return { track, score };
-  });
-
-  // Deduplicate by normalized title and artist
-  const seen = new Set<string>();
-  const deduplicated: Array<{ track: Track; score: number }> = [];
-
-  for (const item of scored) {
-    const t = item.track;
-    const key = `${(t.title || '').toLowerCase().replace(/[^a-z0-9а-яё]/gi, '')}_${(typeof t.artist === 'object' ? t.artist?.name : t.artist || '').toLowerCase().replace(/[^a-z0-9а-яё]/gi, '')}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      deduplicated.push(item);
-    }
+    )
+      flags |= 256;
+    if (titleData.featured) flags |= 512;
+    const matched = tokens.filter(
+      (token) => title.includes(token) || artist.includes(token) || album.includes(token),
+    ).length;
+    const features =
+      (track.source === 'youtube' ? 1 : track.source === 'soundcloud' ? 2 : 0) |
+      ((track as Track & { user?: { verified?: boolean } }).user?.verified ? 4 : 0);
+    const duration = track.duration || 0;
+    const identity = `${titleData.key}_${artistData.key}`;
+    words.push(
+      flags,
+      matched,
+      tokens.length,
+      titleData.junk,
+      features,
+      Number.isFinite(duration) ? duration : duration > 0 ? Number.MAX_VALUE : -Number.MAX_VALUE,
+      names.id(identity),
+    );
   }
-
-  // Sort by score descending
-  deduplicated.sort((a, b) => b.score - a.score);
-
-  return deduplicated.map((x) => x.track);
+  const result = runRustCompute('rank_search', encodeNumbers(words));
+  if (result.length % 4 || result.length > tracks.length * 4)
+    throw Error('Invalid Rust search result');
+  const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+  return Array.from({ length: result.length / 4 }, (_, i) => {
+    const index = view.getUint32(i * 4, true);
+    if (index >= tracks.length) throw Error('Invalid Rust search index');
+    return tracks[index];
+  });
 }

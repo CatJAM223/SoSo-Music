@@ -16,9 +16,9 @@ const song = (id, artist = `Artist ${id}`) => ({
 });
 
 test('wave feedback distinguishes a real quick skip from no-audio starts', () => {
-  for (const played of [0, 0.5, 1.99, -1, NaN, Infinity])
+  for (const played of [0, 0.49, -1, NaN, Infinity])
     assert.equal(getWavePlaybackFeedback(played, 180), 0);
-  assert.equal(getWavePlaybackFeedback(2, 180), -0.6);
+  for (const played of [0.5, 1, 1.99, 2]) assert.equal(getWavePlaybackFeedback(played, 180), -0.6);
   assert.equal(getWavePlaybackFeedback(24.99, 180), -0.35);
   assert.equal(getWavePlaybackFeedback(25, 180), 0);
 });

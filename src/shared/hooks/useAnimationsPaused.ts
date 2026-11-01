@@ -1,16 +1,35 @@
 import { useEffect, useState } from 'react';
-/** Pause decorative animations while the desktop window is hidden or minimized. */
+/** Pause decoration when another app owns focus, or this page is hidden. */
 export const useAnimationsPaused = (): boolean => {
   const [paused, setPaused] = useState(() => document.visibilityState === 'hidden');
   useEffect(() => {
-    const unsubscribe = window.electronAPI?.onAnimationsPaused?.(setPaused);
-    const handleVisibilityChange = () => {
-      if (!window.electronAPI?.onAnimationsPaused) setPaused(document.visibilityState === 'hidden');
+    let active = true;
+    let revision = 0;
+    let nativePaused = false;
+    const sync = () => {
+      if (active) setPaused(nativePaused || document.visibilityState === 'hidden');
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const unsubscribe = window.electronAPI?.onAnimationsPaused?.((value) => {
+      revision++;
+      nativePaused = value;
+      sync();
+    });
+    // Effects mounted after a blur/reload still receive the current native state.
+    const requestedAt = revision;
+    void window.electronAPI
+      ?.getAnimationsPaused?.()
+      .then((value) => {
+        if (!active || revision !== requestedAt) return;
+        nativePaused = value;
+        sync();
+      })
+      .catch(() => {});
+    document.addEventListener('visibilitychange', sync);
+    sync();
     return () => {
+      active = false;
       unsubscribe?.();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('visibilitychange', sync);
     };
   }, []);
   useEffect(() => {

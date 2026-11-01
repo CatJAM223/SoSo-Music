@@ -1,7 +1,8 @@
+import { requireRustCompute } from '../compute/rustCore.ts';
+import { dailyDecision } from '../compute/dailySelection.ts';
 import type { Track } from '../types/index.ts';
 import { tasteTrackId } from './tastePolicy.ts';
 import {
-  areSameWaveSong,
   buildWaveSongIdentity,
   getWaveArtistNames,
   normalizeWaveArtist,
@@ -42,47 +43,54 @@ export function createDailyDislikePolicy(disliked: readonly DailyDislikedTrack[]
     ...buildWaveSongIdentity(track, knownArtists),
     artists: artistKeys(track),
   });
-  const songs: WaveSongIdentity[] = [];
-  const songsByArtist = new Map<string, WaveSongIdentity[]>();
-  const ids = new Set<string>();
-  for (const track of disliked) {
-    const id = tasteTrackId(track.id);
-    if (!id || ids.has(id)) continue;
-    ids.add(id);
-    const song = identityOf(track);
-    songs.push(song);
-    for (const artist of song.artists) {
-      const previous = songsByArtist.get(artist) || [];
-      // Re-uploads, aliases and edits of one song cannot manufacture two rejections.
-      if (previous.length < 2 && !previous.some((item) => areSameWaveSong(item, song)))
-        previous.push(song);
-      songsByArtist.set(artist, previous);
-    }
-  }
+  const rejected = disliked.map((track) => ({
+    id: tasteTrackId(track.id),
+    song: identityOf(track),
+  }));
+  const packet = (track: { id?: unknown; title?: string; artist?: Track['artist'] | string }) => ({
+    id: tasteTrackId(track.id),
+    song: identityOf(track),
+  });
   const rejectionCount = (track: Pick<Track, 'title' | 'artist'>) =>
-    Math.max(0, ...artistKeys(track).map((key) => songsByArtist.get(key)?.length || 0));
+    dailyDecision('daily_rejections', [packet(track)], [], rejected)[0] || 0;
   return {
     artistFeedback: Object.fromEntries(
-      [...songsByArtist].map(([artist, rejected]) => [
+      [...knownArtistKeys].map((artist) => [
         artist,
-        -Math.min(2, rejected.length * 0.75),
+        requireRustCompute().daily_artist_feedback(
+          rejectionCount({ title: '', artist: { name: artist } }),
+        ),
       ]),
     ),
     rejectionCount,
-    acceptsArtist(name: string): boolean {
-      return getWaveArtistNames(name).every(
-        (artist) => (songsByArtist.get(normalizeWaveArtist(artist))?.length || 0) < 2,
-      );
+    needsMore(count: number, attempt: number, added: number) {
+      return !!requireRustCompute().daily_refill(count, attempt, added);
+    },
+    acceptsArtist(_name: string): boolean {
+      return true;
     },
     accepts(track: Track): boolean {
-      if (ids.has(tasteTrackId(track.id)) || rejectionCount(track) >= 2) return false;
-      const song = identityOf(track);
-      return !songs.some((rejected) => areSameWaveSong(rejected, song));
+      return dailyDecision('daily_accepts', [packet(track)], [], rejected).length > 0;
+    },
+    select(candidates: Track[], known: Track[], preserve = 0): Track[] {
+      const names = [...knownArtists, ...known.flatMap(getWaveArtistNames)];
+      const encode = (track: Track) => ({
+        id: tasteTrackId(track.id),
+        song: buildWaveSongIdentity(track, names),
+        unavailable: track.playbackUnavailable,
+      });
+      return dailyDecision(
+        'daily_select',
+        candidates.map(encode),
+        known.map(encode),
+        rejected,
+        preserve,
+      ).map((index) => candidates[index]);
     },
   };
 }
 
 /** Collapse existing ID aliases and include a policy version to invalidate older daily caches. */
 export function dailyDislikeKey(ids: Iterable<string>): string {
-  return 'v2:' + JSON.stringify([...new Set([...ids].map(tasteTrackId).filter(Boolean))].sort());
+  return 'v3:' + JSON.stringify([...new Set([...ids].map(tasteTrackId).filter(Boolean))].sort());
 }

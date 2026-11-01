@@ -1,8 +1,11 @@
+import { recordingKey } from '../../../shared/types/musicDomain.ts';
+import { RecordingCatalog } from './recordingCatalog.ts';
 import {
   TastePolicyStore,
   tasteTrackAllowedSql,
   tastePlaylistAllowedSql,
-  tasteHistoryScoreSql,
+  tasteWeightedHistoryScoreSql,
+  registerTasteScoring,
 } from '../services/tastePolicyStore.ts';
 import { isTasteEligible } from '../../../shared/utils/tastePolicy.ts';
 import { getElectronApp } from '../services/electronRuntime.ts';
@@ -61,6 +64,10 @@ export interface DatabasePersistenceStatus {
 
 export class DatabaseManager {
   public db: Database | null = null;
+  public recordings = new RecordingCatalog(
+    () => this.db,
+    () => this.save(),
+  );
   private changeRevision = 0;
   private tastePolicy = new TastePolicyStore(
     () => this.db,
@@ -458,15 +465,33 @@ export class DatabaseManager {
     if (this.db) initializeLibrarySchema(this.db);
   }
 
+  private withRecordingIds<T extends object>(rows: T[], readId: (row: T) => string): T[] {
+    return rows.map((row) => {
+      const track = { ...row, id: readId(row) };
+      const canonical = this.recordings.id(track);
+      return canonical === recordingKey(track) ? row : { ...row, recordingId: canonical };
+    });
+  }
+
   public getLibraryPage<K extends LibraryKind>(request: LibraryPageRequest<K>): LibraryPage<K> {
-    return readLibraryPage(this.db, request, (value) => fixMojibake(decodeHtmlEntities(value)));
+    const page = readLibraryPage(this.db, request, (value) =>
+      fixMojibake(decodeHtmlEntities(value)),
+    );
+    if (request.kind === 'tracks')
+      page.items = this.withRecordingIds(page.items, (row) =>
+        String((row as LikedTrack).deezer_id),
+      );
+    return page;
   }
   public getLibraryStats() {
     return readLibraryStats(this.db);
   }
   public getLibraryPlaybackTracks(request: LibraryPlaybackRequest) {
-    return readLibraryPlaybackTracks(this.db, request, (value) =>
-      fixMojibake(decodeHtmlEntities(value)),
+    return this.withRecordingIds(
+      readLibraryPlaybackTracks(this.db, request, (value) =>
+        fixMojibake(decodeHtmlEntities(value)),
+      ),
+      (row) => row.deezer_id,
     );
   }
   public getSavedAlbumIds() {
@@ -480,7 +505,9 @@ export class DatabaseManager {
 
   public getLikedTrackIds(): string[] {
     if (!this.db) return [];
-    const stmt = this.db.prepare('SELECT deezer_id FROM liked_tracks');
+    const stmt = this.db.prepare(
+      `SELECT deezer_id AS id FROM liked_tracks UNION SELECT p.legacy_id AS id FROM liked_tracks l JOIN provider_tracks own ON own.legacy_id=l.deezer_id JOIN provider_tracks p ON p.recording_id=own.recording_id`,
+    );
     const ids: string[] = [];
     try {
       while (stmt.step()) ids.push(String(stmt.get()[0]));
@@ -503,14 +530,19 @@ export class DatabaseManager {
     } finally {
       stmt.free();
     }
-    return results;
+    return this.withRecordingIds(results, (row) => row.deezer_id);
   }
 
   public isTrackLiked(deezerId: string | number): boolean {
     if (!this.db) return false;
-    const stmt = this.db.prepare('SELECT deezer_id FROM liked_tracks WHERE deezer_id = ?');
+    const aliases = this.recordings.aliases(String(deezerId));
+    const stmt = this.db.prepare(
+      'SELECT deezer_id FROM liked_tracks WHERE deezer_id IN (' +
+        aliases.map(() => '?').join(',') +
+        ')',
+    );
     try {
-      stmt.bind([String(deezerId)]);
+      stmt.bind(aliases);
       return stmt.step();
     } finally {
       stmt.free();
@@ -526,13 +558,27 @@ export class DatabaseManager {
     cover_url?: string;
     preview_url?: string;
     duration?: number;
+    source?: 'youtube' | 'soundcloud' | 'deezer';
   }): { liked: boolean } {
     if (!this.db) return { liked: false };
     const idStr = String(track.deezer_id);
-    const alreadyLiked = this.isTrackLiked(idStr);
+    this.recordings.register({
+      id: idStr,
+      source: track.source,
+      title: track.title,
+      artist: { name: track.artist },
+      album: { title: track.album || '', cover: track.cover_url },
+      duration: track.duration || 0,
+      preview: track.preview_url || '',
+    });
+    const aliases = this.recordings.aliases(idStr);
+    const alreadyLiked = aliases.some((id) => this.isTrackLiked(id));
 
     if (alreadyLiked) {
-      this.db.run('DELETE FROM liked_tracks WHERE deezer_id = ?', [idStr]);
+      this.db.run(
+        'DELETE FROM liked_tracks WHERE deezer_id IN (' + aliases.map(() => '?').join(',') + ')',
+        aliases,
+      );
       this.save();
       return { liked: false };
     } else {
@@ -822,7 +868,7 @@ export class DatabaseManager {
     } finally {
       stmt.free();
     }
-    return results;
+    return this.withRecordingIds(results, (row) => row.track_deezer_id);
   }
 
   public addTrackToPlaylist(
@@ -994,6 +1040,7 @@ export class DatabaseManager {
         playlist_tracks: allPlaylistTracks,
         search_history: searchHistory,
         taste_exclusions: this.getTastePolicy().exclusions,
+        recording_aliases: this.recordings.exportAliases(),
       },
     };
 
@@ -1274,6 +1321,8 @@ export class DatabaseManager {
         importedPlaylistTracks++;
       }
 
+      this.recordings.importAliases(root.recording_aliases);
+
       // 6. Search History
       for (const sh of searchHistory) {
         const query = String(sh.query || '').trim();
@@ -1528,8 +1577,9 @@ export class DatabaseManager {
 
   public getScrobbledTopArtists(limit = 20): { name: string; score: number }[] {
     if (!this.db) return [];
+    registerTasteScoring(this.db);
     const stmt = this.db.prepare(`
-      SELECT s.artist, SUM(${tasteHistoryScoreSql('s')}) AS score
+      SELECT s.artist, SUM(${tasteWeightedHistoryScoreSql('s')}) AS score
       FROM track_scrobbles s
       WHERE ${tasteTrackAllowedSql('s.track_id')}
       GROUP BY LOWER(s.artist)
@@ -1556,12 +1606,13 @@ export class DatabaseManager {
     limit = 30,
   ): { id: string; title: string; artist: string; duration: number }[] {
     if (!this.db) return [];
+    registerTasteScoring(this.db);
     const stmt = this.db.prepare(`
       SELECT s.track_id AS id, s.title, s.artist, COALESCE(l.duration, 180) AS duration,
-             ${tasteHistoryScoreSql('s')} AS score
+             ${tasteWeightedHistoryScoreSql('s')} AS score
       FROM track_scrobbles s
       LEFT JOIN liked_tracks l ON l.deezer_id = s.track_id
-      WHERE ${tasteHistoryScoreSql('s')} > 0 AND ${tasteTrackAllowedSql('s.track_id')}
+      WHERE ${tasteWeightedHistoryScoreSql('s')} > 0 AND ${tasteTrackAllowedSql('s.track_id')}
       ORDER BY score DESC
       LIMIT ?
     `);
@@ -1630,6 +1681,17 @@ export class DatabaseManager {
     if (!this.db || !track || !track.title) return;
     const trackId = String(track.track_id || '');
     if (!trackId) return;
+    this.recordings.register({
+      id: trackId,
+      source: ['youtube', 'soundcloud', 'deezer'].includes(track.source || '')
+        ? (track.source as 'youtube' | 'soundcloud' | 'deezer')
+        : undefined,
+      title: track.title,
+      artist: { name: track.artist },
+      album: { title: track.album || '' },
+      duration: track.duration || 0,
+      preview: '',
+    });
 
     this.db.run(
       `INSERT INTO listening_history (track_id, title, artist, album, cover_url, source, duration)
@@ -1671,7 +1733,7 @@ export class DatabaseManager {
     } finally {
       stmt.free();
     }
-    return results;
+    return this.withRecordingIds(results, (row) => String(row.track_id));
   }
 
   public clearListeningHistory(): void {

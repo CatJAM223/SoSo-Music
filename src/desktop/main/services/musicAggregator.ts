@@ -1,3 +1,5 @@
+import { recordResolvedAlias } from './recordingCatalog.ts';
+import { albumMatchScore } from '../../../shared/compute/albumSelection.ts';
 import { assertStreamResolveActive, streamWait } from './streamResolveContext.ts';
 import { getStreamResolveFailure } from '../../../shared/utils/streamResolveError.ts';
 import { matchesImportedRecording } from '../../../shared/utils/recordingIdentity.ts';
@@ -160,27 +162,6 @@ export class MusicAggregatorService {
       }
     }
     return Array.from(artistMap.values());
-  }
-
-  public static mergeArtistTracks(scTracks: Track[], ytTracks: Track[]): Track[] {
-    const tracksMap = new Map<string, Track>();
-    const seenTitles = new Set<string>();
-
-    for (const t of scTracks) {
-      const norm = (t.title || '').toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
-      seenTitles.add(norm);
-      tracksMap.set(`sc_${t.id}`, t);
-    }
-
-    for (const t of ytTracks) {
-      const norm = (t.title || '').toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
-      if (!seenTitles.has(norm)) {
-        seenTitles.add(norm);
-        tracksMap.set(`yt_${t.id}`, t);
-      }
-    }
-
-    return Array.from(tracksMap.values());
   }
 
   /**
@@ -494,6 +475,7 @@ export class MusicAggregatorService {
           if (candidate) {
             const stream = await streamWait(SoundCloudService.getFullStreamUrl(candidate, options));
             if (stream) {
+              recordResolvedAlias(track, candidate);
               PlaybackLogger.info(
                 `[Aggregator] Deezer track resolved via SoundCloud for "${track.title}" in ${Date.now() - startTime}ms`,
               );
@@ -513,6 +495,7 @@ export class MusicAggregatorService {
               YouTubeMusicService.getFullStreamUrl(candidate, options),
             );
             if (stream) {
+              recordResolvedAlias(track, candidate);
               PlaybackLogger.info(
                 `[Aggregator] Deezer track resolved via YouTube Music for "${track.title}" in ${Date.now() - startTime}ms`,
               );
@@ -830,21 +813,13 @@ export class MusicAggregatorService {
         try {
           const artistDetails = await this.getArtist(cleanArtist);
           if (artistDetails?.albums && artistDetails.albums.length > 0) {
-            const normTarget = albumTitle
-              .toLowerCase()
-              .replace(/[^a-z0-9а-яё]/g, '')
-              .trim();
-            const matched = artistDetails.albums.find((a: any) => {
-              const normA = (a.title || '')
-                .toLowerCase()
-                .replace(/[^a-z0-9а-яё]/g, '')
-                .trim();
-              return (
-                normA &&
-                normTarget &&
-                (normA === normTarget || normA.includes(normTarget) || normTarget.includes(normA))
-              );
-            });
+            const matched = artistDetails.albums
+              .map((album: any) => ({
+                album,
+                score: albumMatchScore(albumTitle, album.title || ''),
+              }))
+              .filter((item: { score: number }) => item.score > 0)
+              .sort((a: { score: number }, b: { score: number }) => b.score - a.score)[0]?.album;
 
             if (matched && matched.id && String(matched.id) !== idStr) {
               const matchedId = String(matched.id);

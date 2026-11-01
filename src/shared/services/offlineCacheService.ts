@@ -32,11 +32,6 @@ export interface CachedTrackRecord {
 
 export type CachedTrackMeta = Omit<CachedTrackRecord, 'blob' | 'coverBlob'>;
 
-export function formatCacheSizeBytes(bytes: number): string {
-  if (!bytes || isNaN(bytes) || bytes <= 0) return '0.0';
-  return (bytes / (1024 * 1024)).toFixed(1);
-}
-
 export function toMetaRecord(record: Partial<CachedTrackRecord>): CachedTrackMeta {
   return {
     ...(record.nativeStored ? { nativeStored: true } : {}),

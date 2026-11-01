@@ -55,6 +55,6 @@ test('YouTube production metadata caches do not retain a whole long-session cata
   assert.equal(YouTubeMusicService.videoStreamCache.size, 128);
   assert.equal(YouTubeMusicService.videoDurationCache.size, 1000);
   assert.deepEqual(YouTubeMusicService.getStreamRoute('4999'), { via: 'account', client: 'WEB' });
-  assert.equal(YouTubeMusicService.getVideoDuration('4999'), 180);
+  assert.equal(YouTubeMusicService.videoDurationCache.get('4999'), 180);
   YouTubeMusicService.invalidateSessionCaches();
 });

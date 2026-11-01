@@ -1,3 +1,4 @@
+import { recordingKey } from '../types/musicDomain.ts';
 import { normalizePlaybackOrigin, tasteEvidenceKey } from '../utils/tastePolicy.ts';
 import { waveMusicProfile } from '../utils/waveMusicProfile.ts';
 import type { Track, WaveMood } from '../types/index.ts';
@@ -12,7 +13,7 @@ type StorageLike = {
   setItem(key: string, value: string): void;
 };
 type Anchor = { track: Track; score: number; positives: number; explicit: boolean; at: number };
-type Observation = { id: string; reaction: number; novel: boolean };
+type Observation = { id: string; reaction: number; novel: boolean | number };
 type Metrics = {
   observations: number;
   earlySkips: number;
@@ -117,7 +118,7 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
       const evidence = anchors
         .filter((anchor) => eligible(anchor.track) && strength(anchor) >= 0.15)
         .filter((anchor) => {
-          const id = String(anchor.track.id);
+          const id = recordingKey(anchor.track);
           if (seen.has(id)) return false;
           seen.add(id);
           return true;
@@ -149,7 +150,7 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
     record(
       value: Track,
       reaction: number,
-      novel: boolean,
+      novel: boolean | number,
       kind: 'listen' | 'like' | 'dislike' = 'listen',
       mood: WaveMood = 'default',
     ) {
@@ -161,7 +162,7 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
       if (!track) return;
       touchSession();
       const bounded = Math.max(-1, Math.min(1, reaction)),
-        id = String(track.id);
+        id = recordingKey(track);
       // Repeated signals on one song update its evidence instead of faking multiple discoveries.
       const observations = observationsByMood.get(mood) || [];
       const alreadyAccepted = [...observationsByMood.values()].some((items) =>
@@ -173,12 +174,14 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
           -16,
         ),
       );
-      const evidenceKey = tasteEvidenceKey(track);
-      const previous = anchors.find((anchor) => tasteEvidenceKey(anchor.track) === evidenceKey);
+      const evidence = (value: Track) =>
+        JSON.stringify([recordingKey(value), normalizePlaybackOrigin(value.queueOrigin)]);
+      const evidenceKey = evidence(track);
+      const previous = anchors.find((anchor) => evidence(anchor.track) === evidenceKey);
       if (bounded > 0) {
         const score = Math.min(4, (previous ? strength(previous) : 0) + bounded);
         anchors = [
-          ...anchors.filter((anchor) => tasteEvidenceKey(anchor.track) !== evidenceKey),
+          ...anchors.filter((anchor) => evidence(anchor.track) !== evidenceKey),
           {
             track,
             score,
@@ -213,7 +216,8 @@ export function createWavePreferences(storage?: StorageLike, now: () => number =
       for (let index = 0; index < observations.length; index++) {
         const observation = observations[observations.length - 1 - index];
         if (!observation.novel) continue;
-        const recency = 0.86 ** index;
+        const recency =
+          0.86 ** index * (observation.novel === true ? 1 : Number(observation.novel));
         const confidence =
           observation.reaction > 0
             ? Math.min(1.5, 0.7 + observation.reaction)

@@ -1,3 +1,4 @@
+import { requireRustCompute } from '../../../shared/compute/rustCore.ts';
 import type { Database } from 'sql.js';
 import type {
   TasteExclusionChange,
@@ -64,6 +65,53 @@ export function tasteHistoryScoreSql(alias: string): string {
     ".track_id AND o.kind='playlist'),0))"
   );
 }
+/** SQL retrieves facts. Rust applies recency and bounds unattributed legacy evidence. */
+export function registerTasteScoring(db: Database): void {
+  db.create_function('soso_taste_weight', (age) =>
+    requireRustCompute().taste_age_weight(Number(age)),
+  );
+  db.create_function('soso_taste_score', (raw, known, weighted, age) =>
+    requireRustCompute().taste_history_score(
+      Number(raw),
+      Number(known),
+      Number(weighted),
+      Number(age),
+    ),
+  );
+}
+export function tasteWeightedHistoryScoreSql(alias: string): string {
+  const contribution = '(1+p.completed*3+p.repeated*5-p.skipped*2)';
+  const sessions =
+    ' FROM playback_sessions p WHERE p.track_id=' +
+    alias +
+    '.track_id' +
+    " AND NOT EXISTS (SELECT 1 FROM taste_playback_origins o JOIN taste_exclusions x ON x.scope='playlist' AND x.id=o.context_id WHERE o.session_id=p.session_id AND o.kind='playlist')";
+  const known = '(SELECT COALESCE(SUM(' + contribution + '),0)' + sessions + ')';
+  const weighted =
+    '(SELECT COALESCE(SUM(' +
+    contribution +
+    "*soso_taste_weight((julianday('now')-julianday(p.started_at))*86400000)),0)" +
+    sessions +
+    ')';
+  const legacyAge =
+    "(julianday('now')-julianday(COALESCE((SELECT MIN(p.started_at) FROM playback_sessions p WHERE p.track_id=" +
+    alias +
+    '.track_id),' +
+    alias +
+    '.last_played_at)))*86400000';
+  return (
+    'soso_taste_score(' +
+    tasteHistoryScoreSql(alias) +
+    ',' +
+    known +
+    ',' +
+    weighted +
+    ',' +
+    legacyAge +
+    ')'
+  );
+}
+
 export class TastePolicyStore {
   private database: () => Database | null;
   private save: () => void;

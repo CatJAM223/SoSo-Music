@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MusicAggregatorService } from '../src/desktop/main/services/musicAggregator.ts';
 import { isArtistMatch, isTitleMatch } from '../src/shared/utils/artistParser.ts';
-import { SongsterrService } from '../src/shared/services/songsterrService.ts';
+import { formatSongsterrTuning } from '../src/shared/services/songsterrService.ts';
 import { detectTrackSource } from '../src/shared/utils/formatters.ts';
 
 // Helper to generate varied names for synthetic catalog-scale cases
@@ -299,20 +299,20 @@ test('Catalog scale: Songsterr tuning parser covers five patterns and 500 format
   const standardBass = [43, 38, 33, 28];
   const dropDBass = [43, 38, 33, 26];
 
-  assert.equal(SongsterrService.formatTuning(standardGuitar), 'Стандартный (E A D G B E)');
-  assert.equal(SongsterrService.formatTuning(dropD), 'Drop D (D A D G B E)');
-  assert.equal(SongsterrService.formatTuning(halfStepDown), 'Half-Step Down (Eb Ab Db Gb Bb Eb)');
-  assert.equal(SongsterrService.formatTuning(standardBass), 'Стандартный бас (E A D G)');
-  assert.equal(SongsterrService.formatTuning(dropDBass), 'Drop D бас (D A D G)');
+  assert.equal(formatSongsterrTuning(standardGuitar), 'Стандартный (E A D G B E)');
+  assert.equal(formatSongsterrTuning(dropD), 'Drop D (D A D G B E)');
+  assert.equal(formatSongsterrTuning(halfStepDown), 'Half-Step Down (Eb Ab Db Gb Bb Eb)');
+  assert.equal(formatSongsterrTuning(standardBass), 'Стандартный бас (E A D G)');
+  assert.equal(formatSongsterrTuning(dropDBass), 'Drop D бас (D A D G)');
 
   // Stress-test 500 formatting calls
   const startTime = performance.now();
   for (let i = 0; i < 100; i++) {
-    SongsterrService.formatTuning(standardGuitar);
-    SongsterrService.formatTuning(dropD);
-    SongsterrService.formatTuning(halfStepDown);
-    SongsterrService.formatTuning(standardBass);
-    SongsterrService.formatTuning(dropDBass);
+    formatSongsterrTuning(standardGuitar);
+    formatSongsterrTuning(dropD);
+    formatSongsterrTuning(halfStepDown);
+    formatSongsterrTuning(standardBass);
+    formatSongsterrTuning(dropDBass);
   }
   const elapsed = performance.now() - startTime;
   console.log('Timing only: Tuning formatting ' + elapsed.toFixed(2) + ' ms');

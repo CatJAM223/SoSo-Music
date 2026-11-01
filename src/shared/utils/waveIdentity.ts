@@ -23,9 +23,9 @@ export function getWaveArtistNames(trackOrName: WaveTrackLike | string): string[
   // A slash inside a name (AC/DC, succubus/club) is not a collaboration separator.
   const protectedRaw = raw.replace(/(\S)\/(?=\S)/g, '$1∕');
   const parsed = extractAllArtists({ ...input, artist: protectedRaw });
-  const names = parsed.flatMap((name) =>
-    name.toLowerCase() === 'король и шут' ? [name] : name.split(/\s+и\s+/i),
-  );
+  // A bare conjunction can belong to a band's name. Explicit feat./& credits
+  // are already parsed above; guessing from "и" changes recording identity.
+  const names = parsed;
   const seen = new Set<string>();
   return names
     .map((name) => name.replace(/∕/g, '/').trim())

@@ -212,6 +212,25 @@ app
       fs.writeFileSync(path.join(directory, 'expected-url.txt'), selected.filePath);
     } else assert.equal(pickerCalls, 0);
     await checkVideo(main, phase);
+    main.isFocused = () => true;
+    main.isVisible = () => true;
+    main.emit('focus');
+    await checkVideo(main, 'focused');
+    main.isFocused = () => false;
+    main.emit('blur');
+    await until(
+      () => main.webContents.executeJavaScript('!document.querySelector("video")'),
+      'wallpaper released after focus loss',
+    );
+    main.isFocused = () => false;
+    assert.equal(
+      await main.webContents.executeJavaScript('window.electronAPI.getAnimationsPaused()'),
+      true,
+    );
+    main.isFocused = () => true;
+    main.emit('focus');
+    await checkVideo(main, 'focus restored');
+
     const url = fs.readFileSync(path.join(directory, 'expected-url.txt'), 'utf8');
     assert.equal(
       await main.webContents.executeJavaScript("localStorage.getItem('soso_wallpaper_path')"),
@@ -263,7 +282,14 @@ app
       },
     });
     await foreign.loadFile(path.join(directory, 'dist/index.html'));
-    for (const method of ['startLanSync', 'selectWallpaperVideo']) {
+    for (const method of [
+      'startLanSync',
+      'selectWallpaperVideo',
+      'getLikedTracks',
+      'deletePlaylist',
+      'getWaveBatch',
+      'exportDatabase',
+    ]) {
       const rejected = await foreign.webContents.executeJavaScript(
         `window.electronAPI.${method}().then(()=>false,()=>true)`,
       );
@@ -271,6 +297,26 @@ app
     }
     assert.equal(pickerCalls, phase === 'initial' ? 1 : 0);
     foreign.destroy();
+    await main.webContents.executeJavaScript('window.electronAPI.toggleWidget()');
+    let widget;
+    await until(() => {
+      widget = windows.find(
+        (entry) => entry.title === 'SoSo Music Widget' && !entry.window.isDestroyed(),
+      )?.window;
+      return !!widget;
+    }, 'real restricted widget');
+    await until(
+      () => widget.webContents.executeJavaScript('!!window.electronAPI?.sendWidgetCommand'),
+      'widget preload',
+    );
+    assert.deepEqual(
+      await widget.webContents.executeJavaScript('Object.keys(window.electronAPI).sort()'),
+      ['onWidgetStateUpdate', 'sendWidgetCommand', 'toggleWidget'],
+    );
+    widget.isVisible = () => true;
+    await widget.webContents.executeJavaScript('void window.electronAPI.toggleWidget(); true');
+    await until(() => widget.isDestroyed(), 'widget close through restricted IPC');
+
     const policy = await main.webContents.executeJavaScript(`new Promise((resolve,reject)=>{
     const violations=[];let remoteSettled=false;
     const timer=setTimeout(()=>reject(Error('CSP probe did not settle')),2500);

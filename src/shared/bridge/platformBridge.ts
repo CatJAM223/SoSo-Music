@@ -35,8 +35,6 @@ const nativeElectron: any =
   !(window as any).electronAPI._isPlatformBridge
     ? (window as any).electronAPI
     : null;
-
-export const isElectron = Boolean(nativeElectron);
 let waveBatchRequestSequence = 0;
 
 export const platformBridge = {
@@ -51,6 +49,7 @@ export const platformBridge = {
     return nativeElectron.setTasteExcluded(value);
   },
   getTasteProfile: async (): Promise<{
+    waveSeeds?: Track[];
     revision: number;
     likes: LikedTrack[];
     artists: { name: string; id?: string | number; score?: number }[];
@@ -58,6 +57,8 @@ export const platformBridge = {
     if (!nativeElectron?.getTasteProfile) throw new Error('Desktop preload API is unavailable');
     return nativeElectron.getTasteProfile();
   },
+  onRecordingAliasesChanged: (callback: () => void): (() => void) =>
+    nativeElectron?.onRecordingAliasesChanged?.(callback) || (() => {}),
   onTastePolicyChanged: (
     callback: (value: import('../types/tastePolicy.ts').TastePolicySnapshot) => void,
   ): (() => void) => nativeElectron?.onTastePolicyChanged?.(callback) || (() => {}),

@@ -45,7 +45,22 @@ export function createWaveCatalog(
         LastFmService.getGenreTracks(genre, AbortSignal.any([signal, AbortSignal.timeout(2500)])),
       ),
     youtube,
-    fallback: source === 'youtube' ? youtube : soundcloud,
+    fallback:
+      source === 'youtube'
+        ? youtube
+        : source === 'soundcloud'
+          ? soundcloud
+          : async (query, limit) => {
+              const replies = await Promise.allSettled([
+                soundcloud(query, limit),
+                youtube(query, limit),
+              ]);
+              return {
+                data: replies.flatMap((reply) =>
+                  reply.status === 'fulfilled' ? reply.value.data || [] : [],
+                ),
+              };
+            },
     both: async (query, limit) => {
       const replies = await Promise.allSettled([soundcloud(query, limit), youtube(query, limit)]);
       return {

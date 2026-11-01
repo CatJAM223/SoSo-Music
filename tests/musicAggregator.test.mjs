@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MusicAggregatorService } from '../src/desktop/main/services/musicAggregator.ts';
+import { cleanDiscoveryTracks } from '../src/shared/utils/discoveryTracks.ts';
 
 const { interleaveTracks, cleanArtistId, deduplicateAlbums, deduplicateArtists } =
   MusicAggregatorService;
@@ -37,7 +38,7 @@ test('MusicAggregatorService: cleanArtistId strips prefixes and normalizes ID fo
   assert.equal(MusicAggregatorService.cleanArtistId('The Weeknd'), 'The Weeknd');
 });
 
-test('Artist All Tracks Aggregation: Deduplication and Remix retention', () => {
+test('Discovery cleanup: Cross-source deduplication and remix retention', () => {
   const scTracks = [
     { id: '100', title: 'Starboy', artist: { name: 'The Weeknd' }, source: 'soundcloud' },
     {
@@ -54,7 +55,9 @@ test('Artist All Tracks Aggregation: Deduplication and Remix retention', () => {
     { id: 'yt_2', title: 'Save Your Tears', artist: { name: 'The Weeknd' }, source: 'youtube' },
   ];
 
-  const result = MusicAggregatorService.mergeArtistTracks(scTracks, ytTracks);
+  const result = cleanDiscoveryTracks(
+    [...scTracks, ...ytTracks].map((track) => ({ ...track, duration: 200 })),
+  );
   assert.equal(result.length, 4);
   assert.ok(result.some((t) => t.title === 'Starboy' && t.source === 'soundcloud'));
   assert.ok(result.some((t) => t.title === 'Blinding Lights (Remix)' && t.source === 'soundcloud'));

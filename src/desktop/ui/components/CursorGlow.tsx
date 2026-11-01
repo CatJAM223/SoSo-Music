@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
+import { useAnimationsPaused } from '../../../shared/hooks/useAnimationsPaused';
 import { useTheme } from '../../../shared/context/ThemeContext';
 
 export const CursorGlow: React.FC = () => {
+  const paused = useAnimationsPaused();
   const { cursorGlow, themePreset, themeMode } = useTheme();
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: -500, y: -500 });
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (!cursorGlow) {
+    if (!cursorGlow || paused) {
       setVisible(false);
       return;
     }
@@ -34,9 +36,9 @@ export const CursorGlow: React.FC = () => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerleave', handlePointerLeave);
     };
-  }, [cursorGlow, visible]);
+  }, [cursorGlow, visible, paused]);
 
-  if (!cursorGlow || !visible) return null;
+  if (!cursorGlow || paused || !visible) return null;
 
   // Opacity slightly lower in light mode to keep clean readability
   const isLight = themePreset === 'default' && themeMode === 'light';

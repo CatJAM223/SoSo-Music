@@ -80,18 +80,6 @@ export function cleanYTTitle(rawTitle: string): { artist: string; title: string 
   return { artist: artistName, title: clean || trackTitle };
 }
 
-export function isDurationClose(
-  targetDuration: number,
-  candidateDuration: number,
-  toleranceSec = 15,
-): boolean {
-  if (targetDuration > 60 && candidateDuration > 0) {
-    const diff = Math.abs(candidateDuration - targetDuration);
-    return diff <= toleranceSec;
-  }
-  return true;
-}
-
 export function extractAlbumFromFlexColumns(flexColumns: any[]): {
   albumTitle: string;
   albumBrowseId?: string;

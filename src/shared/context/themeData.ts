@@ -162,39 +162,6 @@ export const THEME_OPTIONS: ThemeOption[] = [
   },
 ];
 
-export function getEffectiveThemeMode(
-  themePreset: ThemePreset,
-  themeMode: ThemeMode = 'dark',
-  weatherMode: WeatherMode = 'clear',
-): ThemeMode {
-  if (themePreset === 'default') return themeMode;
-  if (themePreset === 'sakura') return 'light';
-  if (themePreset === 'weather') return weatherMode === 'clear' ? 'light' : 'dark';
-  return 'dark';
-}
-
-export function getWeatherThemePalette(weatherMode: WeatherMode): {
-  accent: string;
-  accentRgb: string;
-  bgLight: string;
-  bgDark: string;
-} {
-  if (weatherMode === 'rain') {
-    return {
-      accent: '#38bdf8',
-      accentRgb: '56, 189, 248',
-      bgLight: '#090e14',
-      bgDark: '#090e14',
-    };
-  }
-  return {
-    accent: '#10b981',
-    accentRgb: '16, 185, 129',
-    bgLight: '#f5f9f6',
-    bgDark: '#0e1713',
-  };
-}
-
 export interface AdaptiveThemeResult {
   preset: ThemePreset;
   weatherMode?: WeatherMode;

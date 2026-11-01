@@ -50,26 +50,6 @@ test('YouTube Music: Artist Matching and Title Matching handles studio variants'
   );
 });
 
-test('YouTube Music: isDurationAcceptable helper validates track durations', async () => {
-  // Test duration tolerance helper
-  assert.ok(
-    YouTubeMusicService.isDurationAcceptable(231, 230, 25),
-    '230s should be acceptable for 231s target',
-  );
-  assert.ok(
-    YouTubeMusicService.isDurationAcceptable(231, 255, 25),
-    '255s should be acceptable for 231s target',
-  );
-  assert.ok(
-    !YouTubeMusicService.isDurationAcceptable(231, 100, 25),
-    '100s snippet should be rejected for 231s target',
-  );
-  assert.ok(
-    !YouTubeMusicService.isDurationAcceptable(231, 900, 25),
-    '900s mix should be rejected for 231s target',
-  );
-});
-
 test('MusicAggregatorService: Returns empty stream without searching alternatives when track source provides no stream', async () => {
   // Mock track representing a purchase-only Bandcamp track (like Earshot's album tracks)
   const purchaseOnlyTrack = {

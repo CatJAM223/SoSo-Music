@@ -73,9 +73,6 @@ export function summarizeLibraryGenres(
     .sort((left, right) => right.share - left.share || left.name.localeCompare(right.name));
 }
 
-export const LIBRARY_GENRE_MIN_SCORE = -2;
-export const LIBRARY_GENRE_MAX_SCORE = 6;
-
 export function libraryGenreAffinity(
   styles: ReadonlySet<string>,
   genres: readonly LibraryTasteGenre[],

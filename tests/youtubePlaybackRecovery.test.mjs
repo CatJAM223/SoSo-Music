@@ -16,7 +16,7 @@ import { isCurrentPlaybackRequest } from '../src/shared/utils/playbackRecovery.t
 import * as access from '../src/shared/utils/youtubeAudioAccessError.ts';
 
 const source = fs.readFileSync(
-  new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
+  new URL('../src/shared/services/playbackEngine.ts', import.meta.url),
   'utf8',
 );
 function harness(resolveStream) {
@@ -47,6 +47,7 @@ function harness(resolveStream) {
     load: () => events.push('load'),
   };
   const context = vm.createContext({
+    engine: { transition() {} },
     console: { warn() {}, error() {} },
     Number,
     Date,
@@ -64,6 +65,8 @@ function harness(resolveStream) {
     StreamResolveTimeoutError,
     withStreamResolveDeadline,
     playbackAbortRef: { current: new AbortController() },
+    pendingPositionRef: { current: null },
+    diagnosticsRef: { current: null },
     audio,
     audioRef: { current: audio },
     currentTrackRef: { current: track },

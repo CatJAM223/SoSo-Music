@@ -203,6 +203,7 @@ function isolate(t) {
     'audioAccessFailures',
     'cachedVisitorData',
     'visitorDataRequest',
+    'visitorRetryAfter',
     'sessionEpoch',
     'sessionRecoveryRequest',
     'lastSessionRecoveryAt',
@@ -215,6 +216,7 @@ function isolate(t) {
     accountResolver: null,
     cachedVisitorData: null,
     visitorDataRequest: null,
+    visitorRetryAfter: 0,
     sessionEpoch: 0,
     sessionRecoveryRequest: null,
     lastSessionRecoveryAt: -Infinity,
@@ -246,7 +248,7 @@ test('Connecting YouTube removes a cached anonymous denial; playback and prefetc
   ]);
   assert.equal(requests, 1);
   assert.equal(urls[0], urls[1]);
-  assert.equal(yt.getVideoDuration('W0LiTBNjJ_o'), 106);
+  assert.equal(yt.videoDurationCache.get('W0LiTBNjJ_o'), 106);
   assert.equal(yt.getRecordingGain('W0LiTBNjJ_o'), -3);
   assert.deepEqual(yt.getStreamRoute('yt_W0LiTBNjJ_o'), { via: 'account', client: 'WEB' });
   assert.equal(await yt.resolveDirectAudioStream('W0LiTBNjJ_o'), urls[0]);
@@ -357,7 +359,7 @@ test('An unfinished account does not block an available anonymous stream of the 
   assert.ok(stream.includes('itag=140'));
   assert.equal(accountCalls, 1);
   assert.equal(posts, 1);
-  assert.equal(yt.getVideoDuration('W0LiTBNjJ_o'), 106);
+  assert.equal(yt.videoDurationCache.get('W0LiTBNjJ_o'), 106);
   assert.equal(yt.audioAccessFailures.size, 0);
   assert.deepEqual(yt.getStreamRoute('W0LiTBNjJ_o'), { via: 'anonymous', client: 'VISIONOS' });
   assert.equal(await yt.resolveDirectAudioStream('W0LiTBNjJ_o'), stream);
@@ -791,6 +793,57 @@ test('Rejected account CDN falls back to a playable anonymous stream rather than
   );
   assert.ok((await yt.resolveDirectAudioStream('W0LiTBNjJ_o')).includes('itag=140'));
   assert.deepEqual(yt.getStreamRoute('W0LiTBNjJ_o'), { via: 'anonymous', client: 'VISIONOS' });
+});
+
+test('A header-only account MP4 falls back to AAC of the same recording without caching the broken stream', async (t) => {
+  isolate(t);
+  const broken = Buffer.alloc(20);
+  broken.writeUInt32BE(12);
+  broken.write('ftyp', 4);
+  broken.write('mp42', 8);
+  broken.writeUInt32BE(4328563, 12);
+  broken.write('mdat', 16);
+  const id = '49FB9hhoO6c';
+  let accountCalls = 0;
+  yt.setAccountResolver(async (requestedId) => {
+    accountCalls++;
+    assert.equal(requestedId, id);
+    return {
+      url: `https://rr1.googlevideo.com/videoplayback?itag=18&clen=${broken.length}`,
+      audioIncludesVideo: true,
+      audioContainer: 'progressive',
+    };
+  });
+  t.mock.method(
+    transport,
+    'fetch',
+    async () =>
+      new Response(broken, {
+        status: 206,
+        headers: { 'content-type': 'video/mp4' },
+      }),
+  );
+  t.mock.method(yt, 'getVisitorData', async () => '');
+  t.mock.method(transport, 'postPlayer', async (payload) => {
+    assert.equal(payload.videoId, id);
+    return Response.json({
+      playabilityStatus: { status: 'OK' },
+      streamingData: {
+        adaptiveFormats: [
+          {
+            itag: 140,
+            mimeType: 'audio/mp4',
+            url: 'https://rr1.googlevideo.com/videoplayback?itag=140',
+          },
+        ],
+      },
+    });
+  });
+  const result = await yt.resolveDirectAudioStream(id);
+  assert.ok(result.includes('itag=140'));
+  assert.deepEqual(yt.getStreamRoute(id), { via: 'anonymous', client: 'VISIONOS' });
+  assert.equal(await yt.resolveDirectAudioStream(id), result);
+  assert.equal(accountCalls, 1);
 });
 
 test('Changing the account during CDN validation discards the old stream without an anonymous request', async (t) => {

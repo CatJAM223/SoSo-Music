@@ -79,7 +79,10 @@ function harness(
       },
       '../utils/formatters': { detectTrackSource: () => 'youtube' },
       './formatters': { detectTrackSource: () => 'youtube' },
-      '../utils/playbackIntent.ts': { beginPlaybackIntent: () => () => true },
+      '../utils/playbackIntent.ts': {
+        beginPlaybackIntent: () => () => true,
+        markPreparedPlayback() {},
+      },
     },
     { window: new EventTarget() },
   );

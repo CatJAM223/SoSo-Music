@@ -1,3 +1,7 @@
+import { restrictedIpc } from './ipc/restrictedIpc';
+import { configureRecordingCatalog } from './services/recordingCatalog';
+import { ListeningRooms } from './services/listeningRooms';
+const listeningRooms = new ListeningRooms();
 import { isChartRegion } from '../../shared/utils/chartRegions';
 import { isSoundCloudUrl } from '../../shared/utils/soundcloudUrl';
 import { startAppUpdateMonitor } from './services/appUpdateMonitor';
@@ -18,7 +22,7 @@ import {
   app,
   globalShortcut,
   BrowserWindow,
-  ipcMain,
+  ipcMain as nativeIpcMain,
   shell,
   Tray,
   Menu,
@@ -272,6 +276,11 @@ async function createWindow() {
   if (!databaseReady) {
     try {
       await dbManager.init();
+      configureRecordingCatalog(dbManager.recordings, () => {
+        libraryTaste.libraryChanged();
+        if (mainWindow && !mainWindow.isDestroyed())
+          mainWindow.webContents.send('library:recordingAliasesChanged');
+      });
       databaseReady = true;
       libraryTaste.start();
     } catch (error) {
@@ -318,7 +327,15 @@ async function createWindow() {
   });
 
   // Prevent navigation to external sites inside main window
-  mainWindow.on('blur', () => desktopControls?.capture(false));
+  mainWindow.on('blur', () => {
+    desktopControls?.capture(false);
+    setAnimationsPaused(true);
+  });
+  const syncAnimationActivity = () =>
+    setAnimationsPaused(
+      !mainWindow || !mainWindow.isFocused() || !mainWindow.isVisible() || mainWindow.isMinimized(),
+    );
+  mainWindow.on('focus', syncAnimationActivity);
   mainWindow.webContents.once('destroyed', () => desktopControls?.capture(false));
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
     const devServer = process.env.VITE_DEV_SERVER_URL;
@@ -341,8 +358,8 @@ async function createWindow() {
   // Freeze heavy theme animations while the window is minimized or hidden in tray
   mainWindow.on('minimize', () => setAnimationsPaused(true));
   mainWindow.on('hide', () => setAnimationsPaused(true));
-  mainWindow.on('restore', () => setAnimationsPaused(false));
-  mainWindow.on('show', () => setAnimationsPaused(false));
+  mainWindow.on('restore', syncAnimationActivity);
+  mainWindow.on('show', syncAnimationActivity);
 
   // Handle mouse side buttons (Mouse 4 = Back, Mouse 5 = Forward) from Windows OS
   mainWindow.on('app-command', (_event, cmd) => {
@@ -401,6 +418,8 @@ function createWidgetWindow() {
     hasShadow: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: ['--soso-widget'],
+      sandbox: true,
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true,
@@ -446,7 +465,30 @@ function createWidgetWindow() {
 
 // ================= IPC HANDLERS =================
 
+const ipcMain = restrictedIpc(
+  nativeIpcMain,
+  () => mainWindow,
+  (channel, event) => {
+    const widget =
+      widgetWindow &&
+      !widgetWindow.isDestroyed() &&
+      event.sender === widgetWindow.webContents &&
+      event.senderFrame === widgetWindow.webContents.mainFrame;
+    if (widget && ['widget:toggle', 'widget:command'].includes(channel)) return true;
+    return (
+      (channel.startsWith('overlay:') || channel === 'widget:command') &&
+      Boolean(playerOverlay?.owns(event))
+    );
+  },
+);
+
 function registerIpcHandlers() {
+  ipcMain.handle(
+    'ui:getAnimationsPaused',
+    () =>
+      !mainWindow || !mainWindow.isFocused() || !mainWindow.isVisible() || mainWindow.isMinimized(),
+  );
+  listeningRooms.register(ipcMain, () => mainWindow);
   registerDesktopControlsHandlers(
     ipcMain,
     () => mainWindow,
@@ -529,6 +571,15 @@ function registerIpcHandlers() {
       )
     )
       return;
+    if (command === 'seek' || command === 'setVolume') {
+      if (
+        typeof data !== 'number' ||
+        !Number.isFinite(data) ||
+        data < 0 ||
+        data > (command === 'setVolume' ? 1 : 86400)
+      )
+        return;
+    } else if (data !== undefined) return;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('widget:command', command, data);
     }
@@ -636,61 +687,106 @@ function registerIpcHandlers() {
     },
   );
 
-  ipcMain.handle('music:getRecommendedTracks', async (_event, previousIds: unknown) => {
-    const dislikedTracks = dbManager.getDislikedWaveTracks();
-    const dailyPolicy = createDailyDislikePolicy(dislikedTracks);
-    const dislikedIds = dbManager.getDislikedTrackIds();
-    const disliked = new Set(dislikedIds.map(String));
-    const normalize = (rows: any[]) =>
-      rows
-        .map(normalizeWaveSeed)
-        .filter((track): track is Track =>
-          Boolean(track && !disliked.has(String(track.id)) && dailyPolicy.accepts(track)),
+  ipcMain.handle(
+    'music:getRecommendedTracks',
+    async (
+      _event,
+      previousIds: unknown,
+      previousTracks: unknown,
+      requestOptions?: { source?: unknown; retainedTracks?: unknown },
+    ) => {
+      const source =
+        requestOptions?.source === 'youtube' || requestOptions?.source === 'soundcloud'
+          ? requestOptions.source
+          : 'all';
+      const dislikedTracks = dbManager.getDislikedWaveTracks();
+      const dailyPolicy = createDailyDislikePolicy(dislikedTracks);
+      const dislikedIds = dbManager.getDislikedTrackIds();
+      const disliked = new Set(dislikedIds.map(String));
+      const normalize = (rows: any[]) =>
+        rows
+          .map(normalizeWaveSeed)
+          .filter((track): track is Track =>
+            Boolean(track && !disliked.has(String(track.id)) && dailyPolicy.accepts(track)),
+          );
+      const allLikes = normalize(dbManager.getLikedTracks());
+      const likes = normalize(dbManager.getTasteLikedTracks());
+      const seeds = [
+        ...new Map(
+          [...likes, ...normalize(dbManager.getWaveTasteTracks(30))].map((track) => [
+            String(track.id),
+            track,
+          ]),
+        ).values(),
+      ];
+      const artists = [
+        ...dbManager.getFollowedArtists(),
+        ...dbManager.getScrobbledTopArtists(15).filter((artist) => artist.score > 0),
+      ].filter((artist) => dailyPolicy.acceptsArtist(artist.name));
+      if (!seeds.length && !artists.length) return [];
+      const recent = normalize(
+        dbManager.getListeningHistory(40, true).map((row) => ({ ...row, id: row.track_id })),
+      );
+      const previous = Array.isArray(previousIds)
+        ? previousIds
+            .slice(0, 5)
+            .filter(
+              (id) =>
+                (typeof id === 'string' && id.length < 128) ||
+                (typeof id === 'number' && Number.isFinite(id)),
+            )
+        : [];
+      const excluded = [
+        ...dislikedIds,
+        ...allLikes.map((track) => track.id),
+        ...recent.map((track) => track.id),
+        ...previous,
+      ];
+      const previousSongs = normalize(
+        Array.isArray(previousTracks) ? previousTracks.slice(0, 5) : [],
+      );
+      const retained = normalize(
+        Array.isArray(requestOptions?.retainedTracks)
+          ? requestOptions.retainedTracks.slice(0, 5)
+          : [],
+      ).filter((track) => source === 'all' || track.source === source);
+      const candidates: Track[] = [...retained];
+      let selected: Track[] = selectDailyRecommendations(
+        candidates,
+        [...allLikes, ...recent, ...previousSongs],
+        dislikedTracks,
+        retained.length,
+      );
+      let added = 1;
+      for (let attempt = 0; dailyPolicy.needsMore(selected.length, attempt, added); attempt++) {
+        const batch = await WaveEngine.getWaveBatch(
+          'default',
+          seeds,
+          [...excluded, ...candidates.map((track) => track.id)],
+          artists,
+          dislikedTracks,
+          {
+            source,
+            offeredTracks: candidates,
+            recentTracks: [...recent, ...previousSongs],
+            artistFeedback: dailyPolicy.artistFeedback,
+          },
+          false,
         );
-    const allLikes = normalize(dbManager.getLikedTracks());
-    const likes = normalize(dbManager.getTasteLikedTracks());
-    const seeds = [
-      ...new Map(
-        [...likes, ...normalize(dbManager.getWaveTasteTracks(30))].map((track) => [
-          String(track.id),
-          track,
-        ]),
-      ).values(),
-    ];
-    const artists = [
-      ...dbManager.getFollowedArtists(),
-      ...dbManager.getScrobbledTopArtists(15).filter((artist) => artist.score > 0),
-    ].filter((artist) => dailyPolicy.acceptsArtist(artist.name));
-    if (!seeds.length && !artists.length) return [];
-    const recent = normalize(
-      dbManager.getListeningHistory(40, true).map((row) => ({ ...row, id: row.track_id })),
-    );
-    const previous = Array.isArray(previousIds)
-      ? previousIds
-          .slice(0, 5)
-          .filter(
-            (id) =>
-              (typeof id === 'string' && id.length < 128) ||
-              (typeof id === 'number' && Number.isFinite(id)),
-          )
-      : [];
-    const excluded = [
-      ...dislikedIds,
-      ...allLikes.map((track) => track.id),
-      ...recent.map((track) => track.id),
-      ...previous,
-    ];
-    const candidates = await WaveEngine.getWaveBatch(
-      'default',
-      seeds,
-      excluded,
-      artists,
-      dislikedTracks,
-      { recentTracks: recent, artistFeedback: dailyPolicy.artistFeedback },
-      false,
-    );
-    return selectDailyRecommendations(candidates, [...allLikes, ...recent], dislikedTracks);
-  });
+        const ids = new Set(candidates.map((track) => String(track.id)));
+        const fresh = batch.filter((track) => !ids.has(String(track.id)));
+        added = fresh.length;
+        candidates.push(...fresh);
+        selected = selectDailyRecommendations(
+          candidates,
+          [...allLikes, ...recent, ...previousSongs],
+          dislikedTracks,
+          retained.length,
+        );
+      }
+      return selected;
+    },
+  );
 
   ipcMain.handle('music:cancelStreamResolve', (event: any, requestId: unknown) => {
     streamRequestRegistry.cancel(event.sender, requestId);
@@ -1267,6 +1363,7 @@ app.on('before-quit', (event) => {
   disposeAccountHandlers?.();
   youtubeAccount?.dispose();
   lanSyncServer.stop();
+  listeningRooms.dispose();
   localListenServer.stop();
   isQuitting = true;
   DiscordRPCService.clearActivity();

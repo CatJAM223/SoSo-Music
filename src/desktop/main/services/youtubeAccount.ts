@@ -1,3 +1,4 @@
+import { timeYouTubeResolve } from './youtubeResolveTiming.ts';
 import {
   assertStreamResolveActive,
   currentStreamResolveSignal,
@@ -829,7 +830,9 @@ export class YouTubeAccountService {
     options: StreamResolveOptions = {},
   ): Promise<YouTubeAccountStream | null> {
     assertStreamResolveActive();
-    await streamShared(() => this.refreshCookies());
+    await timeYouTubeResolve(videoId, 'account-cookies', () =>
+      streamShared(() => this.refreshCookies()),
+    );
     if (!this.cookieHeader) return null;
     const epoch = this.epoch;
     const start = Date.now();
@@ -838,14 +841,18 @@ export class YouTubeAccountService {
       // Reuse a verified route briefly across songs, rather than paying the same 403 on every click.
       let useWatchPage = kind === 'audio' && Date.now() < this.preferredWatchUntil;
       for (let attempt = 0; attempt < 2; attempt++) {
-        const client = await streamShared(() => this.getClient());
+        const client = await timeYouTubeResolve(videoId, 'account-bootstrap', () =>
+          streamShared(() => this.getClient()),
+        );
         if (Date.now() < this.preferredWatchUntil && (kind === 'audio' || !client.session.player))
           useWatchPage = true;
         stage = 'player';
         let watch: Awaited<ReturnType<YouTubeAccountService['getWatchInfo']>> | undefined;
         if (useWatchPage) {
           try {
-            watch = await streamWait(this.getWatchInfo(videoId, client));
+            watch = await timeYouTubeResolve(videoId, 'account-watch', () =>
+              this.getWatchInfo(videoId, client),
+            );
           } catch (error) {
             assertStreamResolveActive();
             if (getStreamResolveFailure(error)) throw error;
@@ -875,7 +882,10 @@ export class YouTubeAccountService {
           throw failure;
         }
         const info =
-          watch?.info ?? (await streamWait(client.getBasicInfo(videoId, { client: 'WEB' })));
+          watch?.info ??
+          (await timeYouTubeResolve(videoId, 'account-player', () =>
+            client.getBasicInfo(videoId, { client: 'WEB' }),
+          ));
         stage = kind;
         const data = info.streaming_data;
         const described = [...(data?.formats || []), ...(data?.adaptive_formats || [])];
@@ -910,7 +920,7 @@ export class YouTubeAccountService {
           );
         }
         const extract = kind === 'audio' ? extractYouTubeAccountStream : extractYouTubeAccountVideo;
-        const stream = await streamWait(
+        const stream = await timeYouTubeResolve(videoId, 'account-extract', () =>
           extract(
             videoId,
             info,
@@ -928,13 +938,19 @@ export class YouTubeAccountService {
         );
         if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
         stage = 'delivery';
-        const delivery = await streamWait(probeYouTubeMedia(stream.url, kind));
+        const delivery = await timeYouTubeResolve(videoId, 'account-delivery', () =>
+          probeYouTubeMedia(stream.url, kind),
+        );
         if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
         if (!delivery.ok) {
-          if (attempt === 0 && delivery.reason === 'cdn-http' && delivery.status === 403) {
+          if (
+            attempt === 0 &&
+            ((delivery.reason === 'cdn-http' && delivery.status === 403) ||
+              delivery.reason === 'cdn-response')
+          ) {
             // Prefetch can try the same recording's watch response without touching session/cache state.
             const reset =
-              kind === 'video' || options.allowSessionRecovery
+              delivery.reason === 'cdn-http' && (kind === 'video' || options.allowSessionRecovery)
                 ? await streamShared(() => this.recoverDelivery())
                 : false;
             useWatchPage = !watch;
@@ -942,7 +958,9 @@ export class YouTubeAccountService {
             PlaybackLogger.info(
               '[YouTubeMusic:AccountRecovery] Trying ' +
                 (useWatchPage ? 'signed watch page' : 'player API') +
-                ' after CDN 403 (cacheReset=' +
+                ' after CDN ' +
+                (delivery.status || delivery.reason) +
+                ' (cacheReset=' +
                 reset +
                 ')',
             );

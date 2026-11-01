@@ -6,21 +6,18 @@ import {
   areTracksDuplicates,
 } from '../src/shared/utils/trackFingerprint.ts';
 
-import { WaveEngine, SUPPORTED_WAVE_MOODS } from '../src/desktop/main/services/waveEngine.ts';
+import { WaveEngine } from '../src/desktop/main/services/waveEngine.ts';
 import { SoundCloudService } from '../src/desktop/main/services/soundcloud.ts';
 import { YouTubeMusicService } from '../src/desktop/main/services/youtubeMusic.ts';
-import {
-  matchesDislikedWaveTrack,
-  moveDifferentArtistAfterSkip,
-  sequenceWaveTracks,
-} from '../src/shared/utils/waveQueue.ts';
+import { matchesDislikedWaveTrack, sequenceWaveTracks } from '../src/shared/utils/waveQueue.ts';
 
 import { LastFmService } from '../src/desktop/main/services/lastfm.ts';
 
 // These cases exercise wave ordering/fallback with a deterministic catalog, not live Last.fm.
-beforeEach((t) => t.mock.method(LastFmService, 'getSimilarArtists', async () => []));
-
-const filterWaveTracks = WaveEngine.filterWaveTracks;
+beforeEach((t) => {
+  t.mock.method(LastFmService, 'getSimilarArtists', async () => []);
+  t.mock.method(YouTubeMusicService, 'search', async () => ({ data: [] }));
+});
 
 test('Wave queue starts with familiar music and spaces repeated artists', () => {
   const tracks = [
@@ -60,11 +57,6 @@ test('Wave balances familiarity with discovery and reacts to a quick skip', () =
     artistFeedback: new Map([['known 1', -3]]),
   });
   assert.notEqual(afterSkip[0].artist.name, 'Known 1');
-  const swapped = moveDifferentArtistAfterSkip(
-    [make('a', 'Same'), make('b', 'Same'), make('c', 'Other')],
-    0,
-  );
-  assert.equal(swapped[1].artist.name, 'Other');
 });
 
 test('Disliked recording is blocked across source IDs without blocking distinct variants', () => {
@@ -135,33 +127,6 @@ test('Wave remembers only delivered tracks, leaving unused candidates for the ne
   assert.equal(first.length, 25);
   assert.ok(second.length > 0);
   assert.ok(second.every((track) => !first.some((old) => old.id === track.id)));
-});
-
-test('WaveEngine: Exclude already played tracks and deduplicate by id', () => {
-  const rawBatch = [
-    { id: '101', title: 'Song 1', source: 'soundcloud' },
-    { id: '102', title: 'Song 2', source: 'youtube' },
-    { id: '103', title: 'Song 3', source: 'soundcloud' },
-    { id: '101', title: 'Song 1 Duplicate', source: 'soundcloud' },
-    { id: '104', title: 'Song 4', source: 'youtube' },
-  ];
-
-  const excludeIds = ['102', 104];
-  const filtered = filterWaveTracks(rawBatch, excludeIds);
-
-  assert.equal(filtered.length, 2);
-  assert.equal(filtered[0].id, '101');
-  assert.equal(filtered[1].id, '103');
-});
-
-test('WaveEngine: Mood definitions and properties', () => {
-  assert.equal(SUPPORTED_WAVE_MOODS.length, 6);
-  assert.ok(SUPPORTED_WAVE_MOODS.includes('default'));
-  assert.ok(SUPPORTED_WAVE_MOODS.includes('energy'));
-  assert.ok(SUPPORTED_WAVE_MOODS.includes('chill'));
-  assert.ok(SUPPORTED_WAVE_MOODS.includes('discover'));
-  assert.ok(SUPPORTED_WAVE_MOODS.includes('mix'));
-  assert.ok(SUPPORTED_WAVE_MOODS.includes('favorites'));
 });
 
 test('WaveEngine: Track Fingerprinting detects re-uploads across sources', () => {

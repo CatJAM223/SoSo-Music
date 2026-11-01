@@ -5,6 +5,8 @@ mod demux;
 mod import_match;
 mod loudness;
 mod ranking;
+mod recommendations;
+mod search;
 mod sequence;
 const MAX_INPUT: usize = 8 * 1024 * 1024;
 const MAX_CANDIDATES: usize = 4096;
@@ -330,7 +332,7 @@ fn calculate_job(mut job: Job) -> Option<Vec<u8>> {
 }
 #[no_mangle]
 pub extern "C" fn abi_version() -> u32 {
-    4
+    7
 }
 #[no_mangle]
 pub extern "C" fn reserve(length: usize) -> usize {
@@ -381,7 +383,12 @@ pub extern "C" fn compare_songs(length: usize) -> i32 {
         let Some(mut job) = read_job(bytes) else {
             return -1;
         };
-        if job.candidates.len() != 2 || !job.recent.is_empty() || !job.offered.is_empty() {
+        // Compare every left row to the final right row.
+        // Two-row packets retain exactly the original one-byte result and directed semantics.
+        if !(2..=65).contains(&job.candidates.len())
+            || !job.recent.is_empty()
+            || !job.offered.is_empty()
+        {
             return -1;
         }
         for song in &mut job.candidates {
@@ -389,12 +396,104 @@ pub extern "C" fn compare_songs(length: usize) -> i32 {
                 return -1;
             }
         }
-        let a = &job.candidates[0];
-        let b = &job.candidates[1];
-        let flags = u8::from(same_song(a, b, &job.tokens))
-            | (u8::from(duplicate_recording(a, b, &job.tokens)) << 1)
-            | (u8::from(a.distinctive) << 2);
-        OUTPUT.with(|output| *output.borrow_mut() = vec![flags]);
+        let right = job.candidates.last().unwrap();
+        let flags: Vec<u8> = job.candidates[..job.candidates.len() - 1]
+            .iter()
+            .map(|left| {
+                u8::from(same_song(left, right, &job.tokens))
+                    | (u8::from(duplicate_recording(left, right, &job.tokens)) << 1)
+                    | (u8::from(left.distinctive) << 2)
+            })
+            .collect();
+        let size = flags.len();
+        OUTPUT.with(|output| *output.borrow_mut() = flags);
+        size as i32
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn recording_match(length: usize) -> i32 {
+    OUTPUT.with(|output| output.borrow_mut().clear());
+    INPUT.with(|input| {
+        let input = input.borrow();
+        let Some(bytes) = input.get(..length).filter(|_| length <= MAX_INPUT) else {
+            return -1;
+        };
+        let Some(job) = read_job(bytes) else {
+            return -1;
+        };
+        if job.candidates.len() != 2 || !job.recent.is_empty() || !job.offered.is_empty() {
+            return -1;
+        }
+        let left = &job.candidates[0];
+        let right = &job.candidates[1];
+        if left.tokens.len() != 2
+            || right.tokens.len() != 2
+            || left
+                .tokens
+                .iter()
+                .chain(right.tokens.iter())
+                .any(|&i| i >= job.tokens.len())
+        {
+            return -1;
+        }
+        let valid = !job.tokens[left.tokens[0]].units.is_empty() && !left.artists.is_empty();
+        let same_title = left.tokens[0] == right.tokens[0];
+        let same_artist = left.artists == right.artists;
+        let gap = (left.duration - right.duration).abs();
+        let duration_ok = left.duration <= 0.0
+            || right.duration <= 0.0
+            || gap <= 15.0_f64.min(5.0_f64.max(left.duration * 0.07));
+        let imported = valid
+            && duration_ok
+            && ((same_title && same_artist) || left.tokens[1] == right.tokens[0]);
+        let canonical = valid
+            && same_title
+            && same_artist
+            && left.duration > 0.0
+            && right.duration > 0.0
+            && gap <= 2.0;
+        OUTPUT.with(|output| {
+            *output.borrow_mut() = vec![u8::from(imported) | (u8::from(canonical) << 1)]
+        });
         1
     })
+}
+
+/// 0=skip, 1=ended, 2=interrupted, 3=error. Only actual listening changes taste.
+#[no_mangle]
+pub extern "C" fn wave_feedback(played: f64, duration: f64, reason: u32, mood: u32) -> f64 {
+    if !played.is_finite() || played < 0.5 || reason > 1 {
+        return 0.0;
+    }
+    let known = duration.is_finite() && duration > 0.0;
+    let fraction = if known { played / duration } else { 0.0 };
+    if known && fraction >= 0.95 {
+        return 0.35;
+    }
+    if known && fraction >= 0.8 {
+        return 0.2;
+    }
+    if reason == 1 {
+        return 0.0;
+    }
+    let threshold = if known {
+        25.0_f64.min(duration * 0.15)
+    } else {
+        15.0
+    };
+    if played >= threshold {
+        return 0.0;
+    }
+    let immediate = if known {
+        10.0_f64.min(duration * 0.05)
+    } else {
+        5.0
+    };
+    let rejection = if played < immediate { -0.6 } else { -0.35 };
+    if mood == 3 {
+        rejection * 0.5
+    } else {
+        rejection
+    }
 }

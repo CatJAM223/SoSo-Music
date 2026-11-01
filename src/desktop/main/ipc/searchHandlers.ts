@@ -1,3 +1,4 @@
+import { identifyCatalogTracks } from '../services/recordingCatalog.ts';
 import type { IpcMain } from 'electron';
 import type { MusicAggregatorService } from '../services/musicAggregator.ts';
 import { StreamRequestRegistry } from '../services/streamRequestRegistry.ts';
@@ -25,11 +26,19 @@ export function registerSearchHandlers(
         const safeSource = source === 'youtube' || source === 'soundcloud' ? source : 'all';
         const request = requests.begin(event.sender, requestId);
         try {
-          return await runStreamResolve(request.signal, () =>
+          const result = await runStreamResolve(request.signal, () =>
             artists
               ? streamWait(service.searchArtists(query.trim(), safeLimit, safeSource))
               : streamWait(service.search(query.trim(), safeLimit, safeSource)),
           );
+          return artists
+            ? result
+            : {
+                ...result,
+                data: identifyCatalogTracks(
+                  result.data as import('../../../shared/types/index.ts').Track[],
+                ),
+              };
         } finally {
           request.finish();
         }

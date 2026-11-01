@@ -54,6 +54,19 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [isGeneralDragOver, setIsGeneralDragOver] = useState<boolean>(false);
+  const [present, setPresent] = useState(isOpen);
+  React.useEffect(() => {
+    if (isOpen) {
+      setPresent(true);
+      return;
+    }
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setPresent(false);
+      return;
+    }
+    const timer = setTimeout(() => setPresent(false), 200);
+    return () => clearTimeout(timer);
+  }, [isOpen]);
 
   React.useEffect(() => {
     if (isOpen) {
@@ -69,7 +82,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
     }
   }, [isOpen, onClose, actionsOpenFor]);
 
-  if (!isOpen) return null;
+  if (!isOpen && !present) return null;
 
   // Build upcoming items list
   // 1. Normal upcoming items (after queueIndex to queue.length - 1)
@@ -151,7 +164,10 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
       {/* Mobile Backdrop Overlay */}
       <div
         onClick={onClose}
-        className="md:hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-40 animate-fade-in"
+        inert={!isOpen}
+        aria-hidden="true"
+        data-open={isOpen}
+        className="soso-queue-backdrop md:hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-40"
       />
 
       <div
@@ -162,8 +178,11 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
         }}
         onDragLeave={() => setIsGeneralDragOver(false)}
         data-queue-drawer
+        data-open={isOpen}
+        aria-hidden={!isOpen || undefined}
+        inert={!isOpen}
         onDrop={handleGeneralDrop}
-        className={`fixed inset-x-0 bottom-0 md:inset-x-auto md:right-0 md:top-11 md:bottom-24 h-[85vh] md:h-auto w-full md:w-[420px] bg-white dark:bg-[#141416] backdrop-blur-2xl border-t md:border-t-0 md:border-l border-slate-200 dark:border-zinc-800 shadow-2xl rounded-t-3xl md:rounded-none z-50 flex flex-col animate-fade-in transition-all duration-200 select-none ${
+        className={`soso-queue-drawer fixed inset-x-0 bottom-0 md:inset-x-auto md:right-0 md:top-11 md:bottom-24 h-[85vh] md:h-auto w-full md:w-[420px] bg-white dark:bg-[#141416] backdrop-blur-2xl border-t md:border-t-0 md:border-l border-slate-200 dark:border-zinc-800 shadow-2xl rounded-t-3xl md:rounded-none z-50 flex flex-col select-none ${
           isGeneralDragOver ? 'ring-2 ring-soso-brand ring-inset bg-soso-brand/[0.03]' : ''
         }`}
       >

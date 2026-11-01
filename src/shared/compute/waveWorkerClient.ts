@@ -13,6 +13,8 @@ const transport = new WaveWorkerTransport(
 function metadata(track: Track): Track {
   return {
     id: track.id,
+    recordingId: track.recordingId,
+    waveMetadataScope: track.waveMetadataScope,
     title: track.title,
     artist: { name: track.artist?.name || '' },
     source: track.source,

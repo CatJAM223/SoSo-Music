@@ -1,3 +1,5 @@
+import { recordingKey } from '../types/musicDomain.ts';
+import { attributeWaveBatch, markWaveLike } from '../services/waveQuality.ts';
 import {
   matchesWaveSource,
   normalizeWaveSource,
@@ -93,6 +95,7 @@ export function useWaveEngine({
   if (!memoryRef.current) memoryRef.current = createWaveMemory();
   const waveMemory = memoryRef.current;
   const recentPlayedTracksRef = useRef<Track[]>(waveMemory.playedTracks());
+  const knownRecordingsRef = useRef(new Set(recentPlayedTracksRef.current.map(recordingKey)));
   const lastFeedbackTrackRef = useRef<string | null>(null);
   const waveFetchPromiseRef = useRef<Promise<void> | null>(null);
   const waveControllerRef = useRef<AbortController | null>(null);
@@ -117,11 +120,17 @@ export function useWaveEngine({
     }),
     [preferences, waveSession],
   );
-  const isNovelTrack = useCallback((track: Track) => {
+  const isNovelTrack = useCallback((track: Track): number => {
+    const id = recordingKey(track);
+    if (
+      knownRecordingsRef.current.has(id) ||
+      tasteTracksRef.current.some((known) => recordingKey(known) === id)
+    )
+      return 0;
     const familiar = new Set(
       familiarArtistsRef.current.flatMap((name) => getWaveArtistKeys({ artist: name })),
     );
-    return !getWaveArtistKeys(track).some((artist) => familiar.has(artist));
+    return getWaveArtistKeys(track).some((artist) => familiar.has(artist)) ? 0.5 : 1;
   }, []);
 
   const reorderVersionRef = useRef(0);
@@ -242,6 +251,7 @@ export function useWaveEngine({
               {
                 tasteRevision: readTastePolicy().revision,
                 source,
+                tasteTracks: tasteTracksRef.current,
                 recentTracks: recentPlayedTracksRef.current,
                 offeredTracks: waveMemory.offeredTracks(),
                 artistFeedback: Object.fromEntries(session.artistFeedback),
@@ -314,10 +324,22 @@ export function useWaveEngine({
                 ) {
                   continue;
                 }
-                waveMemory.recordOffered(filtered);
+                const addedIds = new Set(filtered.map((track) => String(track.id)));
+                const accepted = combined.filter((track) => addedIds.has(String(track.id)));
+                const attributed = attributeWaveBatch(
+                  accepted,
+                  mood,
+                  familiarArtistsRef.current,
+                  undefined,
+                  accepted.map((track) => combined.indexOf(track) - queueIndexRef.current - 1),
+                );
+                const byId = new Map(attributed.map((track) => [String(track.id), track]));
+                for (let i = 0; i < combined.length; i++)
+                  combined[i] = byId.get(String(combined[i].id)) || combined[i];
+                waveMemory.recordOffered(attributed);
                 queueRef.current = combined;
                 setQueue(combined);
-                acceptedCount = filtered.length;
+                acceptedCount = accepted.length;
               }
               break;
             }
@@ -399,10 +421,6 @@ export function useWaveEngine({
       }
       refreshWaveSession();
       const refresh = refreshPolicy.observe(track.id, playedSeconds, durationSeconds, reason);
-      if (playedSeconds < 2) {
-        if (refresh) void fetchWaveTracks('refresh');
-        return;
-      }
       waveMemory.recordPlayback(
         track,
         playedSeconds,
@@ -417,13 +435,13 @@ export function useWaveEngine({
         return;
       }
       const feedback = waveSession().artistFeedback;
-      decayWaveArtistFeedback(feedback);
       const reaction = getWavePlaybackFeedback(
         playedSeconds,
         durationSeconds,
         reason,
         waveMoodRef.current,
       );
+      if (reaction) decayWaveArtistFeedback(feedback);
       preferences.record(track, reaction, isNovelTrack(track), 'listen', waveMoodRef.current);
       if (reaction)
         for (const artist of artists) {
@@ -530,6 +548,7 @@ export function useWaveEngine({
       if (!isWaveActiveRef.current || isWaveStartingRef.current) return;
       refreshWaveSession();
       if (!eligibleTaste(track)) return;
+      markWaveLike(track);
       preferences.record(track, 1, isNovelTrack(track), 'like', waveMoodRef.current);
       refreshPolicy.accept();
       const feedback = waveSession().artistFeedback;
@@ -639,51 +658,52 @@ export function useWaveEngine({
       isWaveStartingRef.current = true;
 
       try {
-        const [fetched, profile] = await Promise.all([
-          platformBridge.getWaveBatch(
-            mood,
-            seedTrack
-              ? [seedTrack]
-              : [
-                  ...waveSession().positiveTracks,
-                  ...preferences.learnedTracks(eligibleTaste).slice(0, 6),
-                ],
-            waveMemory
-              .playedTracks()
-              .map((track) => track.id)
-              .concat(seedTrack ? [seedTrack.id] : []),
-            {
-              tasteRevision: readTastePolicy().revision,
-              source,
-              recentTracks: recentPlayedTracksRef.current,
-              offeredTracks: waveMemory.offeredTracks(),
-              artistFeedback: Object.fromEntries(waveSession().artistFeedback),
-              learnedTracks: preferences.learnedTracks(eligibleTaste),
-              discoveryAdjustment: preferences.discoveryAdjustment(waveMoodRef.current),
-              positiveTracks: waveSession().positiveTracks,
-              skippedTracks: waveSession().skippedTracks,
-            },
-            controller.signal,
-          ),
-          Promise.allSettled([platformBridge.getTasteProfile()]),
-        ]);
-        if (reqId !== waveRequestIdRef.current) return;
+        const profile = await Promise.allSettled([platformBridge.getTasteProfile()]);
+        if (reqId !== waveRequestIdRef.current || controller.signal.aborted) return;
         const currentProfile = profile[0];
         const data =
           currentProfile.status === 'fulfilled' &&
           currentProfile.value.revision === readTastePolicy().revision
             ? currentProfile.value
-            : { likes: [], artists: [] };
-        tasteTracksRef.current = data.likes
+            : { likes: [], artists: [], waveSeeds: [] as Track[] };
+        tasteTracksRef.current = (data.waveSeeds || data.likes)
           .map(normalizeWaveSeed)
           .filter((track): track is Track => Boolean(track && eligibleTaste(track)))
-          .slice(0, 48)
-          .map((track) => ({ ...track, waveSeedWeight: 2 }));
+          .slice(0, 54)
+          .map((track) => ({ ...track, waveSeedWeight: track.waveSeedWeight ?? 2 }));
         familiarArtistsRef.current = waveFamiliarArtists(
           data.likes,
           data.artists,
           preferences.learnedTracks(eligibleTaste),
         );
+        const fetched = await platformBridge.getWaveBatch(
+          mood,
+          seedTrack
+            ? [seedTrack]
+            : [
+                ...waveSession().positiveTracks,
+                ...preferences.learnedTracks(eligibleTaste).slice(0, 6),
+              ],
+          waveMemory
+            .playedTracks()
+            .map((track) => track.id)
+            .concat(seedTrack ? [seedTrack.id] : []),
+          {
+            tasteRevision: readTastePolicy().revision,
+            source,
+            tasteTracks: tasteTracksRef.current,
+            recentTracks: recentPlayedTracksRef.current,
+            offeredTracks: waveMemory.offeredTracks(),
+            artistFeedback: Object.fromEntries(waveSession().artistFeedback),
+            learnedTracks: preferences.learnedTracks(eligibleTaste),
+            discoveryAdjustment: preferences.discoveryAdjustment(waveMoodRef.current),
+            positiveTracks: waveSession().positiveTracks,
+            skippedTracks: waveSession().skippedTracks,
+          },
+          controller.signal,
+        );
+        if (reqId !== waveRequestIdRef.current || controller.signal.aborted) return;
+        knownRecordingsRef.current = new Set(recentPlayedTracksRef.current.map(recordingKey));
         const seedSong = seedTrack ? buildWaveSongIdentity(seedTrack) : null;
         const candidates = seedTrack
           ? fetched.filter(
@@ -698,7 +718,7 @@ export function useWaveEngine({
                 ),
             )
           : fetched;
-        const batch = await resequenceWaveQueueInWorker(
+        let batch = await resequenceWaveQueueInWorker(
           candidates.filter(
             (track) => matchesWaveSource(track, source) && !isYouTubeItemDisabled(track),
           ),
@@ -715,6 +735,7 @@ export function useWaveEngine({
         );
         if (reqId !== waveRequestIdRef.current) return;
         if (batch && batch.length > 0) {
+          batch = attributeWaveBatch(batch, mood, familiarArtistsRef.current);
           waveMemory.recordOffered(batch);
           setIsWaveStarting(false);
           isWaveStartingRef.current = false;
@@ -825,11 +846,11 @@ export function useWaveEngine({
       .getTasteProfile()
       .then((data) => {
         if (disposed || data.revision !== readTastePolicy().revision) return;
-        tasteTracksRef.current = data.likes
+        tasteTracksRef.current = (data.waveSeeds || data.likes)
           .map(normalizeWaveSeed)
           .filter((track): track is Track => Boolean(track && eligibleTaste(track)))
-          .slice(0, 48)
-          .map((track) => ({ ...track, waveSeedWeight: 2 }));
+          .slice(0, 54)
+          .map((track) => ({ ...track, waveSeedWeight: track.waveSeedWeight ?? 2 }));
         familiarArtistsRef.current = waveFamiliarArtists(
           data.likes,
           data.artists,

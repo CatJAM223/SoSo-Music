@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const directory = path.join(root, 'scratch/startup-sensitivity');
 fs.mkdirSync(directory, { recursive: true });
-// hookRuntime reads the complete production hook. Transform only that read in
+// playbackEngineRuntime reads the complete production engine. Transform only that read in
 // each child process, keeping the real source and the remaining dependency graph intact.
 const loader = path.join(directory, 'mutate-hook.mjs');
 fs.writeFileSync(
@@ -17,12 +17,12 @@ import { syncBuiltinESMExports } from 'node:module';
 const read = fs.readFileSync;
 fs.readFileSync = function(file, ...args) {
   const source = read.call(this, file, ...args);
-  if (!String(file).replaceAll('\\\\', '/').endsWith('/src/shared/hooks/useAudioPlayerCore.ts')) return source;
+  if (!String(file).replaceAll('\\\\', '/').endsWith('/src/shared/services/playbackEngine.ts')) return source;
   let changed;
   if (process.env.SOSO_STARTUP_MUTATION === 'cancel-prefetch') {
-    changed = source.replace(/audioCacheService\\.setPlaybackBuffering\\(\\s*true,\\s*rejectedStreamTracksRef[\\s\\S]*?\\n      \\);/, 'audioCacheService.setPlaybackBuffering(true);');
+    changed = source.replace(/audioCacheService\\.setPlaybackBuffering\\(\\s*true,\\s*rejectedStreamTracksRef[\\s\\S]*?\\n    \\);/, 'audioCacheService.setPlaybackBuffering(true);');
   } else {
-    const anchor = '        loadStreamIntoAudio(audio, mainHlsRef, cachedSource.url, startPosition, false, track.id);';
+    const anchor = '      loadStreamIntoAudio(audio, mainHlsRef, cachedSource.url, startPosition, false, track.id);';
     changed = source.replace(anchor, '        await offlineCacheService.getCachedCoverUrl(track.id);\\n' + anchor);
   }
   if (changed === source) throw Error('Startup mutation anchor missing');

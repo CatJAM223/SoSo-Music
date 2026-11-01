@@ -235,11 +235,25 @@ export class LibraryTasteService {
     return tracks.map((track) => {
       const identity = { title: track.title || '', artist: track.artist?.name || '' };
       const trackGenres = entries.get(libraryTasteKey(identity))?.genres;
+      const hasTrackEvidence =
+        track.waveMetadataScope !== 'artist' &&
+        libraryGenreNames([track.genre || '', ...(track.tags || [])]).length > 0;
       const genres = trackGenres?.length
         ? trackGenres
-        : entries.get(ARTIST_PREFIX + libraryArtistKey(identity.artist))?.genres || [];
+        : hasTrackEvidence
+          ? []
+          : entries.get(ARTIST_PREFIX + libraryArtistKey(identity.artist))?.genres || [];
       return genres.length
-        ? { ...track, tags: [...new Set([...genres, ...(track.tags || [])])].slice(0, 16) }
+        ? {
+            ...track,
+            waveMetadataScope:
+              trackGenres?.length ||
+              (track.waveMetadataScope !== 'artist' &&
+                libraryGenreNames([track.genre || '', ...(track.tags || [])]).length)
+                ? 'track'
+                : 'artist',
+            tags: [...new Set([...genres, ...(track.tags || [])])].slice(0, 16),
+          }
         : track;
     });
   }
@@ -255,10 +269,12 @@ export class LibraryTasteService {
           .filter(Boolean),
       ),
     ].slice(0, 12);
+    const enrichmentSignal = requestSignal(signal, 1500);
     const replies = await mapConcurrentSettled(
       artists,
       async (artist) => {
-        const info = await LastFmService.getArtistInfo(artist, requestSignal(signal, 1500));
+        enrichmentSignal.throwIfAborted();
+        const info = await LastFmService.getArtistInfo(artist, enrichmentSignal);
         return libraryGenreNames(info?.tags || []);
       },
       3,
@@ -274,6 +290,7 @@ export class LibraryTasteService {
       genres.get(track.artist?.name)?.length
         ? {
             ...track,
+            waveMetadataScope: 'artist' as const,
             tags: [
               ...new Set([...(genres.get(track.artist.name) || []), ...(track.tags || [])]),
             ].slice(0, 16),

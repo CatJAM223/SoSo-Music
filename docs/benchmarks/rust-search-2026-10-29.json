@@ -1,0 +1,91 @@
+{
+  "node": "v24.19.0",
+  "abi": 7,
+  "method": "31 alternating paired warm samples, 5 complete calls each; includes metadata preparation, packing, WASM, copying and index mapping. Previous TS implementation vs Rust scoring with invocation-local metadata caches. Synthetic fixed inputs, no provider latency or WASM startup.",
+  "rows": [
+    {
+      "count": 30,
+      "query": "love",
+      "distinctMetadata": false,
+      "previous": {
+        "medianMs": 0.06426000000000158,
+        "p95Ms": 0.1559800000000024
+      },
+      "current": {
+        "medianMs": 0.06577999999999803,
+        "p95Ms": 0.1264399999999995
+      },
+      "medianSpeedup": 0.9768926725448996
+    },
+    {
+      "count": 200,
+      "query": "love",
+      "distinctMetadata": false,
+      "previous": {
+        "medianMs": 0.4006799999999998,
+        "p95Ms": 0.558680000000004
+      },
+      "current": {
+        "medianMs": 0.29903999999999653,
+        "p95Ms": 0.39791999999999916
+      },
+      "medianSpeedup": 1.339887640449453
+    },
+    {
+      "count": 200,
+      "query": "Radiohead - Paranoid Android",
+      "distinctMetadata": false,
+      "previous": {
+        "medianMs": 1.1160399999999981,
+        "p95Ms": 1.4546399999999948
+      },
+      "current": {
+        "medianMs": 0.452579999999989,
+        "p95Ms": 0.5587199999999939
+      },
+      "medianSpeedup": 2.465950771134441
+    },
+    {
+      "count": 2000,
+      "query": "Radiohead - Paranoid Android",
+      "distinctMetadata": false,
+      "previous": {
+        "medianMs": 10.79115999999999,
+        "p95Ms": 11.231740000000013
+      },
+      "current": {
+        "medianMs": 3.2857399999999872,
+        "p95Ms": 4.1161200000000004
+      },
+      "medianSpeedup": 3.284240384205699
+    },
+    {
+      "count": 2000,
+      "query": "love",
+      "distinctMetadata": true,
+      "previous": {
+        "medianMs": 4.073199999999997,
+        "p95Ms": 4.232960000000003
+      },
+      "current": {
+        "medianMs": 4.50697999999993,
+        "p95Ms": 5.002620000000024
+      },
+      "medianSpeedup": 0.9037537330984518
+    },
+    {
+      "count": 2000,
+      "query": "Radiohead - Paranoid Android",
+      "distinctMetadata": true,
+      "previous": {
+        "medianMs": 11.565740000000005,
+        "p95Ms": 12.45025999999998
+      },
+      "current": {
+        "medianMs": 9.135980000000018,
+        "p95Ms": 9.4115600000001
+      },
+      "medianSpeedup": 1.2659550480627129
+    }
+  ]
+}

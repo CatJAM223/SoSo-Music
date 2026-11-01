@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import {
   initializeRustCompute,
   createWaveSongMatrix,
+  compareWaveSongBatch,
+  createSongDeduplicator,
 } from '../src/shared/compute/waveSongMatrix.ts';
 import { buildWaveSongIdentity } from '../src/shared/utils/waveIdentity.ts';
 import { areSameWaveSong } from './fixtures/waveBeforeFullRust.mjs';
@@ -97,6 +99,41 @@ const track = (i, title, artist) => ({
   duration: 120 + (i % 260),
   source: i % 2 ? 'youtube' : 'soundcloud',
 });
+
+test('Batched directed comparisons agree with individual matching for Unicode and version edges', () => {
+  const songs = Array.from({ length: 80 }, (_, i) => printSong(i));
+  for (const right of songs) {
+    for (let start = 0; start < songs.length; start += 64) {
+      const left = songs.slice(start, start + 64);
+      const flags = compareWaveSongBatch(left, right);
+      assert.deepEqual(
+        [...flags].map((value) => Boolean(value & 1)),
+        left.map((song) => areSameWaveSong(song, right)),
+      );
+    }
+  }
+  assert.throws(() => compareWaveSongBatch([], songs[0]), /batch size/);
+  assert.throws(() => compareWaveSongBatch(songs, songs[0]), /batch size/);
+});
+
+test('Batched deduplication preserves conditional acceptance and independent interleaved consumers', () => {
+  const songs = Array.from({ length: 96 }, (_, i) => printSong(i));
+  const dedupers = [
+    createSongDeduplicator(songs, (song) => song),
+    createSongDeduplicator(songs, (song) => song),
+  ];
+  const accepted = [[], []];
+  for (let i = 0; i < songs.length; i++) {
+    for (let consumer = 0; consumer < 2; consumer++) {
+      const duplicate = accepted[consumer].some((old) => areSameWaveSong(songs[old], songs[i]));
+      assert.equal(dedupers[consumer].hasDuplicate(i), duplicate);
+      if (!duplicate && i % (consumer + 3) !== 0) {
+        dedupers[consumer].accept(i);
+        accepted[consumer].push(i);
+      }
+    }
+  }
+});
 function scenario(count, historyCount) {
   const words = [
     'Golden Horizon',
@@ -173,7 +210,7 @@ test('Actual Rust ABI rejects malformed input and has no imported host capabilit
   assert.deepEqual(WebAssembly.Module.imports(module), []);
   const instance = await WebAssembly.instantiate(module),
     e = instance.exports;
-  assert.equal(e.abi_version(), 4);
+  assert.equal(e.abi_version(), 7);
   assert.throws(() => e.memory.grow(1025), RangeError, 'WASM memory is capped at 64 MiB');
   assert.equal(e.reserve(8 * 1024 * 1024 + 1), 0);
   assert.equal(e.calculate(8 * 1024 * 1024 + 1), -1);
@@ -195,6 +232,7 @@ test('Generated Rust artifact matches the current source and build settings', ()
     'src/lib.rs',
     'src/ranking.rs',
     'src/sequence.rs',
+    'src/search.rs',
     'src/import_match.rs',
     'src/loudness.rs',
     'src/demux.rs',
@@ -213,7 +251,7 @@ test('Generated Rust artifact matches the current source and build settings', ()
   );
   assert.equal(metadata.sourceSha256, hash.digest('hex'));
   assert.equal(metadata.wasmSha256, crypto.createHash('sha256').update(bytes).digest('hex'));
-  assert.equal(metadata.abi, 4);
+  assert.equal(metadata.abi, 7);
   assert.equal(
     metadata.workletSha256,
     crypto

@@ -56,6 +56,7 @@ export function selectPlaylistWaveSeeds(
       ids.add(String(candidate.id));
       selected.push({
         id: candidate.id,
+        recordingId: candidate.recordingId,
         title: candidate.title,
         artist: { name: candidate.artist.name },
         album: waveSeedArtwork(candidate),
@@ -90,6 +91,7 @@ export function mergeWaveTasteSeeds(
     artists.forEach((key) => artistCounts.set(key, (artistCounts.get(key) || 0) + 1));
     strong.push({
       id: track.id,
+      recordingId: track.recordingId,
       title: track.title,
       artist: { name: track.artist.name },
       album: waveSeedArtwork(track),

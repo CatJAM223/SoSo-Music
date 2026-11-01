@@ -1,3 +1,4 @@
+import { recordResolvedAlias } from './recordingCatalog.ts';
 import {
   assertStreamResolveActive,
   currentStreamResolveSignal,
@@ -723,101 +724,6 @@ export class SoundCloudService {
     return null;
   }
 
-  /**
-   * Scores and matches best track candidate against target track
-   */
-  public static findBestTrackMatch(
-    targetTrack: { title?: string; artist?: any; duration?: number },
-    collection: any[],
-  ): any | null {
-    if (!Array.isArray(collection) || collection.length === 0) return null;
-
-    const targetTitle = (targetTrack.title || '').toLowerCase().trim();
-    const targetArtist = (
-      typeof targetTrack.artist === 'object' ? targetTrack.artist?.name : targetTrack.artist || ''
-    )
-      .toLowerCase()
-      .trim();
-    const targetDuration = Number(targetTrack.duration) > 0 ? Number(targetTrack.duration) : 180;
-
-    let bestItem = null;
-    let highestScore = -999;
-
-    for (const item of collection) {
-      if (!item || !item.id || !item.title) continue;
-
-      // Skip tracks with blocked policy, Go+ subscription paywall, or explicitly empty transcodings
-      if (isSoundCloudRestrictedTrack(item)) continue;
-      if (
-        item.media &&
-        Array.isArray(item.media.transcodings) &&
-        item.media.transcodings.length === 0
-      )
-        continue;
-
-      const itemTitle = (item.title || '').toLowerCase();
-      const itemArtist = (
-        typeof item.artist === 'object'
-          ? item.artist?.name
-          : item.artist || item.user?.username || ''
-      ).toLowerCase();
-
-      const rawDur = Number(item.duration) || 0;
-      const itemDuration = rawDur > 1000 ? Math.round(rawDur / 1000) : Math.round(rawDur);
-
-      if (targetDuration > 60 && itemDuration <= 35) continue;
-
-      let score = 100;
-
-      // Duration penalty
-      const durDiff = Math.abs(itemDuration - targetDuration);
-      if (durDiff > 15) {
-        score -= durDiff * 2;
-      }
-
-      // Title matching
-      if (itemTitle.includes(targetTitle)) {
-        score += 30;
-      }
-
-      // Artist matching
-      if (targetArtist && (itemArtist.includes(targetArtist) || itemTitle.includes(targetArtist))) {
-        score += 40;
-      }
-
-      // Transcodings availability bonus
-      if (
-        item.media &&
-        Array.isArray(item.media.transcodings) &&
-        item.media.transcodings.length > 0
-      ) {
-        score += 10;
-      }
-
-      // Reject unwanted covers / slowed / nightcore unless target asked for it
-      const unwantedKeywords = [
-        'slowed',
-        'reverb',
-        'nightcore',
-        'cover',
-        'instrumental',
-        'karaoke',
-      ];
-      for (const kw of unwantedKeywords) {
-        if (itemTitle.includes(kw) && !targetTitle.includes(kw)) {
-          score -= 60;
-        }
-      }
-
-      if (score > highestScore) {
-        highestScore = score;
-        bestItem = item;
-      }
-    }
-
-    return bestItem;
-  }
-
   private static streamCache = new Map<string, { url: string; expiresAt: number }>();
   private static STREAM_CACHE_TTL = 7 * 60 * 1000; // 7 minutes TTL for signed CDN URLs
 
@@ -952,6 +858,7 @@ export class SoundCloudService {
                   this.resolveFullStreamUrl(candidate, options, false),
                 );
                 if (!replacement) continue;
+                recordResolvedAlias(track, candidate);
                 if (this.streamCache.size >= this.MAX_CACHE_SIZE)
                   this.streamCache.delete(this.streamCache.keys().next().value!);
                 this.streamCache.set(cacheKey, {
@@ -1149,49 +1056,6 @@ export class SoundCloudService {
    */
   public static extractPlaylistCover(p: any, fallbackUserAvatar?: string): string {
     return extractPlaylistCover(p, fallbackUserAvatar);
-  }
-
-  public static resolveTrackAlbums(tracks: any[], playlists: any[]): any[] {
-    if (!Array.isArray(tracks)) return [];
-    const trackIdToAlbumMap = new Map<
-      string | number,
-      { id: number | string; title: string; cover: string }
-    >();
-
-    if (Array.isArray(playlists)) {
-      for (const pl of playlists) {
-        if (!pl || !pl.id) continue;
-        const albumTitle = pl.title || '';
-        const albumCover = SoundCloudService.extractPlaylistCover(pl, pl.user?.avatar_url);
-
-        if (Array.isArray(pl.tracks)) {
-          for (const t of pl.tracks) {
-            if (!t || !t.id) continue;
-            trackIdToAlbumMap.set(t.id, {
-              id: pl.id,
-              title: albumTitle,
-              cover: albumCover,
-            });
-          }
-        }
-      }
-    }
-
-    return tracks.map((t) => {
-      const match = trackIdToAlbumMap.get(t.id);
-      if (match) {
-        return {
-          ...t,
-          album: {
-            id: match.id,
-            title: match.title,
-            cover: match.cover,
-            cover_medium: match.cover,
-          },
-        };
-      }
-      return t;
-    });
   }
 
   /**
@@ -1600,59 +1464,6 @@ export class SoundCloudService {
       next = typeof response.next_href === 'string' ? response.next_href : '';
     }
     return { collection };
-  }
-
-  public static async getGenreList(): Promise<{ data: Genre[] }> {
-    return await this.getGenres();
-  }
-
-  public static async getAlbum(id: string | number): Promise<Album | null> {
-    const cleanId = String(id).replace(/^(sc_alb_|sc_)/, '');
-    if (!/^\d+$/.test(cleanId)) return null;
-    try {
-      const clientId = await this.getSoundCloudKey();
-      const p = await this.fetchWithRelay(
-        `https://api-v2.soundcloud.com/playlists/${cleanId}?client_id=${clientId}`,
-      );
-      if (!p || !p.id) return null;
-      const cover = this.extractPlaylistCover(p, p.user?.avatar_url);
-      const trkCount = p.track_count || (p.tracks ? p.tracks.length : 0);
-      const rawSetType = (p.set_type || '').toLowerCase();
-      let recordType: 'album' | 'ep' | 'single' | 'compilation' = 'album';
-      if (rawSetType === 'ep' || (trkCount >= 2 && trkCount <= 5)) {
-        recordType = 'ep';
-      } else if (rawSetType === 'single' || trkCount === 1) {
-        recordType = 'single';
-      } else if (rawSetType === 'compilation') {
-        recordType = 'compilation';
-      }
-
-      return {
-        id: p.id,
-        title: fixMojibake(p.title),
-        cover: cover,
-        cover_medium: cover,
-        cover_big: cover,
-        cover_xl: cover,
-        release_date: p.release_date || p.created_at,
-        record_type: recordType,
-        track_count: trkCount,
-        artist: {
-          id: `sc_art_${p.user?.id}`,
-          name: fixMojibake(p.user?.username) || 'Unknown Artist',
-        },
-      };
-    } catch (e) {
-      return null;
-    }
-  }
-
-  public static hydratePlaylistTracks(
-    playlistTracks: any[],
-    fullTracksMap: Map<number | string, any>,
-    albumInfo?: { id: number | string; title: string; cover: string },
-  ): Track[] {
-    return hydrateSoundCloudPlaylistTracks(playlistTracks, fullTracksMap, albumInfo);
   }
 
   private static async fetchPlaylistTracksById(

@@ -1,3 +1,4 @@
+import { recordingKey } from '../types/musicDomain.ts';
 import type { Track, WaveMood } from '../types/index.ts';
 import type { WaveQueueOptions } from '../utils/waveQueue.ts';
 import {
@@ -70,7 +71,7 @@ export function sequenceWaveIndices(
         profile.energy,
         profile.styles.size,
         ...[...profile.styles].map(styles.id),
-        ids.id(String(track.id)),
+        ids.id(recordingKey(track)),
         Number(track.waveSeedWeight === 2),
       );
     }

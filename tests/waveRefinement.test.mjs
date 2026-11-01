@@ -33,6 +33,27 @@ const storage = () => {
   };
 };
 
+test('brief auditions expire after thirty minutes while substantial listens survive for a day', () => {
+  const saved = storage();
+  let now = 100000;
+  const memory = createWaveMemory(saved, () => now);
+  memory.recordPlayback(track('brief', 'First artist'), 2);
+  memory.recordPlayback(track('substantial', 'Second artist'), 100);
+  now += 30 * 60 * 1000 + 1;
+  assert.deepEqual(
+    memory.playedTracks().map((t) => t.id),
+    ['substantial'],
+  );
+  assert.deepEqual(
+    createWaveMemory(saved, () => now)
+      .playedTracks()
+      .map((t) => t.id),
+    ['substantial'],
+  );
+  now += 24 * 60 * 60 * 1000;
+  assert.deepEqual(memory.playedTracks(), []);
+});
+
 test('Played memory survives reload while offered songs do not become played; caches contain only identity', () => {
   const saved = storage();
   let now = 100000;
@@ -48,7 +69,7 @@ test('Played memory survives reload while offered songs do not become played; ca
   memory.recordOffered([heard, proposed]);
   assert.equal(memory.playedTracks().length, 0);
   assert.equal(memory.recordPlayback(heard, 0), false);
-  assert.equal(memory.recordPlayback(heard, 1), false);
+  assert.equal(memory.recordPlayback(heard, 0.49), false);
   assert.equal(memory.recordPlayback(heard, 5), true);
   const restored = createWaveMemory(saved, () => now);
   assert.deepEqual(
@@ -64,7 +85,7 @@ test('Played memory survives reload while offered songs do not become played; ca
   assert.ok(!raw.includes('huge image'));
   now += WAVE_OFFERED_TTL + 1;
   assert.equal(restored.offeredTracks().length, 0);
-  assert.equal(restored.playedTracks().length, 1);
+  assert.equal(restored.playedTracks().length, 0);
   now += WAVE_PLAYED_TTL;
   assert.equal(restored.playedTracks().length, 0);
 });

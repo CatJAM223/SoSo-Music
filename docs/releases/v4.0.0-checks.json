@@ -1,0 +1,217 @@
+{
+  "version": "4.0.0",
+  "date": "2026-11-01",
+  "checksPassed": 30,
+  "checks": [
+    {
+      "label": "Code style",
+      "entry": "node_modules/prettier/bin/prettier.cjs",
+      "status": 0,
+      "signal": null,
+      "log": "code-style.log"
+    },
+    {
+      "label": "TypeScript",
+      "entry": "node_modules/@typescript/native/bin/tsc",
+      "status": 0,
+      "signal": null,
+      "log": "typescript.log"
+    },
+    {
+      "label": "Architecture",
+      "entry": "scripts/architecture/checkBoundaries.cjs",
+      "status": 0,
+      "signal": null,
+      "log": "architecture.log"
+    },
+    {
+      "label": "Rust listening room domain",
+      "entry": "scripts/native/buildListeningRooms.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "rust-listening-room-domain.log"
+    },
+    {
+      "label": "Rust listening room relay integration",
+      "entry": "scripts/testing/testListeningRooms.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "rust-listening-room-relay-integration.log"
+    },
+    {
+      "label": "Listening room UI",
+      "entry": "scripts/testing/testListeningRoomUi.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "listening-room-ui.log"
+    },
+    {
+      "label": "Two Electron players through Rust relay",
+      "entry": "scripts/testing/testListeningRoomPlayback.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "two-electron-players-through-rust-relay.log"
+    },
+    {
+      "label": "Release metadata",
+      "entry": "scripts/release/checkRelease.cjs",
+      "status": 0,
+      "signal": null,
+      "log": "release-metadata.log"
+    },
+    {
+      "label": "Node behavior",
+      "entry": "tests/runAllTests.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "node-behavior.log"
+    },
+    {
+      "label": "Test sensitivity",
+      "entry": "scripts/testing/testTestSensitivity.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "test-sensitivity.log"
+    },
+    {
+      "label": "Playback startup sensitivity",
+      "entry": "scripts/testing/testPlaybackStartupSensitivity.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "playback-startup-sensitivity.log"
+    },
+    {
+      "label": "React player state",
+      "entry": "scripts/testing/testPlayerState.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "react-player-state.log"
+    },
+    {
+      "label": "Production main and preload wiring",
+      "entry": "scripts/testing/testDesktopBootstrap.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "production-main-and-preload-wiring.log"
+    },
+    {
+      "label": "Native crash recovery and local reports",
+      "entry": "scripts/testing/testDesktopBootstrap.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "native-crash-recovery-and-local-reports.log"
+    },
+    {
+      "label": "Selected media file access",
+      "entry": "scripts/testing/testMediaFileAccess.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "selected-media-file-access.log"
+    },
+    {
+      "label": "Desktop UI",
+      "entry": "scripts/testing/testDesktopUi.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "desktop-ui.log"
+    },
+    {
+      "label": "YouTube local login fixture",
+      "entry": "scripts/testing/testYouTubeLogin.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "youtube-local-login-fixture.log"
+    },
+    {
+      "label": "Audio transitions",
+      "entry": "scripts/testing/testAudioTransitions.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "audio-transitions.log"
+    },
+    {
+      "label": "Playback normalization and shared audio graph",
+      "entry": "scripts/testing/testPlaybackQuality.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "playback-normalization-and-shared-audio-graph.log"
+    },
+    {
+      "label": "Startup screen",
+      "entry": "scripts/testing/testStartupScreen.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "startup-screen.log"
+    },
+    {
+      "label": "Required compute startup recovery",
+      "entry": "scripts/testing/testComputeStartup.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "required-compute-startup-recovery.log"
+    },
+    {
+      "label": "Equalizer",
+      "entry": "scripts/testing/testEqualizer.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "equalizer.log"
+    },
+    {
+      "label": "UI interactions",
+      "entry": "scripts/testing/testUiInteractions.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "ui-interactions.log"
+    },
+    {
+      "label": "Settings lifecycle",
+      "entry": "scripts/testing/testSettingsLifecycle.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "settings-lifecycle.log"
+    },
+    {
+      "label": "UI rendering bounds",
+      "entry": "scripts/testing/testUiResponsiveness.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "ui-rendering-bounds.log"
+    },
+    {
+      "label": "Background resource lifecycle",
+      "entry": "scripts/testing/testBackgroundMemory.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "background-resource-lifecycle.log"
+    },
+    {
+      "label": "Widget resource isolation",
+      "entry": "scripts/testing/testWidgetResources.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "widget-resource-isolation.log"
+    },
+    {
+      "label": "Compact overlay resources",
+      "entry": "scripts/testing/testOverlayResources.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "compact-overlay-resources.log"
+    },
+    {
+      "label": "Rust in Chromium",
+      "entry": "scripts/testing/testRustComputeBrowser.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "rust-in-chromium.log"
+    },
+    {
+      "label": "Integration test sensitivity",
+      "entry": "scripts/testing/testIntegrationSensitivity.mjs",
+      "status": 0,
+      "signal": null,
+      "log": "integration-test-sensitivity.log"
+    }
+  ]
+}

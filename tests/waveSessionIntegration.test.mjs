@@ -1,3 +1,5 @@
+import { recordingKey } from '../src/shared/types/musicDomain.ts';
+import * as quality from '../src/shared/services/waveQuality.ts';
 import { isTasteEligible } from '../src/shared/utils/tastePolicy.ts';
 import { stripModuleImports } from './helpers/sourceInspection.mjs';
 import {
@@ -80,6 +82,8 @@ function waveHarness(
     normalizeWaveSource,
     readWaveSource: () => 'all',
     saveWaveSource,
+    recordingKey,
+    ...quality,
     ...identity,
     ...queue,
     ...feedback,
@@ -214,10 +218,10 @@ test('Switching mode retains listening history but restores only that mode tempo
 
 test('Persistent taste records manual skips but keeps media-error transitions neutral', () => {
   const source = readFileSync(
-    new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
+    new URL('../src/shared/services/playbackEngine.ts', import.meta.url),
     'utf8',
   );
-  const start = source.indexOf('  const finishPlaybackSession = useCallback(');
+  const start = source.indexOf('  const finishPlaybackSession = (');
   const end = source.indexOf('  // A network failure is not a dislike', start);
   for (const [errorRequest, expectedSkip] of [
     [7, false],
@@ -227,6 +231,7 @@ test('Persistent taste records manual skips but keeps media-error transitions ne
     const writes = [];
     const sandbox = vm.createContext({
       useCallback: (fn) => fn,
+      qualityEpisode: null,
       samplePlayback: () => {},
       playbackSessionRef: {
         current: { track: song('one', 'Artist', 'A'), playedSeconds: 7, finalized: false },
@@ -290,10 +295,10 @@ test('Opening wave, failed starts and liking a queued song never pretend it was 
 
 test('The real audio sampler observes measured progress and never counts seeking as heard time', () => {
   const source = readFileSync(
-    new URL('../src/shared/hooks/useAudioPlayerCore.ts', import.meta.url),
+    new URL('../src/shared/services/playbackEngine.ts', import.meta.url),
     'utf8',
   );
-  const start = source.indexOf('  const samplePlayback = useCallback('),
+  const start = source.indexOf('  const samplePlayback = ('),
     end = source.indexOf('  const savePlaybackSession', start);
   const memory = createWaveMemory({ getItem: () => null, setItem() {} });
   let now = 0;
@@ -324,7 +329,7 @@ test('The real audio sampler observes measured progress and never counts seeking
   audio.currentTime = 81;
   now = 2000;
   ctx.sample(audio);
-  assert.equal(memory.playedTracks().length, 0);
+  assert.equal(memory.playedTracks().length, 1);
   audio.currentTime = 82;
   now = 3000;
   ctx.sample(audio);
@@ -841,17 +846,11 @@ test('Refresh failures and empty replies retain all queued music and release the
   }
 });
 
-test('Immediate manual skips can refresh the pool without pretending the songs were heard or disliked', async () => {
-  const response = deferredBatch();
-  const h = waveHarness([selection('initial'), () => response.promise]);
+test('Immediate navigation skips do not trigger catalog refresh or fabricate taste evidence', async () => {
+  const h = waveHarness([selection('initial')]);
   await h.api.startWave();
   for (let i = 0; i < 3; i++) skipCurrent(h, 0);
-  assert.equal(h.calls.length, 2);
-  assert.equal(h.calls[1][3].skippedTracks.length, 0);
-  assert.equal(h.calls[1][3].recentTracks.length, 0);
-  assert.deepEqual(Object.keys(h.calls[1][3].artistFeedback), []);
-  response.resolve(selection('fresh'));
-  await h.api.fetchMoreWaveTracks();
+  assert.equal(h.calls.length, 1);
 });
 
 test('Discovery skips stay in discovery after switching modes, including cancellation of a running refresh', async () => {
@@ -992,4 +991,31 @@ test('A delayed worker response cannot overwrite a queue after wave stop', async
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(h.queueRef.current, replacement);
   h.unmount();
+});
+
+test('Refill exposure remembers only candidates retained by the final worker sequence', async () => {
+  let computations = 0;
+  const kept = song('keep', 'New One', 'Silver'),
+    dropped = song('drop', 'New Two', 'Garden');
+  const h = waveHarness(
+    [[song('current', 'Known')], [kept, dropped]],
+    [],
+    undefined,
+    Date.now,
+    undefined,
+    async (...args) => {
+      computations++;
+      return computations === 1 ? args[0] : args[0].filter((track) => track.id !== 'drop');
+    },
+  );
+  await h.api.startWave();
+  await h.api.fetchMoreWaveTracks();
+  await h.api.fetchMoreWaveTracks();
+  const offered = h.calls[2][3].offeredTracks;
+  assert.ok(offered.some((track) => track.id === 'keep'));
+  assert.ok(!offered.some((track) => track.id === 'drop'));
+  assert.equal(
+    h.queueRef.current.some((track) => track.id === 'drop'),
+    false,
+  );
 });

@@ -5,6 +5,7 @@ interface WaveRequestOwner {
 
 /** Cancellation is scoped to the sending WebContents, never to a global renderer-supplied ID. */
 export class WaveBatchRequestRegistry {
+  private sequence = 0;
   private owners = new Map<
     WaveRequestOwner,
     { requests: Map<string, AbortController>; destroyed: () => void }
@@ -12,8 +13,8 @@ export class WaveBatchRequestRegistry {
 
   begin(owner: WaveRequestOwner, requestId?: unknown): { signal: AbortSignal; finish: () => void } {
     const controller = new AbortController();
-    // Older preload callers have no cancellation ID and retain the existing invocation contract.
-    if (requestId === undefined) return { signal: controller.signal, finish: () => {} };
+    // Legacy callers still own a counted, cancellable operation.
+    if (requestId === undefined) requestId = 'legacy:' + ++this.sequence;
     if (typeof requestId !== 'string' || !requestId || requestId.length > 128)
       throw new Error('Invalid wave request ID');
     let state = this.owners.get(owner);

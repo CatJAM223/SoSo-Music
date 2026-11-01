@@ -4,7 +4,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseManager } from '../src/desktop/main/db/index.ts';
 import {
-  formatCacheSizeBytes,
   toMetaRecord,
   getPossibleKeyVariants,
   parseHlsSegments,
@@ -275,9 +274,6 @@ test('Phases: Offline Cache Record Size Accounting with Cover Blob', () => {
   const coverBlobSize = 120 * 1024; // 120 KB
   const totalSizeBytes = audioBlobSize + coverBlobSize;
 
-  const formattedMb = formatCacheSizeBytes(totalSizeBytes);
-  assert.equal(formattedMb, '4.1');
-
   const meta = toMetaRecord({
     trackId: 'sc_123',
     title: 'Song Name',
@@ -286,7 +282,6 @@ test('Phases: Offline Cache Record Size Accounting with Cover Blob', () => {
   });
   assert.equal(meta.trackId, 'sc_123');
   assert.equal(meta.sizeBytes, totalSizeBytes);
-  assert.equal(formatCacheSizeBytes(meta.sizeBytes), '4.1');
 });
 
 test('Phases: Offline Cache Key Normalization & Prefix Resolution', () => {
