@@ -60,6 +60,8 @@ import {
 
 export { parseDuration, cleanYTTitle };
 
+class YouTubeAudioSessionChanged extends Error {}
+
 function containsAnyPhrase(value: string, phrases: string[]): boolean {
   const normalizedValue = ` ${value
     .toLocaleLowerCase()
@@ -350,7 +352,7 @@ export class YouTubeMusicService {
         if (blocked && Date.now() < blocked.expiresAt) throw new Error(blocked.code);
         if (blocked) this.audioAccessFailures.delete(cleanVid);
         return await streamWait(
-          this.requestSharedAudioStream(cleanVid, isRetry, forceRefresh, formatOptions),
+          this.requestCurrentAudioStream(cleanVid, isRetry, forceRefresh, formatOptions),
         );
       } catch (error) {
         assertStreamResolveActive();
@@ -375,7 +377,7 @@ export class YouTubeMusicService {
         }
         try {
           const url = await streamWait(
-            this.requestSharedAudioStream(cleanVid, true, false, formatOptions),
+            this.requestCurrentAudioStream(cleanVid, true, false, formatOptions),
           );
           PlaybackLogger.info(
             '[YouTubeMusic:Session] Playback retry completed' +
@@ -397,6 +399,25 @@ export class YouTubeMusicService {
     } finally {
       if (this.audioStreamRequests.get(key) === request) this.audioStreamRequests.delete(key);
     }
+  }
+
+  private static async requestCurrentAudioStream(
+    videoId: string,
+    isRetry: boolean,
+    forceRefresh: boolean,
+    options: StreamResolveOptions,
+  ): Promise<string> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await this.requestSharedAudioStream(videoId, isRetry, forceRefresh, options);
+      } catch (error) {
+        assertStreamResolveActive();
+        if (!(error instanceof YouTubeAudioSessionChanged)) throw error;
+        if (attempt === 0 && this.sessionRecoveryRequest)
+          await streamShared(() => this.sessionRecoveryRequest);
+      }
+    }
+    throw createStreamResolveError('provider');
   }
 
   /** Playback and prefetch share transport work even though only playback may recover the session. */
@@ -469,9 +490,9 @@ export class YouTubeMusicService {
         );
       } catch (error) {
         assertStreamResolveActive();
-        if (getStreamResolveFailure(error)) throw error;
         // Never use a result belonging to an account that changed during resolution.
-        if (epoch !== this.sessionEpoch) throw new Error('YOUTUBE_AUDIO_LOGIN_REQUIRED');
+        if (epoch !== this.sessionEpoch) throw new YouTubeAudioSessionChanged();
+        if (getStreamResolveFailure(error)) throw error;
         if (error instanceof Error && getYouTubeAudioAccessError(error) === 'age-restricted') {
           this.audioAccessFailures.set(cleanVid, {
             code: error.message,
@@ -494,13 +515,14 @@ export class YouTubeMusicService {
           '[YouTubeMusic] Account stream unavailable; trying anonymous playback for ' + cleanVid,
         );
       }
+      if (epoch !== this.sessionEpoch) throw new YouTubeAudioSessionChanged();
       if (
         accountStream?.audioIncludesVideo &&
         accountStream.audioContainer === 'progressive' &&
         !accountStream.deliveryVerified
       ) {
         const playable = await streamWait(this.checkAccountMediaUrl(accountStream.url, 'audio'));
-        if (epoch !== this.sessionEpoch) throw new Error('YOUTUBE_AUDIO_LOGIN_REQUIRED');
+        if (epoch !== this.sessionEpoch) throw new YouTubeAudioSessionChanged();
         if (!playable) {
           PlaybackLogger.warn(
             '[YouTubeMusic:AudioRoute] track=' +
@@ -512,7 +534,6 @@ export class YouTubeMusicService {
         }
       }
       if (accountStream) {
-        if (epoch !== this.sessionEpoch) throw new Error('YOUTUBE_AUDIO_LOGIN_REQUIRED');
         if (accountStream.duration && accountStream.duration > 0)
           this.videoDurationCache.set(cleanVid, accountStream.duration);
         if (typeof accountStream.gainDb === 'number') {
@@ -606,7 +627,7 @@ export class YouTubeMusicService {
         const accessCode = classifyYouTubeAudioAccessError(json.playabilityStatus);
         if (accessCode) {
           // Prefetch reports the challenge; active playback can attempt one session reset.
-          if (epoch !== this.sessionEpoch) throw new Error(accessCode);
+          if (epoch !== this.sessionEpoch) throw new YouTubeAudioSessionChanged();
           const now = Date.now();
           for (const [id, failure] of this.audioAccessFailures) {
             if (failure.expiresAt <= now) this.audioAccessFailures.delete(id);
@@ -704,6 +725,7 @@ export class YouTubeMusicService {
       }
     } catch (e) {
       assertStreamResolveActive();
+      if (e instanceof YouTubeAudioSessionChanged) throw e;
       if (getYouTubeAudioAccessError(e)) {
         if (accountDeliveryRejected && getYouTubeAudioAccessError(e) !== 'age-restricted') {
           this.audioAccessFailures.delete(cleanVid);

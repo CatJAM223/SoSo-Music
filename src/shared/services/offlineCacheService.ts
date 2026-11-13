@@ -1,3 +1,4 @@
+import { readBoundedAudioBlob } from './audioCacheService.ts';
 import { RustTsDemuxer } from '../compute/audioCore.ts';
 /**
  * Offline Audio Cache Service
@@ -25,6 +26,7 @@ export interface CachedTrackRecord {
   source: string;
   blob: Blob;
   nativeStored?: boolean;
+  nativeFileId?: string;
   coverBlob?: Blob;
   sizeBytes: number;
   cachedAt: string;
@@ -34,7 +36,7 @@ export type CachedTrackMeta = Omit<CachedTrackRecord, 'blob' | 'coverBlob'>;
 
 export function toMetaRecord(record: Partial<CachedTrackRecord>): CachedTrackMeta {
   return {
-    ...(record.nativeStored ? { nativeStored: true } : {}),
+    ...(record.nativeStored ? { nativeStored: true, nativeFileId: record.nativeFileId } : {}),
     trackId: String(record.trackId || ''),
     title: record.title || 'Untitled',
     artist: record.artist || 'Artist',
@@ -53,6 +55,9 @@ const pendingTrackUrls = new Map<string, Promise<string | null>>();
 const coverObjectUrls = new Map<string, string>();
 const changeListeners = new Set<() => void>();
 let cacheGeneration = 0;
+const downloads = new Map<string, AbortController>();
+const operations = new Map<string, AbortController>();
+const MAX_OFFLINE_BYTES = 100 * 1024 * 1024;
 
 export function subscribeOfflineCacheChanges(listener: () => void): () => void {
   changeListeners.add(listener);
@@ -248,7 +253,9 @@ function blobFromChunks(chunks: Uint8Array[], type: string): Blob {
 export async function fetchCompleteAudioBlob(
   streamUrl: string,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<Blob> {
+  signal?.throwIfAborted();
   const isHls = streamUrl.includes('.m3u8') || streamUrl.includes('audio/mpegurl');
   onProgress?.(0.18);
 
@@ -269,11 +276,18 @@ export async function fetchCompleteAudioBlob(
           );
         }
       });
+      const cancel = () => {
+        void api?.cancelAudioDownload?.(requestId);
+      };
+      signal?.addEventListener('abort', cancel, { once: true });
       let buffer: Uint8Array | ArrayBuffer | null;
       try {
+        signal?.throwIfAborted();
         buffer = await api!.downloadAudioBuffer!(streamUrl, requestId);
+        signal?.throwIfAborted();
       } finally {
         unsubscribe?.();
+        signal?.removeEventListener('abort', cancel);
       }
       if (buffer && (buffer.byteLength > 15000 || (buffer as any).length > 15000)) {
         const bytes = buffer instanceof ArrayBuffer ? buffer : new Uint8Array(buffer).buffer;
@@ -290,30 +304,20 @@ export async function fetchCompleteAudioBlob(
         );
       }
     } catch (e) {
+      signal?.throwIfAborted();
       console.warn('[OfflineCache] Electron native download notice:', e);
     }
   }
 
   if (!isHls) {
-    const res = await fetch(streamUrl);
+    const res = await fetch(streamUrl, { signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    let blob: Blob;
-    const length = Number(res.headers?.get('content-length')) || 0;
-    if (res.body && length > 0) {
-      const reader = res.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let loaded = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        loaded += value.byteLength;
-        onProgress?.(0.18 + Math.min(0.62, (loaded / length) * 0.62));
-      }
-      blob = blobFromChunks(chunks, res.headers.get('content-type') || 'application/octet-stream');
-    } else {
-      blob = await res.blob();
-    }
+    const blob = await readBoundedAudioBlob(
+      res,
+      MAX_OFFLINE_BYTES,
+      signal ?? new AbortController().signal,
+    );
+    if (!blob) throw new Error('Incomplete, invalid or oversized offline audio');
     if (blob.size < 15000) {
       throw new Error(`Downloaded audio blob is too small (${blob.size} bytes)`);
     }
@@ -322,7 +326,7 @@ export async function fetchCompleteAudioBlob(
   }
 
   // HLS stream: fetch playlist and all chunks
-  const manifestRes = await fetch(streamUrl);
+  const manifestRes = await fetch(streamUrl, { signal });
   if (!manifestRes.ok) throw new Error(`Failed to fetch HLS manifest: ${manifestRes.status}`);
   let manifestText = await manifestRes.text();
 
@@ -343,7 +347,7 @@ export async function fetchCompleteAudioBlob(
       }
     }
     if (subPlaylistUrl) {
-      const subRes = await fetch(subPlaylistUrl);
+      const subRes = await fetch(subPlaylistUrl, { signal });
       if (subRes.ok) {
         manifestText = await subRes.text();
         streamUrl = subPlaylistUrl;
@@ -373,12 +377,13 @@ export async function fetchCompleteAudioBlob(
     throw new Error('No audio segments found in HLS manifest');
   }
 
-  // Fetch all segments in parallel batches (concurrency: 6)
+  // Bound each segment by the remaining whole-file budget.
   const audioChunks: Uint8Array[] = [];
+  let downloadedBytes = 0;
   let directMime: string | null = null;
   let demuxer: RustTsDemuxer | null = null;
   let initialized = false;
-  const BATCH_SIZE = 6;
+  const BATCH_SIZE = 1;
   for (let i = 0; i < segmentUrls.length; i += BATCH_SIZE) {
     const batch = segmentUrls.slice(i, i + BATCH_SIZE);
     const results = await Promise.all(
@@ -386,20 +391,46 @@ export async function fetchCompleteAudioBlob(
         // Desktop native download
         if (typeof window !== 'undefined' && (window as any).electronAPI?.downloadAudioBuffer) {
           try {
-            const buf = await (window as any).electronAPI.downloadAudioBuffer(url);
+            const requestId = crypto.randomUUID();
+            const cancel = () => {
+              void window.electronAPI?.cancelAudioDownload?.(requestId);
+            };
+            signal?.throwIfAborted();
+            signal?.addEventListener('abort', cancel, { once: true });
+            let buf;
+            try {
+              buf = await window.electronAPI!.downloadAudioBuffer!(
+                url,
+                requestId,
+                MAX_OFFLINE_BYTES - downloadedBytes,
+              );
+              signal?.throwIfAborted();
+            } finally {
+              signal?.removeEventListener('abort', cancel);
+            }
             if (buf && (buf.byteLength > 1000 || (buf as any).length > 1000)) {
               return buf instanceof ArrayBuffer ? buf : new Uint8Array(buf).buffer;
             }
-          } catch (e) {}
+          } catch (e) {
+            signal?.throwIfAborted();
+          }
         }
 
-        const segRes = await fetch(url);
+        const segRes = await fetch(url, { signal });
         if (!segRes.ok) throw new Error(`Failed to download audio chunk: ${segRes.status}`);
-        return await segRes.arrayBuffer();
+        const part = await readBoundedAudioBlob(
+          segRes,
+          MAX_OFFLINE_BYTES - downloadedBytes,
+          signal ?? new AbortController().signal,
+        );
+        if (!part) throw new Error('Invalid or oversized HLS segment');
+        return await part.arrayBuffer();
       }),
     );
     for (let j = 0; j < results.length; j++) {
       const buffer = results[j];
+      downloadedBytes += buffer.byteLength;
+      if (downloadedBytes > MAX_OFFLINE_BYTES) throw new Error('Offline audio exceeds size limit');
       const bytes = new Uint8Array(buffer);
       if (!initialized) {
         const head = bytes.subarray(0, 16);
@@ -482,22 +513,63 @@ export const offlineCacheService = {
   /**
    * Fetch audio stream and optional cover art, caching them in IndexedDB
    */
+  beginDownload(trackId: string | number): { signal: AbortSignal; finish: () => void } {
+    const id = String(trackId);
+    operations.get(id)?.abort();
+    const controller = new AbortController();
+    operations.set(id, controller);
+    return {
+      signal: controller.signal,
+      finish: () => {
+        if (operations.get(id) === controller) operations.delete(id);
+      },
+    };
+  },
   async cacheTrack(
     track: any,
     streamUrl: string,
     onProgress?: (progress: number) => void,
+    signal?: AbortSignal,
   ): Promise<boolean> {
-    if (!track || !streamUrl) return false;
+    if (!track || !streamUrl || signal?.aborted) return false;
     const generation = cacheGeneration;
     const trackId = String(track.id || track.track_id || track.deezer_id);
+    if (downloads.has(trackId)) return false;
+    const controller = new AbortController();
+    signal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    downloads.set(trackId, controller);
 
+    let native: { id: string; size: number } | undefined;
+    let committed = false;
     try {
-      let blob = await fetchCompleteAudioBlob(streamUrl, onProgress);
+      const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
+      if (api?.downloadAudioFile && !/m3u8|mpegurl|\/hls(?:\/|\?)/i.test(streamUrl)) {
+        const requestId = crypto.randomUUID();
+        const cancel = () => {
+          void api.cancelAudioDownload?.(requestId);
+        };
+        const unsubscribe = api.onAudioDownloadProgress?.((event) => {
+          if (event.requestId === requestId && event.totalBytes > 0)
+            onProgress?.(0.18 + Math.min(0.62, (event.receivedBytes / event.totalBytes) * 0.62));
+        });
+        signal.throwIfAborted();
+        signal.addEventListener('abort', cancel, { once: true });
+        try {
+          native = await api.downloadAudioFile(streamUrl, requestId);
+        } finally {
+          signal.removeEventListener('abort', cancel);
+          unsubscribe?.();
+        }
+        signal.throwIfAborted();
+      }
+      let blob = native
+        ? new Blob([])
+        : await fetchCompleteAudioBlob(streamUrl, onProgress, signal);
 
       // Reject HTML/JSON error pages masquerading as audio — otherwise the
       // track shows up in the offline list and silently vanishes on first play
       // when the playability check purges the garbage blob.
-      const sniffedMime = await sniffAudioMime(blob);
+      const sniffedMime = native ? 'application/octet-stream' : await sniffAudioMime(blob);
       if (!sniffedMime) {
         console.error(
           `[OfflineCache] Downloaded file for track ${trackId} is not audio (expired/protected CDN URL?) — discarding`,
@@ -533,9 +605,11 @@ export const offlineCacheService = {
       let coverBlob: Blob | undefined;
       if (coverUrl && /^https?:\/\//i.test(coverUrl)) {
         try {
-          const coverRes = await fetch(coverUrl, { cache: 'force-cache' });
+          const coverSignal = AbortSignal.any([signal, AbortSignal.timeout(5000)]);
+          const coverRes = await fetch(coverUrl, { cache: 'force-cache', signal: coverSignal });
           if (coverRes.ok) {
-            coverBlob = await coverRes.blob();
+            coverBlob =
+              (await readBoundedAudioBlob(coverRes, 5 * 1024 * 1024, coverSignal)) ?? undefined;
           }
         } catch {
           // Gracefully continue if cover image fetch fails
@@ -553,18 +627,19 @@ export const offlineCacheService = {
         source: track.source || 'soundcloud',
         blob,
         coverBlob,
-        sizeBytes: blob.size + (coverBlob ? coverBlob.size : 0),
+        ...(native ? { nativeStored: true, nativeFileId: native.id } : {}),
+        sizeBytes: (native?.size ?? blob.size) + (coverBlob ? coverBlob.size : 0),
         cachedAt: new Date().toISOString(),
       };
 
-      if (generation !== cacheGeneration) return false;
+      if (generation !== cacheGeneration || signal?.aborted) return false;
 
       const keys = getPossibleKeyVariants(trackId);
       const metaRecord = toMetaRecord(record);
       // A download started before clearing must not silently restore deleted audio.
-      if (generation !== cacheGeneration) return false;
+      if (generation !== cacheGeneration || signal?.aborted) return false;
 
-      return new Promise((resolve, reject) => {
+      return await new Promise<boolean>((resolve, reject) => {
         const tx = db.transaction([STORE_NAME, META_STORE], 'readwrite');
         const store = tx.objectStore(STORE_NAME);
         const metaStore = tx.objectStore(META_STORE);
@@ -577,6 +652,7 @@ export const offlineCacheService = {
           metaStore.put({ ...metaRecord, trackId: k });
         });
         tx.oncomplete = () => {
+          committed = true;
           onProgress?.(1);
           notifyCacheChanged();
           resolve(true);
@@ -586,6 +662,13 @@ export const offlineCacheService = {
     } catch (e) {
       console.error(`[OfflineCache] Failed to cache track ${trackId}:`, e);
       return false;
+    } finally {
+      if (native && !committed) {
+        try {
+          await window.electronAPI?.removeOfflineAudio?.(native.id);
+        } catch {}
+      }
+      if (downloads.get(trackId) === controller) downloads.delete(trackId);
     }
   },
 
@@ -644,7 +727,13 @@ export const offlineCacheService = {
           const key = keys[index++];
           const req = store.get(key);
           req.onsuccess = () => {
-            if (req.result && req.result.blob) {
+            if (req.result?.nativeFileId) {
+              const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
+              Promise.resolve(api?.getOfflineAudioUrl?.(req.result.nativeFileId)).then(
+                (url) => resolve(url ?? null),
+                () => resolve(null),
+              );
+            } else if (req.result && req.result.blob) {
               // Sanity check: If blob is too small (< 20 KB), it's a corrupted/legacy text manifest -> clean it up!
               if (req.result.blob.size < 20000) {
                 store.delete(key);
@@ -674,7 +763,10 @@ export const offlineCacheService = {
    * as opposed to a transient in-memory playback cache URL.
    */
   ownsBlobUrl(url: string): boolean {
-    return offlineBlobUrls.has(url);
+    return (
+      offlineBlobUrls.has(url) ||
+      /^media:\/\/offline\/[a-f0-9-]{36}\.(?:mp4|mp3|webm|ogg|aac)$/.test(url)
+    );
   },
 
   /**
@@ -756,6 +848,7 @@ export const offlineCacheService = {
             if (!seen.has(dedupKey)) {
               seen.add(dedupKey);
               list.push({
+                ...(r.nativeStored ? { nativeStored: true, nativeFileId: r.nativeFileId } : {}),
                 trackId: r.trackId,
                 title: r.title,
                 artist: r.artist,
@@ -785,6 +878,10 @@ export const offlineCacheService = {
    * Delete a single track from the offline cache
    */
   async removeCachedTrack(trackId: string | number): Promise<boolean> {
+    for (const key of getPossibleKeyVariants(trackId)) {
+      downloads.get(key)?.abort();
+      operations.get(key)?.abort();
+    }
     const keys = getPossibleKeyVariants(trackId);
     keys.forEach((k) => {
       if (trackObjectUrls.has(k)) {
@@ -804,6 +901,10 @@ export const offlineCacheService = {
     });
 
     try {
+      const nativeIds = (await this.getAllCachedTracks())
+        .filter((record) => keys.includes(record.trackId))
+        .map((record) => record.nativeFileId)
+        .filter(Boolean) as string[];
       const db = await getDB();
       return new Promise((resolve) => {
         const tx = db.transaction([STORE_NAME, META_STORE], 'readwrite');
@@ -814,6 +915,8 @@ export const offlineCacheService = {
           metaStore.delete(k);
         });
         tx.oncomplete = () => {
+          for (const id of nativeIds)
+            void window.electronAPI?.removeOfflineAudio?.(id).catch(() => {});
           notifyCacheChanged();
           resolve(true);
         };
@@ -847,6 +950,10 @@ export const offlineCacheService = {
    * Clear all offline cached tracks
    */
   async clearCache(): Promise<boolean> {
+    for (const controller of operations.values()) controller.abort();
+    operations.clear();
+    for (const controller of downloads.values()) controller.abort();
+    downloads.clear();
     cacheGeneration++;
 
     trackObjectUrls.forEach((url) => {
@@ -865,12 +972,17 @@ export const offlineCacheService = {
     coverObjectUrls.clear();
 
     try {
+      const nativeIds = (await this.getAllCachedTracks())
+        .map((record) => record.nativeFileId)
+        .filter(Boolean) as string[];
       const db = await getDB();
       return new Promise((resolve) => {
         const tx = db.transaction([STORE_NAME, META_STORE], 'readwrite');
         tx.objectStore(STORE_NAME).clear();
         tx.objectStore(META_STORE).clear();
         tx.oncomplete = () => {
+          for (const id of nativeIds)
+            void window.electronAPI?.removeOfflineAudio?.(id).catch(() => {});
           notifyCacheChanged();
           resolve(true);
         };

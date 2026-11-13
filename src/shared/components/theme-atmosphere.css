@@ -1,0 +1,16 @@
+/* Low-contrast atmosphere behind the existing petals and weather renderers. */
+html[data-theme='sakura'] body {
+  background-image:
+    radial-gradient(ellipse at 85% 12%, #f2d5e866, transparent 58%),
+    radial-gradient(ellipse at 10% 85%, #dce5f044, transparent 60%);
+}
+html[data-theme='weather'][data-weather='rain'] body {
+  background-image:
+    radial-gradient(ellipse at 72% 8%, #30496355, transparent 65%),
+    linear-gradient(160deg, #0c152000, #03090e77);
+}
+html[data-theme='weather'][data-weather='clear'] body {
+  background-image:
+    radial-gradient(ellipse at 80% 0%, #e3d6a533, transparent 58%),
+    radial-gradient(ellipse at 8% 90%, #247d5b22, transparent 65%);
+}

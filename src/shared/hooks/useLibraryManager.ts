@@ -349,6 +349,7 @@ export function useLibraryManager({
     async (track: Track): Promise<boolean> => {
       if (isYouTubeItemDisabled(track)) return false;
       if (getOfflineDownloadProgress(track.id) !== null) return false;
+      const operation = offlineCacheService.beginDownload(track.id);
       setOfflineDownloadProgress(track.id, 0.03);
       try {
         emitToast(`Загрузка трека для офлайн доступа: ${track.title}`, 'info', 3000);
@@ -365,7 +366,12 @@ export function useLibraryManager({
           source,
         } as Track;
         // Use a fresh cached URL first. A routine download must not reset active playback connections.
-        const streamUrl = await platformBridge.getFullStreamUrl(downloadTrack);
+        const streamUrl = await platformBridge.getFullStreamUrl(
+          downloadTrack,
+          undefined,
+          operation.signal,
+        );
+        operation.signal.throwIfAborted();
 
         if (!streamUrl || !streamUrl.startsWith('http')) {
           emitToast('Не удалось получить поток для загрузки', 'error', 3500);
@@ -373,21 +379,38 @@ export function useLibraryManager({
         }
 
         setOfflineDownloadProgress(track.id, 0.12);
-        let success = await offlineCacheService.cacheTrack(track, streamUrl, (progress) => {
-          setOfflineDownloadProgress(track.id, progress);
-        });
+        let success = await offlineCacheService.cacheTrack(
+          track,
+          streamUrl,
+          (progress) => {
+            setOfflineDownloadProgress(track.id, progress);
+          },
+          operation.signal,
+        );
+        operation.signal.throwIfAborted();
         if (!success && source === 'youtube') {
           const rejectedItag = Number(new URL(streamUrl).searchParams.get('itag')) || undefined;
           setOfflineDownloadProgress(track.id, 0.08);
-          const alternateUrl = await platformBridge.getFullStreamUrl(downloadTrack, {
-            forceRefresh: true,
-            preferAlternateFormat: true,
-            excludeItag: rejectedItag,
-          });
+          const alternateUrl = await platformBridge.getFullStreamUrl(
+            downloadTrack,
+            {
+              forceRefresh: true,
+              preferAlternateFormat: true,
+              excludeItag: rejectedItag,
+            },
+            operation.signal,
+          );
+          operation.signal.throwIfAborted();
           if (alternateUrl && alternateUrl !== streamUrl) {
-            success = await offlineCacheService.cacheTrack(track, alternateUrl, (progress) => {
-              setOfflineDownloadProgress(track.id, progress);
-            });
+            success = await offlineCacheService.cacheTrack(
+              track,
+              alternateUrl,
+              (progress) => {
+                setOfflineDownloadProgress(track.id, progress);
+              },
+              operation.signal,
+            );
+            operation.signal.throwIfAborted();
           }
         }
         if (success) {
@@ -399,10 +422,12 @@ export function useLibraryManager({
           return false;
         }
       } catch (e) {
+        if (operation.signal.aborted) return false;
         console.error('Error caching track for offline:', e);
         emitToast(`Ошибка загрузки: ${(e as any)?.message || e}`, 'error', 3500);
         return false;
       } finally {
+        operation.finish();
         setOfflineDownloadProgress(track.id, null);
       }
     },

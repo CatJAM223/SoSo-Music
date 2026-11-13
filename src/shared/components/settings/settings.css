@@ -937,3 +937,200 @@
   border-bottom: 0;
   padding: 14px 0;
 }
+
+/* Settings share the player's quiet surfaces; the selected tab is its heading. */
+.settings-redesign {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: 72px minmax(0, 1fr);
+  width: min(1300px, calc(100vw - 48px));
+  max-width: 1300px;
+  height: min(900px, calc(100vh - 64px));
+  border-radius: 16px;
+}
+.dark .settings-redesign {
+  --settings-bg: #171a1d;
+  --settings-line: #ffffff16;
+  --settings-hover: #ffffff08;
+}
+.settings-redesign .settings-modal-header {
+  grid-column: 1 / -1;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--settings-line);
+}
+.settings-redesign .settings-modal-header h2 {
+  font-size: 28px;
+}
+.settings-redesign .settings-tabs {
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 20px 12px;
+  border: 0;
+  border-right: 1px solid var(--settings-line);
+  overflow-y: auto;
+}
+.settings-redesign .settings-tabs button {
+  gap: 14px;
+  padding: 13px 12px;
+  min-height: 46px;
+  border: 0;
+  border-radius: 9px;
+  text-align: left;
+  white-space: normal;
+  font-size: 14px;
+  color: var(--settings-text);
+}
+.settings-redesign .settings-tabs button svg {
+  flex-shrink: 0;
+  stroke-width: 1.7;
+}
+.settings-redesign .settings-tabs button:hover {
+  background: var(--settings-hover);
+}
+.settings-redesign .settings-tabs button.active {
+  background: color-mix(in srgb, var(--settings-accent) 17%, transparent);
+}
+.settings-redesign .settings-modal-content {
+  min-width: 0;
+  padding: 24px 28px 32px;
+}
+.settings-redesign .settings-page-heading {
+  display: none;
+}
+.settings-redesign .settings-row {
+  min-height: 60px;
+}
+.settings-redesign .settings-range-control input::-webkit-slider-thumb {
+  opacity: 1;
+}
+.settings-redesign input:focus-visible,
+.settings-redesign select:focus-visible {
+  outline: 2px solid var(--settings-accent);
+  outline-offset: 3px;
+}
+.settings-redesign .settings-section {
+  margin-bottom: 24px;
+}
+.settings-redesign .settings-segmented {
+  padding: 2px;
+  gap: 0;
+  background: var(--settings-hover);
+  border: 1px solid var(--settings-line);
+  border-radius: 8px;
+}
+.settings-redesign .settings-segmented button {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  min-width: 66px;
+}
+.settings-redesign .settings-segmented button.selected {
+  background: color-mix(in srgb, var(--settings-accent) 22%, transparent);
+  border-color: var(--settings-accent);
+}
+.settings-appearance .settings-theme-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.settings-appearance .settings-theme-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--settings-line);
+  border-radius: 12px;
+  background: transparent;
+}
+.settings-appearance .settings-theme-option.selected {
+  border-color: var(--settings-accent);
+  box-shadow: inset 0 0 0 1px var(--settings-accent);
+}
+.settings-theme-preview {
+  display: block;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--settings-hover);
+}
+.settings-theme-preview > img,
+.settings-theme-preview > video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.settings-theme-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 18px;
+  color: var(--settings-muted);
+  font-size: 12px;
+  text-align: center;
+}
+.settings-theme-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  color: var(--settings-text);
+  text-align: left;
+  font-size: 13px;
+}
+.settings-theme-caption svg {
+  color: var(--settings-accent);
+  flex-shrink: 0;
+}
+@media (min-width: 1200px) {
+  .settings-redesign .settings-theme-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1000px) {
+  .settings-redesign {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+  .settings-redesign .settings-modal-content {
+    padding: 20px;
+  }
+  .settings-appearance .settings-theme-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .settings-redesign {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 24px);
+    grid-template-columns: 58px minmax(0, 1fr);
+    grid-template-rows: 62px minmax(0, 1fr);
+  }
+  .settings-redesign .settings-tabs {
+    padding: 12px 6px;
+  }
+  .settings-redesign .settings-tabs button {
+    justify-content: center;
+    padding: 10px;
+  }
+  .settings-redesign .settings-tabs button span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+  }
+  .settings-redesign .settings-modal-content {
+    padding: 16px 12px;
+  }
+  .settings-theme-caption {
+    font-size: 12px;
+    padding: 8px;
+  }
+}

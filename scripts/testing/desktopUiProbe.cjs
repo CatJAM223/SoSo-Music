@@ -506,13 +506,14 @@ app
       // The new account hint runs against the real dialog and opens the real integrations settings.
       const hintResult = await window.webContents.executeJavaScript(String.raw`(async()=>{
       const wait=async check=>{for(let i=0;i<150;i++){if(check())return;await new Promise(r=>setTimeout(r,20));}throw Error("Hint UI did not reach expected state");};
-      const emit=reason=>window.dispatchEvent(new CustomEvent('soso:youtube-access-issue',{detail:{reason,source:'clip',trackId:'yt_access001'}}));
+      const emit=reason=>window.dispatchEvent(new CustomEvent('soso:youtube-access-issue',{detail:{reason,source:'track',trackId:'yt_access001'}}));
       const dialog=()=>document.querySelector('.youtube-access-panel');
       window.renderAccessFixture();await wait(()=>!!window.fixtureAccountChanged);
       const before=window.fixtureAccountChecks;
-      window.dispatchEvent(new CustomEvent('soso:youtube-access-issue',{detail:{reason:'unavailable',source:'clip',trackId:'yt_access001'}}));
-      window.dispatchEvent(new CustomEvent('soso:youtube-access-issue',{detail:{reason:'age-restricted',source:'clip',trackId:'old-track'}}));
-      await new Promise(r=>setTimeout(r,40));if(window.fixtureAccountChecks!==before)throw Error('Generic/stale errors must not request an account hint');
+      window.dispatchEvent(new CustomEvent('soso:youtube-access-issue',{detail:{reason:'unavailable',source:'track',trackId:'yt_access001'}}));
+      window.dispatchEvent(new CustomEvent('soso:youtube-access-issue',{detail:{reason:'age-restricted',source:'track',trackId:'old-track'}}));
+      window.dispatchEvent(new CustomEvent('soso:youtube-access-issue',{detail:{reason:'age-restricted',source:'clip',trackId:'yt_access001'}}));
+      await new Promise(r=>setTimeout(r,40));if(window.fixtureAccountChecks!==before)throw Error('Generic, stale, and clip errors must not request an audio account hint');
       emit('age-restricted');await wait(dialog);
       const rect=dialog().getBoundingClientRect();if(Math.abs(rect.left+rect.width/2-innerWidth/2)>1||Math.abs(rect.top+rect.height/2-innerHeight/2)>1)throw Error('Hint must be centered');
       if(!dialog().textContent.includes('подтверждённым возрастом'))throw Error('Age guidance missing');
@@ -538,6 +539,12 @@ app
       emit('verification-required');await wait(()=>!!window.fixtureFinishStatus);
       window.fixtureAccountChanged({connected:true,loginOpen:false});window.fixtureFinishStatus({connected:false,loginOpen:false});await new Promise(r=>setTimeout(r,60));
       if(dialog())throw Error('A late disconnected result reopened the hint after successful login');
+      window.fixtureFinishStatus=null;
+      emit('verification-required');await wait(()=>!!window.fixtureFinishStatus);
+      window.fixtureRenderAccessState(true);await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      window.fixtureFinishStatus({connected:false,loginOpen:false});await new Promise(r=>setTimeout(r,60));
+      window.fixtureRenderAccessState(false);await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      if(dialog())throw Error('A late account hint returned after playback of the same track recovered');
       window.fixtureStatusResolver=null;
       emit('verification-required');await wait(dialog);dialog().querySelector('.settings-action-primary').click();
       await wait(()=>!!document.querySelector('.settings-tabs button.active'));
@@ -550,18 +557,25 @@ app
       const wait=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Availability UI timed out: '+JSON.stringify({rows:document.querySelectorAll('.track-grid').length,inert:!!document.querySelector('.track-grid[inert]'),dialog:!!document.querySelector('.youtube-access-panel'),accountChanged:!!window.fixtureAccountChanged,disabled:window.fixtureYouTubeDisabled(),body:document.body.textContent.slice(-600)}));};
       window.renderAccessFixture();await wait(()=>!!window.fixtureAccountChanged);window.fixtureSetYouTubeDisabled(false);
       window.renderAvailabilityFixture();await wait(()=>document.querySelectorAll('.track-grid').length===2);
-      window.dispatchEvent(new CustomEvent('soso:youtube-access-issue',{detail:{reason:'verification-required',source:'track',trackId:'yt_access001'}}));
+      const emit=()=>window.dispatchEvent(new CustomEvent('soso:youtube-access-issue',{detail:{reason:'verification-required',source:'track',trackId:'yt_access001'}}));
+      for(const selector of ['.youtube-access-panel .settings-close','.youtube-access-backdrop']){
+        emit();await wait(()=>document.querySelector('.youtube-access-panel'));document.querySelector(selector).click();
+        await wait(()=>!document.querySelector('.youtube-access-panel'));
+        if(document.querySelector('.track-grid[inert]')||localStorage.getItem('soso_youtube_playback_opt_out'))throw Error('Closing the warning must preserve YouTube availability');
+      }
+      emit();
       await wait(()=>document.querySelector('.youtube-access-panel'));document.querySelector('.youtube-access-actions .settings-action').click();
       await wait(()=>document.querySelector('.track-grid[inert]'));
       const [yt,sc]=document.querySelectorAll('.track-grid');if(getComputedStyle(yt).filter!=='grayscale(1)'||getComputedStyle(yt).pointerEvents!=='none')throw Error('YouTube row must be grey and inaccessible');
       if(sc.inert||sc.getAttribute('aria-disabled')==='true')throw Error('SoundCloud must remain usable');
       const before=document.activeElement;yt.querySelector('button').focus();if(document.activeElement!==before)throw Error('Disabled track button must not receive keyboard focus');
       sc.click();if(window.fixtureTrackClicks.join()!=='sc_access001')throw Error('SoundCloud row must still play');
-      if(localStorage.getItem('soso_youtube_playback_disabled')!=='true')throw Error('Opt-out must persist');
-      window.fixtureAccountChanged({connected:true,loginOpen:false});await wait(()=>!yt.inert);
-      if(window.fixtureYouTubeDisabled())throw Error('Successful account connection must restore YouTube');
-      window.fixtureSetYouTubeDisabled(true);await wait(()=>yt.inert);window.fixtureSuccessfulLogin();await wait(()=>!yt.inert);
+      if(localStorage.getItem('soso_youtube_playback_opt_out')!=='true')throw Error('Opt-out must persist');
+      window.fixtureAccountChanged({connected:true,loginOpen:false});await new Promise(r=>setTimeout(r,60));
+      if(!yt.inert||!window.fixtureYouTubeDisabled())throw Error('Passive account status must preserve the opt-out');
+      window.fixtureSuccessfulLogin();await wait(()=>!yt.inert);
       yt.click();if(window.fixtureTrackClicks.at(-1)!=='yt_access001')throw Error('Restored YouTube row must play');
+      window.fixtureSetYouTubeDisabled(true);await wait(()=>yt.inert);
       return {youtubeInert:true,soundcloudPlays:true,restoredAfterLogin:true};
     })()`);
       console.log('YOUTUBE_AVAILABILITY_OK ' + JSON.stringify(availabilityResult));
@@ -587,10 +601,10 @@ app
         'document.documentElement.classList.add("dark");document.documentElement.dataset.theme="wallpaper";document.documentElement.style.setProperty("--theme-accent-rgb","234, 179, 8");',
       );
       await window.webContents.executeJavaScript(
-        '(async()=>{window.renderAccessFixture();for(let i=0;i<100&&!window.fixtureAccountChanged;i++)await new Promise(r=>setTimeout(r,20));window.dispatchEvent(new CustomEvent("soso:youtube-access-issue",{detail:{reason:"age-restricted",source:"clip",trackId:"yt_access001"}}));await new Promise(r=>setTimeout(r,60));if(document.querySelector(".youtube-access-panel"))throw Error("Suppressed hint returned after reload");})()',
+        '(async()=>{window.renderAccessFixture(true);for(let i=0;i<100&&!window.fixtureAccountChanged;i++)await new Promise(r=>setTimeout(r,20));window.dispatchEvent(new CustomEvent("soso:youtube-access-issue",{detail:{reason:"age-restricted",source:"track",trackId:"yt_access001"}}));await new Promise(r=>setTimeout(r,60));if(document.querySelector(".youtube-access-panel"))throw Error("Suppressed hint returned after reload");if(!window.fixtureYouTubeDisabled())throw Error("Stored account re-enabled YouTube after reload");})()',
       );
       await window.webContents.executeJavaScript(
-        '(async()=>{localStorage.removeItem("soso_youtube_access_hint_hidden_age-restricted");window.fixtureSetYouTubeDisabled(false);window.renderGatedClipFixture();for(let i=0;i<150&&!document.querySelector(".youtube-access-panel");i++)await new Promise(r=>setTimeout(r,20));if(!document.querySelector(".youtube-access-panel"))throw Error("Actual clip age failure did not open account hint");await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const rect=document.querySelector(".youtube-access-panel").getBoundingClientRect();if(rect.width!==innerWidth||rect.height!==innerHeight)throw Error("Access warning must fill the viewport");if(window.fixtureVideoRequests.length!==1)throw Error("Verified age restriction must not retry the clip");})()',
+        '(async()=>{localStorage.removeItem("soso_youtube_access_hint_hidden_age-restricted");window.fixtureSetYouTubeDisabled(false);window.renderGatedClipFixture();for(let i=0;i<150&&!document.querySelector("[data-youtube-access-error=age-restricted]");i++)await new Promise(r=>setTimeout(r,20));const clip=document.querySelector("[data-youtube-access-error=age-restricted]");if(!clip)throw Error("Clip age failure must be shown on the clip control");clip.click();await new Promise(r=>setTimeout(r,60));if(document.querySelector(".youtube-access-panel")||window.fixtureYouTubeDisabled())throw Error("Clip age failure must not interfere with audio");if(window.fixtureVideoRequests.length!==1)throw Error("Verified age restriction must not retry the clip");window.dispatchEvent(new CustomEvent("soso:youtube-access-issue",{detail:{reason:"age-restricted",source:"track",trackId:"yt_access001"}}));for(let i=0;i<150&&!document.querySelector(".youtube-access-panel");i++)await new Promise(r=>setTimeout(r,20));if(!document.querySelector(".youtube-access-panel"))throw Error("Track age failure must open the account hint");})()',
       );
       fs.writeFileSync(
         path.join(screenshots, 'youtube-age-hint.png'),
@@ -619,7 +633,7 @@ app
       window.setContentSize(1200, 800);
       await window.webContents.executeJavaScript('window.fixtureStreamResolver=null');
       console.log(
-        'YOUTUBE_CLIP_HINT_INTEGRATION_OK: actual clip error opens hint, fills viewport, persisted suppression survives reload',
+        'YOUTUBE_CLIP_HINT_INTEGRATION_OK: clip error stays local and track hint suppression survives reload',
       );
 
       // Native radio/switch preferences are exercised through all twelve actual tour steps.
@@ -769,7 +783,7 @@ app
         'document.documentElement.classList.add("dark");window.renderAccessFixture()',
       );
       await window.webContents.executeJavaScript(
-        '(async()=>{for(let i=0;i<100&&!window.fixtureAccountChanged;i++)await new Promise(r=>setTimeout(r,20));window.dispatchEvent(new CustomEvent("soso:youtube-access-issue",{detail:{reason:"verification-required",source:"clip",trackId:"yt_access001"}}));for(let i=0;i<100&&!document.querySelector(".youtube-access-panel");i++)await new Promise(r=>setTimeout(r,20));await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));})()',
+        '(async()=>{for(let i=0;i<100&&!window.fixtureAccountChanged;i++)await new Promise(r=>setTimeout(r,20));window.dispatchEvent(new CustomEvent("soso:youtube-access-issue",{detail:{reason:"verification-required",source:"track",trackId:"yt_access001"}}));for(let i=0;i<100&&!document.querySelector(".youtube-access-panel");i++)await new Promise(r=>setTimeout(r,20));if(!document.querySelector(".youtube-access-panel"))throw Error("Track account hint did not render");await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));})()',
       );
       fs.writeFileSync(
         path.join(screenshots, 'youtube-account-hint.png'),

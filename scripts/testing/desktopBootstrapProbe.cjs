@@ -17,6 +17,7 @@ app.setPath('sessionData', profile);
 app.setPath('crashDumps', path.join(profile, 'Crashpad'));
 app.getAppPath = () => root;
 const windows = [];
+const registeredShortcuts = new Map();
 let pickerCalls = 0;
 const videoPath = path.join(directory, 'selected wallpaper.webm');
 class HiddenWindow extends BrowserWindow {
@@ -37,7 +38,14 @@ globalThis.__desktopProbeElectron = {
   ...electron,
   BrowserWindow: HiddenWindow,
   Tray: SilentTray,
-  globalShortcut: { register: () => true, unregister() {}, unregisterAll() {} },
+  globalShortcut: {
+    register: (key, callback) => {
+      registeredShortcuts.set(key, callback);
+      return true;
+    },
+    unregister: (key) => registeredShortcuts.delete(key),
+    unregisterAll: () => registeredShortcuts.clear(),
+  },
   dialog: {
     ...electron.dialog,
     async showOpenDialog() {
@@ -168,6 +176,24 @@ app
         ),
       'production preload and renderer',
     );
+    // Exercise main -> real preload IPC while no application/overlay window is visible.
+    await main.webContents.executeJavaScript(
+      `window.backgroundCommands=[];window.stopBackgroundCommands=window.electronAPI.onWidgetCommand(command=>window.backgroundCommands.push(command));true;`,
+    );
+    for (const key of ['Control+Alt+Right', 'Control+Alt+Left', 'Control+Alt+Space']) {
+      assert.ok(registeredShortcuts.has(key));
+      registeredShortcuts.get(key)();
+    }
+    await until(
+      () => main.webContents.executeJavaScript('window.backgroundCommands.length===3'),
+      'hidden playback commands',
+    );
+    assert.deepEqual(await main.webContents.executeJavaScript('window.backgroundCommands'), [
+      'next',
+      'prev',
+      'togglePlay',
+    ]);
+    await main.webContents.executeJavaScript('window.stopBackgroundCommands();true');
     assert.equal(
       electron.crashReporter.getUploadToServer(),
       false,

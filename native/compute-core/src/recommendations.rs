@@ -1,6 +1,12 @@
 //! Recommendation decisions shared by the main process and renderer. No JS fallback.
 use crate::{read_job, same_song, INPUT, MAX_INPUT, OUTPUT};
 
+/// Session steering requires corroboration and never overwhelms fatigue/dislikes.
+#[no_mangle]
+pub extern "C" fn wave_session_affinity(independent_matches: u32) -> f64 {
+    if independent_matches < 2 { 0.0 } else { (independent_matches as f64 * 0.5).min(2.0) }
+}
+
 #[no_mangle]
 pub extern "C" fn wave_duration_allowed(duration: f64) -> u32 {
     u32::from(duration.is_finite() && (duration == 0.0 || (30.0..=600.0).contains(&duration)))
@@ -89,6 +95,13 @@ pub extern "C" fn album_match_score(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn session_affinity_requires_corroboration_and_is_bounded() {
+        assert_eq!(wave_session_affinity(0), 0.0);
+        assert_eq!(wave_session_affinity(1), 0.0);
+        assert_eq!(wave_session_affinity(2), 1.0);
+        assert_eq!(wave_session_affinity(u32::MAX), 2.0);
+    }
     #[test]
     fn bounded_history_and_edition_compatibility() {
         assert!((taste_age_weight(90.0 * 86_400_000.0) - 0.5).abs() < 1e-10);

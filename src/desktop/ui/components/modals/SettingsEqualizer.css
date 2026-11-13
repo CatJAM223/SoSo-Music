@@ -215,3 +215,88 @@
   cursor: pointer;
   font-family: inherit;
 }
+.equalizer-panel-top select {
+  color: var(--settings-text);
+  background: var(--settings-bg);
+  border: 1px solid var(--settings-line);
+  padding: 7px 12px;
+  border-radius: 7px;
+  min-width: 160px;
+  font-size: 13px;
+}
+.equalizer-faders {
+  display: grid;
+  grid-template-columns: 32px repeat(10, minmax(0, 1fr));
+  gap: 8px;
+  padding: 20px 8px 12px;
+}
+.equalizer-fader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  color: var(--settings-muted);
+  font-size: 11px;
+}
+.equalizer-fader input {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 22px;
+  height: 132px;
+  accent-color: var(--settings-accent);
+  cursor: pointer;
+}
+.equalizer-fader input:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.settings-redesign .equalizer-fader input[type='range']::-webkit-slider-runnable-track {
+  width: 4px;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(
+    to top,
+    var(--settings-accent) 0 var(--band-fill),
+    var(--settings-line) var(--band-fill) 100%
+  );
+}
+.settings-redesign .equalizer-fader input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin: 0 0 0 -5px;
+  opacity: 1;
+  background: var(--settings-text);
+  box-shadow: none;
+}
+.equalizer-advanced {
+  padding-inline: 18px;
+}
+.equalizer-panel {
+  margin-top: 16px;
+}
+.equalizer-fader output {
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+.equalizer-fader-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 132px;
+  font-size: 10px;
+  color: var(--settings-muted);
+}
+.equalizer-advanced summary {
+  padding: 12px 0 4px;
+  color: var(--settings-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+@media (max-width: 640px) {
+  .equalizer-faders {
+    gap: 2px;
+    padding-inline: 0;
+    grid-template-columns: 24px repeat(10, minmax(0, 1fr));
+  }
+}

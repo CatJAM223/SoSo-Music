@@ -88,6 +88,7 @@ export interface AudioControlsContextType {
   selectPausedTrack: (track: Track, queue: Track[], position: number) => void;
   preparePlayback: (track: Track, queue: Track[], position: number) => void;
   isPlaybackReady: () => boolean;
+  getEndedPlaybackEntryId: () => string | undefined;
   resumePlayback: () => void | Promise<void>;
   setRoomFollower: (enabled: boolean) => void;
   setRoomControlHandler: (handler: ((action: string, position?: number) => void) | null) => void;

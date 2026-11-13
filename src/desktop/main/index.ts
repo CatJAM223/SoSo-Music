@@ -1,3 +1,5 @@
+import { OfflineAudioFiles } from './services/offlineAudioFiles';
+import { StreamRequestRegistry as AudioDownloadRegistry } from './services/streamRequestRegistry';
 import { restrictedIpc } from './ipc/restrictedIpc';
 import { configureRecordingCatalog } from './services/recordingCatalog';
 import { ListeningRooms } from './services/listeningRooms';
@@ -166,6 +168,9 @@ dbManager.setPersistenceStatusHandler((status) => {
   if (mainWindow && !mainWindow.isDestroyed())
     mainWindow.webContents.send('library:persistenceStatus', status);
 });
+const offlineAudioFiles = new OfflineAudioFiles(
+  path.join(app.getPath('userData'), 'offline-audio'),
+);
 const mediaFileAccess = new MediaFileAccess(app.getPath('userData'));
 const lanImportApproval = new LanImportApproval(() => mainWindow);
 const lanSyncServer = new LanSyncServer(
@@ -875,14 +880,38 @@ function registerIpcHandlers() {
     return await ZapretService.selectCustomFile();
   });
 
+  const audioDownloads = new AudioDownloadRegistry();
+  ipcMain.handle('music:downloadAudioFile', async (event, url: string, requestId: string) => {
+    const lease = audioDownloads.begin(event.sender, requestId);
+    try {
+      return await offlineAudioFiles.download(url, lease.signal, (receivedBytes, totalBytes) => {
+        if (!event.sender.isDestroyed())
+          event.sender.send('music:audioDownloadProgress', {
+            requestId,
+            receivedBytes,
+            totalBytes,
+          });
+      });
+    } finally {
+      lease.finish();
+    }
+  });
+  ipcMain.handle('music:offlineAudioUrl', (_event, id: string) => offlineAudioFiles.url(id));
+  ipcMain.handle('music:removeOfflineAudio', (_event, id: string) => offlineAudioFiles.remove(id));
+  ipcMain.handle('music:cancelAudioDownload', (event, requestId: string) => {
+    audioDownloads.cancel(event.sender, requestId);
+  });
   ipcMain.handle(
     'music:downloadAudioBuffer',
-    async (_event: any, url: string, requestId?: string) => {
+    async (_event: any, url: string, requestId?: string, maxBytes?: number) => {
       const progressRequestId =
         typeof requestId === 'string' && /^[\w-]{1,80}$/.test(requestId) ? requestId : undefined;
       if (!url || typeof url !== 'string') return null;
+      const lease = audioDownloads.begin(_event.sender, requestId);
       try {
         return await downloadAudioBytes(url, {
+          signal: lease.signal,
+          maxBytes,
           onProgress: progressRequestId
             ? (receivedBytes, totalBytes) => {
                 if (!_event.sender.isDestroyed()) {
@@ -898,6 +927,8 @@ function registerIpcHandlers() {
       } catch (error) {
         console.warn('[Main] Audio download failed:', error);
         return null;
+      } finally {
+        lease.finish();
       }
     },
   );
@@ -1048,13 +1079,33 @@ app.whenReady().then(async () => {
     process.env.VITE_DEV_SERVER_URL,
     () => desktopControls!.getLayout(),
   );
-  desktopControls = new DesktopControls(app.getPath('userData'), globalShortcut, (action) => {
-    if (action === 'overlay') {
-      PlaybackLogger.debug('[Overlay:Shortcut] Toggle requested');
-      playerOverlay?.toggle();
-    } else if (mainWindow && !mainWindow.isDestroyed())
-      mainWindow.webContents.send('widget:command', action);
-  });
+  desktopControls = new DesktopControls(
+    app.getPath('userData'),
+    {
+      register: (key, callback) => {
+        const registered = globalShortcut.register(key, () => {
+          PlaybackLogger.debug('[Desktop:Shortcut] Fired', { key });
+          callback();
+        });
+        PlaybackLogger.info('[Desktop:Shortcut] Registration', { key, registered });
+        return registered;
+      },
+      unregister: (key) => globalShortcut.unregister(key),
+    },
+    (action) => {
+      if (action === 'overlay') {
+        PlaybackLogger.debug('[Overlay:Shortcut] Toggle requested');
+        playerOverlay?.toggle();
+      } else if (mainWindow && !mainWindow.isDestroyed()) {
+        PlaybackLogger.debug('[Desktop:Command] Dispatch', {
+          action,
+          visible: mainWindow.isVisible(),
+          minimized: mainWindow.isMinimized(),
+        });
+        mainWindow.webContents.send('widget:command', action);
+      }
+    },
+  );
   playerOverlay.setEnabled(desktopControls.status().overlayEnabled);
   desktopControls.start();
   youtubeAccount = new YouTubeAccountService(
@@ -1125,11 +1176,17 @@ app.whenReady().then(async () => {
     await clearYouTubeSessionCache(session.defaultSession);
     await youtubeAccount?.resetCache();
   });
-  protocol.handle('media', createMediaHandler(mediaFileAccess, process.env.VITE_DEV_SERVER_URL));
+  protocol.handle(
+    'media',
+    createMediaHandler(mediaFileAccess, process.env.VITE_DEV_SERVER_URL, offlineAudioFiles),
+  );
   // Local artwork uses the same capability checks in the overlay's isolated session.
   session
     .fromPartition('soso-player-overlay')
-    .protocol.handle('media', createMediaHandler(mediaFileAccess, process.env.VITE_DEV_SERVER_URL));
+    .protocol.handle(
+      'media',
+      createMediaHandler(mediaFileAccess, process.env.VITE_DEV_SERVER_URL, offlineAudioFiles),
+    );
 
   // Network-level Ad Blocker for Songsterr tabs and YouTube background streaming
   try {

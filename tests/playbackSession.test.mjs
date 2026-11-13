@@ -63,6 +63,50 @@ test('Checkpoint round-trip retains the track, fractional position, queue cursor
   assert.ok(!Object.hasOwn(restored.track, 'resolvedStreamUrl'));
 });
 
+test('Removing the playing occurrence preserves its successor across restart, including duplicate songs', () => {
+  for (const duplicate of [false, true]) {
+    const queue = queueEntries.ensureQueueEntries([
+      track('yt_a'),
+      track('yt_b'),
+      track('yt_c'),
+      track(duplicate ? 'yt_b' : 'yt_d'),
+    ]);
+    const current = queue[1];
+    const h = hookRuntime(new URL('../src/shared/hooks/useQueueManager.ts', import.meta.url), {
+      '../utils/shuffleCycle': { ShuffleCycle },
+      '../utils/queueEntry': queueEntries,
+    });
+    const state = { ...input(), track: current, queue, isShuffle: false };
+    const api = h.render(state);
+    api.removeFromQueue(1);
+    const after = h.render();
+    const store = memory();
+    new PlaybackSessionWriter(store).save(
+      {
+        ...state,
+        queue: after.queue,
+        queueIndex: after.queueIndex,
+      },
+      true,
+    );
+    const restored = readPlaybackSession(store);
+    assert.equal(restored.queue[restored.queueIndex + 1]?.id, 'yt_c');
+    assert.equal(restored.track.queueEntryId, current.queueEntryId);
+    assert.equal(restored.queue.length, 4);
+    api.clearQueue(current);
+    const cleared = h.render();
+    new PlaybackSessionWriter(store).save(
+      { ...state, queue: cleared.queue, queueIndex: cleared.queueIndex },
+      true,
+    );
+    const single = readPlaybackSession(store);
+    assert.equal(single.queue.length, 1);
+    assert.equal(single.queueIndex, 0);
+    assert.equal(single.track.queueEntryId, current.queueEntryId);
+    h.unmount();
+  }
+});
+
 test('Progress checkpoints write at most every ten seconds; pause and shutdown keep an exact final position', () => {
   const store = memory();
   let now = 0;

@@ -4,6 +4,11 @@ export async function readBoundedAudioBlob(
   limit: number,
   signal: AbortSignal,
 ): Promise<Blob | null> {
+  const mime = response.headers.get('content-type') || '';
+  if (!response.ok || response.status === 206 || /(?:text\/|json|xml|mpegurl)/i.test(mime)) {
+    await response.body?.cancel();
+    return null;
+  }
   const advertised = Number(response.headers.get('content-length'));
   if (advertised > limit) {
     await response.body?.cancel();
@@ -16,6 +21,10 @@ export async function readBoundedAudioBlob(
   const reader = response.body.getReader();
   const chunks: Uint8Array<ArrayBuffer>[] = [];
   let size = 0;
+  const abort = () => {
+    void reader.cancel().catch(() => {});
+  };
+  signal.addEventListener('abort', abort, { once: true });
   try {
     for (;;) {
       if (signal.aborted) {
@@ -29,10 +38,12 @@ export async function readBoundedAudioBlob(
         await reader.cancel();
         return null;
       }
-      chunks.push(part.value.slice());
+      chunks.push(part.value);
     }
+    if (signal.aborted || (advertised > 0 && size !== advertised)) return null;
     return new Blob(chunks, { type: response.headers.get('content-type') || 'audio/mpeg' });
   } finally {
+    signal.removeEventListener('abort', abort);
     reader.releaseLock();
   }
 }
@@ -49,7 +60,7 @@ export interface CachedAudioItem {
 
 const DEFAULT_MAX_ITEMS = 4;
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
-const DEFAULT_CONCURRENT_FETCHES = 2;
+const DEFAULT_CONCURRENT_FETCHES = 1;
 const IDLE_RELEASE_MS = 60000;
 const BLOB_DOWNLOAD_TIMEOUT_MS = 25000;
 const MIN_AUDIO_BLOB_BYTES = 15000;
@@ -61,6 +72,7 @@ export class AudioCacheService {
   public readonly MAX_CACHE_ITEMS: number;
   public readonly MAX_CACHE_BYTES: number;
   public readonly MAX_CONCURRENT_FETCHES: number;
+  private reservedBytes = 0;
   private pinnedUrl: string | null = null;
   private fetchControllers = new Map<string, AbortController>();
   private cacheGeneration = 0;
@@ -68,6 +80,7 @@ export class AudioCacheService {
   private playbackBuffering = false;
   private idleReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private lastTimestamp: number = 0;
+  private resolvedPrefetches = new Map<string, { url: string; at: number }>();
 
   constructor(
     limits: { maxItems?: number; maxBytes?: number; maxConcurrentFetches?: number } = {},
@@ -185,7 +198,12 @@ export class AudioCacheService {
     const controller = new AbortController(),
       generation = this.cacheGeneration;
     this.fetchControllers.set(id, controller);
-    const download = this.downloadBlob(id, streamUrl, controller, generation);
+    const reservation = { bytes: 0 };
+    const download = this.downloadBlob(id, streamUrl, controller, generation, reservation).finally(
+      () => {
+        this.reservedBytes -= reservation.bytes;
+      },
+    );
     this.activeFetches.set(id, download);
     return download;
   }
@@ -195,6 +213,7 @@ export class AudioCacheService {
     url: string,
     controller: AbortController,
     generation: number,
+    reservation: { bytes: number },
   ): Promise<string> {
     const timeout = setTimeout(() => controller.abort(), BLOB_DOWNLOAD_TIMEOUT_MS);
     try {
@@ -202,8 +221,31 @@ export class AudioCacheService {
         headers: { Accept: 'audio/*, */*' },
         signal: controller.signal,
       });
-      if (!response.ok) return url;
-      const blob = await readBoundedAudioBlob(response, this.MAX_CACHE_BYTES, controller.signal);
+      if (generation !== this.cacheGeneration || controller.signal.aborted || !response.ok) {
+        await response.body?.cancel();
+        return url;
+      }
+      const advertised = Number(response.headers.get('content-length')) || 0;
+      const pinned = [...this.cache.values()]
+        .filter((item) => item.blobUrl === this.pinnedUrl)
+        .reduce((sum, item) => sum + item.size, 0);
+      const maximum = this.MAX_CACHE_BYTES - pinned - this.reservedBytes;
+      if (advertised > maximum || maximum <= MIN_AUDIO_BLOB_BYTES) {
+        await response.body?.cancel();
+        return url;
+      }
+      // Unknown-length bodies reserve the bounded maximum after headers arrive.
+      // Reclaiming only the currently free bytes would permanently starve chunked tracks.
+      const budget = advertised || maximum;
+      for (const [key, item] of [...this.cache].sort((a, b) => a[1].timestamp - b[1].timestamp)) {
+        if (this.getCacheBytes() + this.reservedBytes + budget <= this.MAX_CACHE_BYTES) break;
+        if (item.blobUrl === this.pinnedUrl) continue;
+        URL.revokeObjectURL(item.blobUrl);
+        this.cache.delete(key);
+      }
+      reservation.bytes = budget;
+      this.reservedBytes += budget;
+      const blob = await readBoundedAudioBlob(response, budget, controller.signal);
       if (generation !== this.cacheGeneration || controller.signal.aborted) return url;
       return this.storeDownloadedBlob(id, blob) || url;
     } catch (error) {
@@ -241,9 +283,17 @@ export class AudioCacheService {
    *                         resolvedStreamCache. When provided, the costly getFullStreamUrl
    *                         IPC call is skipped entirely, halving the prefetch network overhead.
    */
-  public prefetchTrack(track: Track, preResolvedUrl?: string): Promise<void> {
+  public prefetchTrack(track: Track, preResolvedUrl?: string, resolveOnly = false): Promise<void> {
+    // The immediate successor owns a prepared media element; only farther lookahead uses blobs.
+    if (resolveOnly) return Promise.resolve();
     if (!track || !track.id || this.playbackBuffering) return Promise.resolve();
     const id = String(track.id);
+    if (this.isCached(id)) return Promise.resolve();
+    const resolved = this.resolvedPrefetches.get(id);
+    if (!preResolvedUrl && resolved && Date.now() - resolved.at < 60000) {
+      preResolvedUrl = resolved.url;
+      if (!AudioCacheService.canDownload(preResolvedUrl)) return Promise.resolve();
+    }
     const existing = this.pendingPrefetches.get(id);
     if (existing) return existing;
     if (this.pendingPrefetches.size >= this.MAX_CONCURRENT_FETCHES) return Promise.resolve();
@@ -289,6 +339,12 @@ export class AudioCacheService {
       }
 
       if (generation !== this.cacheGeneration || this.playbackBuffering) return;
+      if (streamUrl) {
+        this.resolvedPrefetches.delete(idStr);
+        this.resolvedPrefetches.set(idStr, { url: streamUrl, at: Date.now() });
+        if (this.resolvedPrefetches.size > 8)
+          this.resolvedPrefetches.delete(this.resolvedPrefetches.keys().next().value!);
+      }
       if (streamUrl && AudioCacheService.canDownload(streamUrl)) {
         await this.getOrFetchBlobUrl(idStr, streamUrl);
       }
@@ -381,6 +437,7 @@ export class AudioCacheService {
   }
 
   public clear() {
+    this.resolvedPrefetches.clear();
     if (this.idleReleaseTimer) clearTimeout(this.idleReleaseTimer);
     this.idleReleaseTimer = null;
     this.abortFetches();

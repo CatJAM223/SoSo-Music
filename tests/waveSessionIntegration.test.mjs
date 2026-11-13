@@ -825,6 +825,45 @@ test('A refresh supersedes an older refill while its waiters continue waiting fo
   assert.equal(h.api.isFetchingMoreWaveRef.current, false);
 });
 
+test('A refresh supersedes a refill whose candidates are already being sorted', async () => {
+  const sorting = deferredBatch(),
+    fresh = deferredBatch();
+  const obsolete = song('obsolete', 'Radiohead', 'Paranoid Android');
+  let delayed = false;
+  const h = waveHarness(
+    [selection('initial'), [obsolete], () => fresh.promise],
+    [],
+    undefined,
+    Date.now,
+    undefined,
+    async (...args) => {
+      if (!delayed && args[0].some((track) => track.id === obsolete.id)) {
+        delayed = true;
+        await sorting.promise;
+      }
+      return queue.resequenceWaveQueue(...args);
+    },
+  );
+  await h.api.startWave();
+  let completed = false;
+  const refill = h.api.fetchMoreWaveTracks().then(() => {
+    completed = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(delayed, true);
+  for (let i = 0; i < 3; i++) skipCurrent(h);
+  assert.equal(h.calls[1][4].aborted, true);
+  sorting.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.calls.length, 3);
+  assert.equal(h.calls[2][3].skippedTracks.length, 3);
+  assert.equal(completed, false);
+  fresh.resolve([song('replacement', 'The Cure', 'Pictures of You')]);
+  await refill;
+  assert.ok(h.queueRef.current.some((track) => track.id === 'replacement'));
+  assert.ok(!h.queueRef.current.some((track) => track.id === obsolete.id));
+});
+
 test('Refresh failures and empty replies retain all queued music and release the loading flag', async () => {
   for (const reply of [
     [],

@@ -50,7 +50,7 @@ export const SakuraFallingPetals: React.FC = () => {
     window.addEventListener('resize', handleResize);
 
     // Number of active petals for balanced, elegant sakura atmosphere
-    const PETAL_COUNT = 48;
+    const PETAL_COUNT = 32;
 
     const createPetal = (scatterAcrossScreen: boolean = false): Petal => {
       // Wind blows from top-left towards bottom-right
@@ -87,7 +87,7 @@ export const SakuraFallingPetals: React.FC = () => {
         swayPhase: Math.random() * Math.PI * 2,
         swaySpeed: 0.025 + Math.random() * 0.035,
         swayRadius: 1.0 + Math.random() * 2.0,
-        opacity: 0.5 + Math.random() * 0.35,
+        opacity: 0.35 + Math.random() * 0.3,
         petalType: Math.floor(Math.random() * 3),
       };
     };

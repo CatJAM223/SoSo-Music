@@ -32,9 +32,9 @@ function cleanup(code) {
   audioServer?.close();
   app.exit(code);
 }
-function tone() {
+function tone(seconds) {
   const rate = 12000,
-    frames = rate * 90,
+    frames = rate * seconds,
     buffer = Buffer.alloc(44 + frames * 2);
   buffer.write('RIFF', 0);
   buffer.writeUInt32LE(36 + frames * 2, 4);
@@ -54,9 +54,11 @@ function tone() {
 }
 app.whenReady().then(async () => {
   try {
-    const wav = tone();
+    const normalWav = tone(90);
+    const shortWav = tone(3);
     audioServer = http.createServer((request, response) => {
       report.audioRequests++;
+      const wav = request.url === '/audio.wav?track=sc_room_unknown' ? shortWav : normalWav;
       const match = request.headers.range?.match(/^bytes=(\d+)-(\d*)$/);
       const start = match ? Number(match[1]) : 0,
         end = match && match[2] ? Math.min(Number(match[2]), wav.length - 1) : wav.length - 1;
@@ -116,7 +118,7 @@ app.whenReady().then(async () => {
     for (const channel of channels)
       if (channel !== 'rooms:request')
         ipcMain.handle(channel, async () => {
-          if (channel === 'music:downloadAudioBuffer') return new Uint8Array(wav);
+          if (channel === 'music:downloadAudioBuffer') return new Uint8Array(normalWav);
           if (channel === 'app:getAvailableUpdate') return null;
           return [];
         });
@@ -345,8 +347,21 @@ app.whenReady().then(async () => {
       6000,
     );
     check('queue exhaustion stops playback without importing personal songs');
+    const unknown = { ...track('sc_room_unknown'), duration: 0 };
+    await command(host, { action: 'enqueue', song: roomSong(unknown) });
+    await command(host, { action: 'enqueue', song: roomSong(third) });
+    await wait(
+      host,
+      'window.roomProbe.audio.currentTrack?.id==="sc_room_unknown"&&window.roomProbe.audio.isPlaying',
+      'unknown duration track starts',
+    );
+    await wait(
+      guest,
+      'window.roomProbe.room.playback.track?.id==="sc_room_3"&&window.roomProbe.audio.currentTrack?.id==="sc_room_3"&&window.roomProbe.audio.isPlaying',
+      'host media end advances the unknown duration track',
+    );
+    check('a track with unknown duration advances on the host media end');
     if (internetMode) {
-      await command(guest, { action: 'enqueue', song: roomSong(third) });
       await wait(host, 'window.roomProbe.audio.isPlaying', 'playback before host failure');
       await wait(guest, 'window.roomProbe.audio.isPlaying', 'guest playback before host failure');
     }

@@ -1,4 +1,10 @@
+import {
+  completeStartupBudget,
+  inheritStartupBudget,
+  remainingStartupBudget,
+} from '../utils/playbackStartupBudget';
 import { WaveQualityEpisode } from './waveQuality.ts';
+import { PreparedAudio } from './preparedAudio.ts';
 import {
   recordingFromTrack,
   providerTrackRef,
@@ -57,7 +63,12 @@ import {
   shouldRecordListeningStart,
 } from '../utils/playbackRecovery';
 import { DEFAULT_TRACK_DURATION, STREAM_URL_MAX_AGE_MS } from '../context/audioTypes';
-import { applyAudioVolume } from '../utils/audioVolume';
+import {
+  applyAudioVolume,
+  armAudioStartupFade,
+  cancelAudioStartupFade,
+  hasAudioStartupFade,
+} from '../utils/audioVolume';
 import {
   hasAudioBufferHeadroom,
   readAudioBufferedRanges,
@@ -245,6 +256,8 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     return 30;
   };
   const mainHlsRef = valueRef<Hls | null>(null);
+  const preparedAudio = new PreparedAudio();
+  engine.onMount(() => () => preparedAudio.clear());
   const pendingSeekCleanupRef = valueRef(new Map<HTMLAudioElement, () => void>());
   const pendingStartupCleanupRef = valueRef(new Map<HTMLAudioElement, () => void>());
   const diagnosticsRef = valueRef<PlaybackDiagnostics | null>(null);
@@ -663,6 +676,13 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       }, delay);
     }
   };
+  const armTrackStartupFade = (audio: HTMLAudioElement, startPosition = 0) => {
+    const track = currentTrackRef.current;
+    if (startPosition > 0 || !track || detectTrackSource(track) !== 'youtube') return false;
+    armAudioStartupFade(audio, isMutedRef.current ? 0 : volumeRef.current);
+    return true;
+  };
+
   // Load stream into audio with HLS / Progressive fallback and full local cache
   const loadStreamIntoAudio = (
     audio: HTMLAudioElement,
@@ -687,6 +707,18 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       !!loadOwner?.signal.aborted ||
       (loadOwner !== undefined && !loadOwner.isCurrent());
     if (isStaleLoad()) return;
+    cancelAudioStartupFade(audio);
+    const preparePlaybackVolume = (crossfadeSeconds: number) => {
+      if (
+        !isSnippet &&
+        !prepareOnly &&
+        crossfadeSeconds <= 0 &&
+        armTrackStartupFade(audio, startSeekSeconds)
+      )
+        return;
+      const volume = isMutedRef.current ? 0 : volumeRef.current;
+      audio.volume = !isSnippet && crossfadeSeconds > 0 ? 0 : volume;
+    };
     const handlePlaybackStarted = (crossfadeSeconds: number) => {
       if (isStaleLoad()) return;
       if (isSnippet) {
@@ -710,7 +742,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
             isCrossfadingRef.current = false;
             fadeIn(Math.min(crossfadeSeconds, 2.5));
           }
-        } else {
+        } else if (!hasAudioStartupFade(audio)) {
           audio.volume = isMutedRef.current ? 0 : volumeRef.current;
         }
       }
@@ -813,17 +845,14 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
           }
         }
         const crossfadeSeconds = crossfadeDurationRef.current;
-        if (!isSnippet && crossfadeSeconds > 0 && !isMutedRef.current && volumeRef.current > 0) {
-          audio.volume = 0;
-        } else {
-          audio.volume = isMutedRef.current ? 0 : volumeRef.current;
-        }
+        preparePlaybackVolume(crossfadeSeconds);
         if (prepareOnly) return;
         audio
           .play()
           .then(() => handlePlaybackStarted(crossfadeSeconds))
           .catch((e) => {
             if (isStaleLoad()) return;
+            cancelAudioStartupFade(audio);
             isTransitioningTrackRef.current = false;
             console.warn('HLS play error:', e);
             if (isSnippet && e?.name !== 'AbortError') loadOwner?.onFailure();
@@ -925,11 +954,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
           effectivePlayUrl.startsWith('blob:') ? effectivePlayUrl : null,
         );
       const crossfadeSeconds = crossfadeDurationRef.current;
-      if (!isSnippet && crossfadeSeconds > 0 && !isMutedRef.current && volumeRef.current > 0) {
-        audio.volume = 0;
-      } else {
-        audio.volume = isMutedRef.current ? 0 : volumeRef.current;
-      }
+      preparePlaybackVolume(crossfadeSeconds);
       if (typeof startSeekSeconds === 'number' && startSeekSeconds > 0) {
         const seekTarget = startSeekSeconds;
         const clearSeek = () => {
@@ -1016,6 +1041,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
         // An unexpected abort of the current source still has a bounded startup deadline.
         if (aborted) return;
         clearStartup();
+        cancelAudioStartupFade(audio);
         isTransitioningTrackRef.current = false;
         console.warn('Audio play notice:', error);
         if (isSnippet) loadOwner?.onFailure();
@@ -1039,7 +1065,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       // Bulk caching starts after stable playback, so it cannot starve the audible stream.
     }
   };
-  const prefetchTrackStream = (targetTrack?: Track) => {
+  const prefetchTrackStream = (targetTrack?: Track, resolveOnly = false) => {
     if (!targetTrack || !targetTrack.id || isYouTubeItemDisabled(targetTrack)) return;
     const audio = audioRef.current;
     if (pendingResolutionRef.current || !audio || audio.paused || audio.readyState < 3) return;
@@ -1049,10 +1075,13 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       isStreamFresh && cached && isPlayableStreamForTrack(cached.url, targetTrack)
         ? cached.url
         : undefined;
-    audioCacheService.prefetchTrack(targetTrack, cachedUrl);
+    audioCacheService.prefetchTrack(targetTrack, cachedUrl, resolveOnly);
   };
   const prefetchUpcomingTrack = (lookahead = false) => {
-    if (repeatModeRef.current === 'one' || sleepTimerModeRef.current === 'end_of_track') return;
+    if (repeatModeRef.current === 'one' || sleepTimerModeRef.current === 'end_of_track') {
+      preparedAudio.clear();
+      return;
+    }
     const q = queueRef.current;
     const youtubeDisabled = isYouTubePlaybackDisabled();
     const index = queueIndexRef.current;
@@ -1089,12 +1118,21 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       prefetchPlanRef.current = plan;
     }
     const target = q[plan.indices[lookahead ? 1 : 0]];
-    if (!target) return;
-    const key = JSON.stringify([streamRequestIdRef.current, target.id]);
+    if (!target) {
+      if (!lookahead) preparedAudio.clear();
+      return;
+    }
+    if (!lookahead) preparedAudio.prepare(target);
+    // Retry missed/aborted speculative work in bounded time slots. A busy cache is not success.
+    const key = JSON.stringify([
+      streamRequestIdRef.current,
+      target.id,
+      Math.floor(Date.now() / 15000),
+    ]);
     const triggered = lookahead ? prefetchLookaheadTargetRef : prefetchTriggeredForTrackRef;
     if (triggered.current === key) return;
     triggered.current = key;
-    prefetchTrackStream(target);
+    prefetchTrackStream(target, !lookahead);
   };
   // Initialize main audio element once
   engine.onMount(() => {
@@ -1109,7 +1147,10 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       for (const clearStartup of pendingStartupCleanupRef.current.values()) clearStartup();
       audioCacheService.clear();
       audioRef.current?.pause();
-      if (audioRef.current) releasePlayerAudio(audioRef.current);
+      if (audioRef.current) {
+        cancelAudioStartupFade(audioRef.current);
+        releasePlayerAudio(audioRef.current);
+      }
       crossfadeRef.current.stop();
       offlineCacheService.releaseUnusedTrackUrls([]);
     };
@@ -1299,16 +1340,9 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
           audio.currentTime >= 2 &&
           hasAudioBufferHeadroom(audio)
         ) {
-          const trackId = currentTrackRef.current?.id;
           prefetchUpcomingTrack();
-          if (
-            trackId &&
-            audio.currentTime >= 10 &&
-            lookaheadTriggeredForTrackRef.current !== trackId
-          ) {
-            lookaheadTriggeredForTrackRef.current = trackId;
-            audioCacheService.getOrFetchBlobUrl(trackId, audio.src).catch(() => {});
-          }
+          // The audible track is already buffered by the media element. Reserve the single
+          // speculative download slot and memory budget for upcoming songs instead.
           if (audio.currentTime >= 10) {
             prefetchUpcomingTrack(true);
           }
@@ -1400,17 +1434,25 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
         const trk = currentTrackRef.current;
         if (trk) startPlaybackSession(trk);
         audio.currentTime = 0;
+        const repeatRequestId = streamRequestIdRef.current;
+        const crossfadeSeconds = crossfadeDurationRef.current;
+        if (crossfadeSeconds <= 0) armTrackStartupFade(audio);
         audio
           .play()
           .then(() => {
-            const crossfadeSeconds = crossfadeDurationRef.current;
+            if (audioRef.current !== audio || repeatRequestId !== streamRequestIdRef.current)
+              return;
             if (crossfadeSeconds > 0 && !isMutedRef.current && volumeRef.current > 0) {
               fadeIn(Math.min(crossfadeSeconds, 2.5));
-            } else {
+            } else if (!hasAudioStartupFade(audio)) {
               audio.volume = isMutedRef.current ? 0 : volumeRef.current;
             }
           })
-          .catch(console.error);
+          .catch((error) => {
+            if (audioRef.current === audio && repeatRequestId === streamRequestIdRef.current)
+              cancelAudioStartupFade(audio);
+            console.error(error);
+          });
       } else {
         nextTrackRef.current();
       }
@@ -1418,7 +1460,11 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     const handlePlay = () => {
       if (audioRef.current !== audio || pendingResolutionRef.current) return;
       if (audio.paused) return;
-      if (!crossfadeRef.current.active && !isTransitioningTrackRef.current) {
+      if (
+        !crossfadeRef.current.active &&
+        !isTransitioningTrackRef.current &&
+        !hasAudioStartupFade(audio)
+      ) {
         cancelFade();
         audio.volume = isMutedRef.current ? 0 : volumeRef.current;
       }
@@ -1679,7 +1725,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       // HLS uses a blob MediaSource too; only cache-owned blobs are offline files.
       const isCachedBlob = Boolean(
         trk &&
-        audio.src.startsWith('blob:') &&
+        (audio.src.startsWith('blob:') || audio.src.startsWith('media://offline/')) &&
         (audioCacheService.getCachedBlobUrl(trk.id) === audio.src ||
           offlineCacheService.ownsBlobUrl(audio.src)),
       );
@@ -1809,6 +1855,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     const handlePlaying = () => {
       if (audioRef.current !== audio || pendingResolutionRef.current) return;
       if (audio.paused) return;
+      completeStartupBudget(playbackAbortRef.current.signal);
       qualityEpisode?.started();
       cancelTemporaryRetry();
       temporaryRecoveryRef.current = null;
@@ -1873,6 +1920,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       );
     };
     const handleWaiting = () => {
+      preparedAudio.clear();
       if (audioRef.current !== audio || pendingResolutionRef.current) return;
       engine.transition('buffering');
       diagnosticsRef.current?.waiting();
@@ -1929,6 +1977,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       }, 8000);
     };
     const handleStalled = () => {
+      preparedAudio.clear();
       if (audioRef.current !== audio) return;
       const trk = currentTrackRef.current;
       PlaybackLogger.warn(
@@ -2062,6 +2111,15 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     }
     let audio = audioRef.current;
     if (!audio) return;
+    const prepared =
+      !prepareOnly &&
+      !startPosition &&
+      !temporaryRetry &&
+      !rejectedStreamTracksRef.current.has(String(track.id))
+        ? preparedAudio.take(track.id)
+        : undefined;
+    if (!prepared) preparedAudio.clear();
+    cancelAudioStartupFade(audio);
     prepareOnlyRef.current = prepareOnly;
     const overlap = automaticCrossfadeRef.current;
     automaticCrossfadeRef.current = false;
@@ -2101,7 +2159,10 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     cancelScheduledRecovery();
     pendingResolutionRef.current = true;
     resumeNeedsResolveRef.current = false;
+    const previousStartupOwner = playbackAbortRef.current.signal;
     invalidatePlayback();
+    if (temporaryRetry) inheritStartupBudget(previousStartupOwner, playbackAbortRef.current.signal);
+    remainingStartupBudget(playbackAbortRef.current.signal, clickStartTime);
     const currentRequestId = streamRequestIdRef.current;
     diagnosticsRef.current?.begin(
       currentRequestId,
@@ -2129,6 +2190,13 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
+    if (prepared) {
+      releasePlayerAudio(audio);
+      audio = prepared.audio;
+      audioRef.current = audio;
+      mainHlsRef.current = prepared.hls;
+      setAudioElement(audio);
+    }
     setIsPlaying(false);
     isPlayingRef.current = false;
     setIsLoadingTrack(true);
@@ -2176,6 +2244,66 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     setDuration(track.duration || DEFAULT_TRACK_DURATION);
     streamRetryCountRef.current = 0;
     handledMediaErrorRef.current = null;
+    if (prepared) {
+      pendingResolutionRef.current = false;
+      playableSource = {
+        recordingId: recordingKey(track),
+        providerTrack: providerTrackRef(track),
+        url: prepared.url,
+        resolvedAt: Date.now(),
+      };
+      resolvedStreamCache.current.set(String(track.id), {
+        url: prepared.url,
+        timestamp: Date.now(),
+      });
+      applyAudioVolume(audio, volumeRef.current, isMutedRef.current);
+      if (overlap) audio.volume = 0;
+      else armTrackStartupFade(audio);
+      const activeAudio = audio;
+      const stopWatch = watchAudioStartup(
+        audio,
+        () => currentRequestId === streamRequestIdRef.current,
+        () => handleErrorRef.current?.(true, 0, 'timeout'),
+        playbackAbortRef.current.signal,
+      );
+      const cleanupWatch = () => {
+        stopWatch();
+        activeAudio.removeEventListener('playing', cleanupWatch);
+        activeAudio.removeEventListener('error', cleanupWatch);
+        if (pendingStartupCleanupRef.current.get(activeAudio) === cleanupWatch)
+          pendingStartupCleanupRef.current.delete(activeAudio);
+      };
+      pendingStartupCleanupRef.current.set(audio, cleanupWatch);
+      audio.addEventListener('playing', cleanupWatch, { once: true });
+      audio.addEventListener('error', cleanupWatch, { once: true });
+      prepared.hls?.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal && audioRef.current === activeAudio) handleErrorRef.current?.();
+      });
+      try {
+        await audio.play();
+        if (currentRequestId !== streamRequestIdRef.current) return;
+        setIsPlaying(true);
+        setIsLoadingTrack(false);
+        if (
+          overlap &&
+          !crossfadeRef.current.start(
+            audio,
+            crossfadeDurationRef.current,
+            () => (isMutedRef.current ? 0 : volumeRef.current),
+            () => {
+              isCrossfadingRef.current = false;
+            },
+          )
+        ) {
+          isCrossfadingRef.current = false;
+          fadeIn(Math.min(crossfadeDurationRef.current, 2.5));
+        }
+      } catch {
+        cleanupWatch();
+        if (currentRequestId === streamRequestIdRef.current) handleErrorRef.current?.();
+      }
+      return;
+    }
     const cachedSource = await readCachedPlayerSource(track, {
       offlineUrl: (id) => offlineCacheService.getCachedTrackUrl(id),
       memoryUrl: (id) => audioCacheService.getCachedBlobUrl(id),
@@ -2373,6 +2501,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
   });
   // Use the same explicit commands for the player, notification and widget.
   const pauseMainAudio = (cancelPendingPlayback = true) => {
+    preparedAudio.clear();
     if (currentTrackRef.current) engine.transition('paused');
     diagnosticsRef.current?.pause();
     if (audioRef.current) pendingStartupCleanupRef.current.get(audioRef.current)?.();
@@ -2396,6 +2525,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     isTransitioningTrackRef.current = false;
     trackTransitionTimestampRef.current = 0;
     audioRef.current?.pause();
+    if (audioRef.current) cancelAudioStartupFade(audioRef.current);
     setIsPlaying(false);
     isPlayingRef.current = false;
     setIsLoadingTrack(false);
@@ -2449,6 +2579,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     };
     const failed = (err: unknown) => {
       if (!isCurrent()) return;
+      cancelAudioStartupFade(audio);
       engine.transition('failed');
       diagnosticsRef.current?.failed('play-rejected');
       console.warn('[AudioContext] audio.play() failed:', err);
@@ -2457,6 +2588,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       setIsLoadingTrack(false);
     };
     try {
+      armTrackStartupFade(audio, audio.currentTime);
       const pending = audio.play();
       if (pending) pending.then(started, failed);
       else started();
@@ -2522,6 +2654,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     const clamped = Math.max(0, Math.min(seconds, targetDuration));
     const audio = audioRef.current;
     if (audio) {
+      cancelAudioStartupFade(audio);
       samplePlayback(audio);
       if (!isMutedRef.current) {
         audio.volume = volumeRef.current;

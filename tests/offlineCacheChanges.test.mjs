@@ -1,3 +1,4 @@
+import { readBoundedAudioBlob } from '../src/shared/services/audioCacheService.ts';
 import { stripModuleImports } from './helpers/sourceInspection.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -73,6 +74,10 @@ function cacheHarness(native = false) {
     readFileSync(new URL('../src/shared/services/offlineCacheService.ts', import.meta.url), 'utf8'),
   ).replace(/^export /gm, '');
   const context = vm.createContext({
+    AbortController,
+    AbortSignal,
+    readBoundedAudioBlob,
+    crypto,
     Blob,
     Response,
     URL,
@@ -104,6 +109,9 @@ function cacheHarness(native = false) {
   );
   return {
     service: context.service,
+    setNative: (api) => {
+      context.window.electronAPI = api;
+    },
     files,
     subscribe: context.subscribe,
     records,
@@ -163,4 +171,42 @@ test('A download that was already running cannot restore tracks after cache clea
   assert.equal(await pending, false);
   assert.equal(h.records.size, 0);
   assert.equal(h.metadata.size, 0);
+});
+
+test('clearing and removing aliases abort the entire download operation', async () => {
+  const h = cacheHarness();
+  const first = h.service.beginDownload('yt_123');
+  await h.service.removeCachedTrack('123');
+  assert.equal(first.signal.aborted, true);
+  first.finish();
+  const second = h.service.beginDownload('yt_456');
+  await h.service.clearCache();
+  assert.equal(second.signal.aborted, true);
+  second.finish();
+});
+
+test('native file cache commits metadata and resolves local audio without storing the full blob', async () => {
+  const h = cacheHarness();
+  const id = '12345678-1234-1234-1234-123456789abc.mp4';
+  const removed = [];
+  h.setNative({
+    downloadAudioFile: async () => ({ id, size: 25000 }),
+    getOfflineAudioUrl: async () => 'media://offline/' + id,
+    removeOfflineAudio: async (file) => {
+      removed.push(file);
+    },
+  });
+  assert.equal(
+    await h.service.cacheTrack(
+      { id: 'yt_native', title: 'Disk' },
+      'https://rr1.googlevideo.com/audio',
+    ),
+    true,
+  );
+  const record = [...h.records.values()][0];
+  assert.equal(record.blob.size, 0);
+  assert.equal(record.nativeFileId, id);
+  assert.equal(await h.service.getCachedTrackUrl('yt_native'), 'media://offline/' + id);
+  await h.service.removeCachedTrack('native');
+  assert.deepEqual(removed, [id]);
 });

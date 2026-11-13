@@ -224,3 +224,30 @@ test('Related discovery detours strongly skipped artists when another musical an
     'Small profiles retain a fallback instead of starving',
   );
 });
+
+test('Session discovery follows corroborated styles without reacting to one song', () => {
+  const rock = { ...track('sc_101', 'Rock artist'), genre: 'rock' };
+  const calm = { ...track('sc_102', 'Calm artist'), genre: 'ambient' };
+  const positives = [
+    { ...track('sc_103', 'First'), genre: 'ambient' },
+    { ...track('sc_104', 'Second'), genre: 'ambient' },
+  ];
+  assert.equal(
+    selectWaveRelatedSeeds([rock, calm], { positiveTracks: positives }, 1, () => 0)[0].id,
+    calm.id,
+  );
+  assert.equal(
+    selectWaveRelatedSeeds([rock, calm], { positiveTracks: positives.slice(0, 1) }, 1, () => 0)[0]
+      .id,
+    rock.id,
+  );
+  assert.equal(
+    selectWaveRelatedSeeds(
+      [rock, calm],
+      { positiveTracks: [positives[0], positives[0]] },
+      1,
+      () => 0,
+    )[0].id,
+    rock.id,
+  );
+});

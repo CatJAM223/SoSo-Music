@@ -18,7 +18,7 @@ import {
   ThumbsDown,
   Headphones,
   Loader2,
-  Mic2,
+  MessageSquareText,
   Disc,
   Guitar,
   Plus,
@@ -363,7 +363,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         {/* Left Column: Track Details (Expanded to prevent early truncation) */}
         <div
           {...youtubeDisabledProps(activeTrack, youtubeDisabled)}
-          className="flex items-center gap-4 flex-1 min-w-[280px] max-w-sm lg:max-w-md xl:max-w-lg"
+          className="player-track flex items-center gap-4 flex-1 min-w-[280px] max-w-sm lg:max-w-md xl:max-w-lg"
         >
           {activeTrack ? (
             <>
@@ -551,7 +551,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         </div>
 
         {/* Center Column: Controls & Seekbar (Stretched to 3xl to balance empty space) */}
-        <div className="flex flex-col items-center gap-2 flex-[2_1_0%] max-w-2xl lg:max-w-3xl min-w-[340px] mx-4">
+        <div className="player-center flex flex-col items-center gap-2">
           {/* Buttons Row */}
           <div className="soso-transport flex items-center gap-3">
             {!isWaveActive && (
@@ -646,7 +646,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         </div>
 
         {/* Right Column: Volume & Queue */}
-        <div className="flex flex-col items-end justify-center gap-2 flex-1 min-w-[220px] max-w-xs">
+        <div className="player-tools flex items-center justify-end gap-2">
           {/* Top Row: Lyrics & Queue (aligned with transport buttons) */}
           <div className="flex items-center justify-end gap-2.5 h-11">
             <SleepTimerControl />
@@ -686,7 +686,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                 {hasChords && !hasLyrics ? (
                   <Guitar className="w-5 h-5 text-amber-400" />
                 ) : (
-                  <Mic2 className="w-5 h-5" />
+                  <MessageSquareText className="w-5 h-5" />
                 )}
               </button>
             )}
@@ -748,7 +748,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               onPointerMove={handleVolumePointerMove}
               onPointerUp={handleVolumePointerUp}
               onPointerCancel={handleVolumePointerCancel}
-              className="relative w-36 group/vol flex items-center h-5 cursor-pointer touch-none select-none"
+              className="player-volume relative w-36 group/vol flex items-center h-5 cursor-pointer touch-none select-none"
             >
               {(isDraggingVolume || volumeHoverPercent !== null) && (
                 <output

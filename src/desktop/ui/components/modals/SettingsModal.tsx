@@ -7,7 +7,20 @@ import { t } from '../../../../shared/i18n/locale';
 import { useYouTubeAccountSettings } from '../../hooks/useYouTubeAccountSettings';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, CircleHelp, Move } from 'lucide-react';
+import {
+  X,
+  CircleHelp,
+  Move,
+  House,
+  Palette,
+  Keyboard,
+  Play,
+  ChartNoAxesColumn,
+  Plug,
+  CodeXml,
+  Database,
+  Info,
+} from 'lucide-react';
 import discordSymbol from '../../assets/discord-symbol.svg';
 import soundcloudSymbol from '../../assets/soundcloud-symbol.webp';
 import { useTheme } from '../../../../shared/context/ThemeContext';
@@ -66,6 +79,17 @@ const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'data', label: 'Данные' },
   { id: 'about', label: 'О приложении' },
 ];
+const SETTINGS_TAB_ICONS = {
+  general: House,
+  appearance: Palette,
+  shortcuts: Keyboard,
+  audio: Play,
+  stats: ChartNoAxesColumn,
+  integrations: Plug,
+  api: CodeXml,
+  data: Database,
+  about: Info,
+};
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -614,7 +638,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="desktop-settings-title"
-        className="settings-modal relative overflow-hidden flex flex-col"
+        className="settings-modal settings-redesign relative overflow-hidden"
       >
         <div className="settings-modal-header flex items-center justify-between shrink-0">
           <h2 id="desktop-settings-title">{t('Настройки')}</h2>
@@ -622,18 +646,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <X className="w-6 h-6" />
           </button>
         </div>
-        <div role="tablist" aria-label={t('Категории настроек')} className="settings-tabs">
+        <div
+          role="tablist"
+          aria-orientation="vertical"
+          aria-label={t('Категории настроек')}
+          className="settings-tabs"
+        >
           {SETTINGS_TABS.map((tab) => {
             const isActive = activeTab === tab.id;
+            const Icon = SETTINGS_TAB_ICONS[tab.id];
             return (
               <button
                 key={tab.id}
                 role="tab"
+                id={'settings-tab-' + tab.id}
+                aria-controls="settings-panel"
+                title={t(tab.label)}
                 aria-selected={isActive}
                 onClick={() => setActiveTab(tab.id)}
                 className={isActive ? 'active' : ''}
               >
-                {t(tab.label)}
+                <Icon size={21} aria-hidden="true" />
+                <span>{t(tab.label)}</span>
               </button>
             );
           })}
@@ -642,6 +676,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div
           key={activeTab}
           role="tabpanel"
+          id="settings-panel"
+          aria-labelledby={'settings-tab-' + activeTab}
           className="settings-modal-content overflow-y-auto flex-1 min-h-0"
         >
           {activeTab === 'general' && (

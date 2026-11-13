@@ -1,3 +1,6 @@
+export const YOUTUBE_ACCOUNT_COOKIE_URL = 'https://www.youtube.com/';
+const accountCookieHost = new URL(YOUTUBE_ACCOUNT_COOKIE_URL).hostname;
+
 export interface YouTubeAccountCookie {
   name: string;
   value: string;
@@ -5,6 +8,7 @@ export interface YouTubeAccountCookie {
   path: string;
   secure: boolean;
   httpOnly: boolean;
+  hostOnly?: boolean;
   expirationDate?: number;
 }
 
@@ -67,6 +71,7 @@ export function parseYouTubeCookieFile(
       return [
         {
           domain: parts[0],
+          hostOnly: parts[1] === 'FALSE',
           path: parts[2],
           secure: parts[3] === 'TRUE',
           expirationDate: Number(parts[4]),
@@ -112,12 +117,20 @@ export function parseYouTubeCookieFile(
       path: cookiePath,
       secure: row.secure !== false,
       httpOnly: row.httpOnly === true,
+      ...(typeof row.hostOnly === 'boolean' ? { hostOnly: row.hostOnly } : {}),
       ...(typeof expiry === 'number' && expiry > 0 ? { expirationDate: expiry } : {}),
     });
   }
   if (
     !buildYouTubeCookieHeader(
-      result.filter((cookie) => cookie.path === '/'),
+      result.filter((cookie) => {
+        const domain = cookie.domain.replace(/^\./, '');
+        return (
+          cookie.path === '/' &&
+          (domain === accountCookieHost ||
+            (!cookie.hostOnly && accountCookieHost.endsWith('.' + domain)))
+        );
+      }),
       now,
     )
   ) {

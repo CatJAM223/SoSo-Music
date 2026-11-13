@@ -1,6 +1,7 @@
 import { detectTrackSource } from '../utils/formatters.ts';
 
-const key = 'soso_youtube_playback_disabled';
+// The old flag also recorded accidental dismissals. Start with explicit choices only.
+const key = 'soso_youtube_playback_opt_out';
 let owner: Window | undefined;
 let disabled = false;
 const listeners = new Set<() => void>();

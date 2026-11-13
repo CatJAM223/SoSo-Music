@@ -12,15 +12,19 @@ export async function electronFetch(
   input.signal.throwIfAborted();
   const body = input.body ? Buffer.from(await input.arrayBuffer()) : undefined;
   input.signal.throwIfAborted();
+  const origin = input.headers.get('origin') ?? undefined;
+  // Main-process requests have no document origin. Electron requires an explicit
+  // origin for same-origin credentials; without one there are no same-origin cookies.
+  const credentials = input.credentials === 'same-origin' && !origin ? 'omit' : input.credentials;
   return new Promise<Response>((resolve, reject) => {
     const request = net.request({
       url,
       method: input.method,
       session: browser,
       redirect: 'manual',
-      credentials: input.credentials,
+      credentials,
       cache: input.cache,
-      origin: input.headers.get('origin') ?? undefined,
+      origin,
     });
     const abort = () => {
       reject(input.signal.reason);

@@ -5,7 +5,8 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 
-function downloadHarness(results) {
+function downloadHarness(results, cancelOnStore = false) {
+  const controller = new AbortController();
   const source = readFileSync(
     new URL('../src/shared/hooks/useLibraryManager.ts', import.meta.url),
     'utf8',
@@ -30,7 +31,13 @@ function downloadHarness(results) {
         return `https://rr1.googlevideo.com/videoplayback?itag=${requests.length === 1 ? 140 : 251}`;
       },
     },
-    offlineCacheService: { cacheTrack: async () => results.shift() },
+    offlineCacheService: {
+      beginDownload: () => ({ signal: controller.signal, finish() {} }),
+      cacheTrack: async () => {
+        if (cancelOnStore) controller.abort();
+        return results.shift();
+      },
+    },
   });
   vm.runInContext(
     stripTypeScriptTypes(source.slice(start, end)) + '\nthis.download = cacheTrackForOffline;',
@@ -53,5 +60,12 @@ test('A failed YouTube download still refreshes and requests an alternate format
   assert.equal(h.requests[1].forceRefresh, true);
   assert.equal(h.requests[1].preferAlternateFormat, true);
   assert.equal(h.requests[1].excludeItag, 140);
+  assert.equal(h.progress.at(-1), null);
+});
+
+test('cancelled offline operation never retries YouTube or restores deleted audio', async () => {
+  const h = downloadHarness([false, true], true);
+  assert.equal(await h.download({ id: 'yt_sample', title: 'Sample' }), false);
+  assert.equal(h.requests.length, 1);
   assert.equal(h.progress.at(-1), null);
 });

@@ -44,16 +44,20 @@ export function useListeningRoomPlayback() {
     });
     let active = true;
     let busy = false;
+    let appliedSeekRevision = 0;
     const tick = async () => {
       if (!active || busy) return;
       busy = true;
       try {
         const { audio, controls } = latest.current;
+        const entryId = audio.currentTrack ? song(audio.currentTrack)?.entryId : undefined;
         const identity = {
-          entryId: audio.currentTrack ? song(audio.currentTrack)?.entryId : undefined,
+          entryId,
           id: audio.currentTrack ? String(audio.currentTrack.id) : undefined,
           source: audio.currentTrack?.source,
           ready: controls.isPlaybackReady(),
+          ended: entryId !== undefined && controls.getEndedPlaybackEntryId() === entryId,
+          seekRevision: appliedSeekRevision,
         };
         await requestRoom({ op: 'pulse', payload: identity });
         {
@@ -109,10 +113,12 @@ export function useListeningRoomPlayback() {
                     false,
                     playback.position,
                   );
+                appliedSeekRevision = decision.seekRevision ?? 0;
               }
               break;
             case 'seek':
               player.seekPlayback(playback.position);
+              appliedSeekRevision = decision.seekRevision ?? 0;
               break;
             case 'play':
               player.seekPlayback(playback.position);

@@ -121,6 +121,7 @@ pub struct Room {
     pub playback: Playback,
     pub anchor: Instant,
     pub revision: u64,
+    pub seek_revision: u64,
     pub heartbeat: Instant,
     pub waiting_for: HashSet<String>,
 }
@@ -184,17 +185,31 @@ impl Room {
         self.revision += 1;
     }
     pub fn pulse(&mut self, sender: &str, payload: &serde_json::Value) {
+        let matches_track = self.playback.track.as_ref().is_some_and(|track| {
+            payload["entryId"].as_str() == track.entry_id.as_deref()
+                && payload["id"] == track.id
+                && payload["source"] == track.source
+        });
         if sender == self.host_id {
             self.heartbeat = Instant::now();
+            // Unknown durations cannot advance on the room clock. Use the host's media end.
+            if self.playback.playing
+                && !self.playback.preparing
+                && matches_track
+                && payload["entryId"].is_string()
+                && payload["ended"] == true
+                && payload["seekRevision"].as_u64().unwrap_or_default() == self.seek_revision
+                && self
+                    .playback
+                    .track
+                    .as_ref()
+                    .is_some_and(|track| track.duration == 0.0)
+            {
+                self.advance(true);
+                return;
+            }
         }
-        if self.playback.preparing
-            && payload["ready"] == true
-            && self.playback.track.as_ref().is_some_and(|track| {
-                payload["entryId"].as_str() == track.entry_id.as_deref()
-                    && payload["id"] == track.id
-                    && payload["source"] == track.source
-            })
-        {
+        if self.playback.preparing && payload["ready"] == true && matches_track {
             self.waiting_for.remove(sender);
             if self.waiting_for.is_empty() {
                 self.finish_preparing();
@@ -248,6 +263,7 @@ impl Room {
                     }
                 });
                 self.anchor = Instant::now();
+                self.seek_revision = self.revision + 1;
             }
             "remove" => {
                 let entry = payload["entryId"].as_str().ok_or("invalid_command")?;
@@ -327,11 +343,50 @@ mod tests {
             heartbeat: Instant::now(),
             waiting_for: HashSet::new(),
             revision: 0,
+            seek_revision: 0,
         }
     }
     fn song() -> serde_json::Value {
         json!({"id":"sc_one","source":"soundcloud","title":"One","artist":"Artist","album":"","duration":100})
     }
+    #[test]
+    fn only_the_host_can_finish_the_current_unknown_duration_entry() {
+        let mut r = room();
+        let mut unknown = song();
+        unknown["duration"] = json!(0);
+        for _ in 0..2 {
+            r.command("host", &json!({"action":"enqueue","song":unknown}))
+                .unwrap();
+        }
+        let first = r.playback.track.as_ref().unwrap().entry_id.clone();
+        let second = r.playback.queue[0].entry_id.clone();
+        let ready = json!({"id":"sc_one","source":"soundcloud","entryId":first,"ready":true});
+        r.pulse("host", &ready);
+        r.pulse("guest", &ready);
+        let mut ended = ready.clone();
+        ended["ended"] = json!(true);
+        r.pulse("guest", &ended);
+        assert_eq!(r.playback.track.as_ref().unwrap().entry_id, first);
+        r.command("host", &json!({"action":"seek","position":0}))
+            .unwrap();
+        r.pulse("host", &ended);
+        assert_eq!(r.playback.track.as_ref().unwrap().entry_id, first);
+        ended["seekRevision"] = json!(r.seek_revision);
+        r.pulse("host", &ended);
+        assert_eq!(r.playback.track.as_ref().unwrap().entry_id, second);
+        assert!(r.playback.preparing);
+        let mut ready_second = ready;
+        ready_second["entryId"] = json!(second);
+        r.pulse("host", &ready_second);
+        r.pulse("guest", &ready_second);
+        r.pulse("host", &ended);
+        assert_eq!(r.playback.track.as_ref().unwrap().entry_id, second);
+        ended["entryId"] = json!(second);
+        r.pulse("host", &ended);
+        assert!(r.playback.track.is_none());
+        assert!(!r.playback.playing);
+    }
+
     #[test]
     fn empty_room_and_collaborative_queue() {
         let mut r = room();

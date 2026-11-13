@@ -1,4 +1,5 @@
 import { normalizePlaybackOrigin } from './tastePolicy.ts';
+import { requireRustCompute } from '../compute/rustCore.ts';
 import { normalizeWaveSource } from '../services/waveSource.ts';
 import { waveMusicMetadata, waveMusicProfile, waveMoodScore } from './waveMusicProfile.ts';
 import type { Track, WaveBatchContext, WaveMood } from '../types/index.ts';
@@ -121,6 +122,16 @@ export function selectWaveRelatedSeeds(
     .slice(-40)
     .map((track) => getWaveArtistKeys(track));
   const seenIds = new Set<string>();
+  // Require independent successful recordings before steering discovery toward a session style.
+  const sessionStyles = new Map<string, number>();
+  const sessionIds = new Set<string>();
+  for (const positive of (context.positiveTracks || []).slice(0, 6)) {
+    const id = String(positive.recordingId || positive.id);
+    if (sessionIds.has(id)) continue;
+    sessionIds.add(id);
+    for (const style of waveMusicProfile(positive).styles)
+      sessionStyles.set(style, (sessionStyles.get(style) || 0) + 1);
+  }
   const candidates = seeds
     .map(normalizeWaveSeed)
     .filter((track): track is Track => {
@@ -141,6 +152,12 @@ export function selectWaveRelatedSeeds(
       ).length;
       const feedback = artists.map((artist) => context.artistFeedback?.[artist] || 0);
       const reaction = Math.min(0, ...feedback) || Math.min(1, Math.max(0, ...feedback));
+      const sessionAffinity = Math.max(
+        0,
+        ...[...waveMusicProfile(track).styles].map((style) =>
+          requireRustCompute().wave_session_affinity(sessionStyles.get(style) || 0),
+        ),
+      );
       // Explore near music that worked; a recent negative reaction is a temporary detour.
       const lastUsed = recentAnchorIds.lastIndexOf(String(track.id));
       const cooldown =
@@ -151,6 +168,7 @@ export function selectWaveRelatedSeeds(
         score:
           fatigue * 3 +
           offeredFatigue -
+          sessionAffinity -
           reaction * 2 +
           cooldown +
           (track.waveSeedWeight === 0.25 ? 1.5 : track.waveSeedWeight === 2 ? -0.75 : 0) +

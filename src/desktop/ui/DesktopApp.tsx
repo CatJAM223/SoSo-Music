@@ -81,7 +81,7 @@ export const DesktopApp: React.FC = () => {
   useListeningRoomPlayback();
   useLocale();
   const { themePreset } = useTheme();
-  const { currentTrack } = useAudioState();
+  const { currentTrack, isPlaying } = useAudioState();
   const { update: availableUpdate, dismiss: dismissUpdate } = useAppUpdateNotice();
 
   // Navigation History Stack
@@ -496,6 +496,7 @@ export const DesktopApp: React.FC = () => {
       <DesktopConnectionDialogs />
       <YouTubeAccessDialog
         currentTrackId={currentTrack?.id}
+        isPlaying={isPlaying}
         onOpenAccountSettings={() => {
           setIsLyricsOpen(false);
           setSettingsInitialTab('integrations');

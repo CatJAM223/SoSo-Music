@@ -135,6 +135,7 @@ fn serve(stream: std::net::TcpStream, rooms: Rooms, stop: Arc<AtomicBool>) {
                     playback: Playback::default(),
                     anchor: Instant::now(),
                     revision: 0,
+                    seek_revision: 0,
                     heartbeat: Instant::now(),
                     waiting_for: Default::default(),
                 },
@@ -175,6 +176,7 @@ fn serve(stream: std::net::TcpStream, rooms: Rooms, stop: Arc<AtomicBool>) {
                         "type":"snapshot", "code":code, "name":room.name,
                         "selfId":id, "role":if is_host { "host" } else { "guest" },
                         "members":room.members, "revision":room.revision,
+                        "seekRevision":room.seek_revision,
                         "playback":playback,
                     }),
                 )

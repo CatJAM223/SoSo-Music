@@ -66,7 +66,7 @@ export const WeatherEffects: React.FC = () => {
     window.addEventListener('resize', handleResize);
 
     const isRain = weatherMode === 'rain';
-    const LEAF_COUNT = isRain ? 28 : 22;
+    const LEAF_COUNT = isRain ? 16 : 18;
     const RAIN_COUNT = isRain ? 130 : 0;
 
     // --- LEAF FACTORY ---

@@ -66,7 +66,7 @@ test('YouTube opt-out persists, notifies only changes and leaves SoundCloud avai
   access.setYouTubePlaybackDisabled(true);
   access.setYouTubePlaybackDisabled(true);
   assert.equal(notifications, 1);
-  assert.equal(values.get('soso_youtube_playback_disabled'), 'true');
+  assert.equal(values.get('soso_youtube_playback_opt_out'), 'true');
   assert.equal(access.isYouTubeItemDisabled(yt), true);
   assert.equal(access.isYouTubeItemDisabled(sc), false);
   assert.equal(access.isYouTubeItemDisabled({ ...yt, source: 'soundcloud' }), true);
@@ -78,11 +78,16 @@ test('YouTube opt-out persists, notifies only changes and leaves SoundCloud avai
 });
 test('Persisted opt-out is read in a fresh renderer and never disables Android', (t) => {
   const values = desktop(t);
-  values.set('soso_youtube_playback_disabled', 'true');
+  values.set('soso_youtube_playback_opt_out', 'true');
   assert.equal(access.isYouTubePlaybackDisabled(), true);
   globalThis.window = { electronAPI: {} };
   assert.equal(access.isYouTubePlaybackDisabled(), false);
   assert.equal(access.isYouTubeItemDisabled(yt), false);
+});
+test('A legacy opt-out created by dismissing a warning does not block playback', (t) => {
+  const values = desktop(t);
+  values.set('soso_youtube_playback_disabled', 'true');
+  assert.equal(access.isYouTubePlaybackDisabled(), false);
 });
 test('Unavailable YouTube queue items are skipped in either direction with bounded repeat and empty queues', (t) => {
   desktop(t);
@@ -318,6 +323,7 @@ test('Offline download opt-out blocks all side effects and permits actual saving
         },
       },
       offlineCacheService: {
+        beginDownload: () => ({ signal: new AbortController().signal, finish() {} }),
         cacheTrack: async (track, url) => {
           saved.push([track.id, url]);
           return true;

@@ -313,6 +313,15 @@ test('Account and anonymous bot denials get only one reset and retry, then a cac
 test('Disconnecting YouTube invalidates a pending authenticated URL', async (t) => {
   isolate(t);
   let finish;
+  const url = 'https://rr1.googlevideo.com/videoplayback?itag=140';
+  t.mock.method(yt, 'getVisitorData', async () => '');
+  t.mock.method(transport, 'postPlayer', async ({ videoId }) => {
+    assert.equal(videoId, 'W0LiTBNjJ_o');
+    return Response.json({
+      playabilityStatus: { status: 'OK' },
+      streamingData: { adaptiveFormats: [{ itag: 140, mimeType: 'audio/mp4', url }] },
+    });
+  });
   yt.setAccountResolver(
     () =>
       new Promise((resolve) => {
@@ -323,8 +332,8 @@ test('Disconnecting YouTube invalidates a pending authenticated URL', async (t) 
   await new Promise((resolve) => setImmediate(resolve));
   yt.setAccountResolver(async () => null);
   finish({ url: 'https://rr1.googlevideo.com/videoplayback?old=1' });
-  await assert.rejects(pending, /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
-  assert.equal(yt.streamCache.size, 0);
+  assert.equal(await pending, url);
+  assert.equal(yt.streamCache.get('W0LiTBNjJ_o').via, 'anonymous');
 });
 
 test('An unfinished account does not block an available anonymous stream of the same recording', async (t) => {
@@ -410,7 +419,7 @@ test('An account age restriction remains an explicit error without anonymous fal
   });
 });
 
-test('A rejected account request after a session change cannot start anonymous playback', async (t) => {
+test('A rejected account request after a session change uses the new signed route', async (t) => {
   isolate(t);
   let reject;
   yt.setAccountResolver(
@@ -422,10 +431,11 @@ test('A rejected account request after a session change cannot start anonymous p
   t.mock.method(transport, 'postPlayer', async () => assert.fail('A stale request must stop'));
   const pending = yt.resolveDirectAudioStream('W0LiTBNjJ_o');
   await new Promise((resolve) => setImmediate(resolve));
-  yt.setAccountResolver(async () => null);
+  const url = 'https://rr1.googlevideo.com/videoplayback?itag=140';
+  yt.setAccountResolver(async () => ({ url, deliveryVerified: true }));
   reject(new Error('Old session failed'));
-  await assert.rejects(pending, /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
-  assert.equal(yt.streamCache.size, 0);
+  assert.equal(await pending, url);
+  assert.equal(yt.streamCache.get('W0LiTBNjJ_o').via, 'account');
 });
 
 test('Route diagnostics preserve the resolver through URL cache hits and never contain cookies or signed URLs', async (t) => {
@@ -846,7 +856,7 @@ test('A header-only account MP4 falls back to AAC of the same recording without 
   assert.equal(accountCalls, 1);
 });
 
-test('Changing the account during CDN validation discards the old stream without an anonymous request', async (t) => {
+test('Changing the account during CDN validation discards the old stream and uses the new account', async (t) => {
   isolate(t);
   let finish;
   yt.setAccountResolver(async () => ({
@@ -867,10 +877,11 @@ test('Changing the account during CDN validation discards the old stream without
   );
   const pending = yt.resolveDirectAudioStream('W0LiTBNjJ_o');
   await new Promise((resolve) => setImmediate(resolve));
-  yt.setAccountResolver(async () => null);
+  const newUrl = 'https://rr1.googlevideo.com/videoplayback?itag=140';
+  yt.setAccountResolver(async () => ({ url: newUrl, deliveryVerified: true }));
   finish(new Response('data', { status: 206, headers: { 'content-type': 'video/mp4' } }));
-  await assert.rejects(pending, /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
-  assert.equal(yt.streamCache.size, 0);
+  assert.equal(await pending, newUrl);
+  assert.equal(yt.streamCache.get('W0LiTBNjJ_o').url, newUrl);
 });
 
 test('Anonymous bot rejection after a connected account CDN failure does not request another login', async (t) => {

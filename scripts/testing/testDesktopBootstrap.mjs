@@ -25,7 +25,7 @@ const mutationsPlugin = {
       let from, to;
       if (mutation === 'media-wiring' && args.path.endsWith('index.ts')) {
         from =
-          "  protocol.handle('media', createMediaHandler(mediaFileAccess, process.env.VITE_DEV_SERVER_URL));";
+          "  protocol.handle('media', createMediaHandler(mediaFileAccess, process.env.VITE_DEV_SERVER_URL, offlineAudioFiles));";
         to = "  protocol.handle('media', async () => new Response(null, {status:404}));";
       } else if (mutation === 'sync-wiring' && args.path.endsWith('index.ts')) {
         from = "'sync:start': () => lanSyncServer.start(),";

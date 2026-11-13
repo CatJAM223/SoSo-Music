@@ -1,0 +1,197 @@
+/* Desktop polish: stable transport geometry and artwork-led discovery. */
+html.dark:not([data-theme]),
+html.dark[data-theme='default'] {
+  --bg-app: #121416;
+  --bg-sidebar: #101214;
+  --bg-player: #101214;
+  --bg-card: #191c1f;
+  --bg-card-hover: #22262a;
+  --text-primary: #f4f5f5;
+  --text-secondary: #a6abb1;
+  --border-color: #ffffff12;
+}
+.app-sidebar {
+  width: 240px;
+  background: var(--bg-sidebar);
+  backdrop-filter: none;
+}
+.app-sidebar > div:first-child {
+  height: 64px;
+  border-bottom: 0;
+  padding-inline: 22px;
+}
+.app-sidebar h1 {
+  font-size: 20px;
+  letter-spacing: -0.035em;
+}
+.app-sidebar .soso-nav-item {
+  min-height: 44px;
+  font-size: 14px;
+}
+.app-sidebar .soso-nav-item svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.7;
+}
+.app-sidebar .soso-nav-marker {
+  box-shadow: none;
+  background: rgba(var(--theme-accent-rgb), 0.13);
+}
+.app-sidebar .soso-nav-item[aria-current='page'],
+.app-sidebar .soso-nav-item[aria-current='page'] svg {
+  color: var(--text-primary);
+}
+.app-sidebar .soso-nav-item:hover > svg {
+  transform: none;
+}
+.discover-view {
+  padding-bottom: 28px;
+}
+.discover-view > .wave-hero {
+  padding-block: 0;
+}
+.discover-view > .wave-hero + section {
+  margin-top: 22px;
+}
+.app-sidebar .soso-sidebar-nav .soso-nav-item[aria-current='page'],
+.app-sidebar .soso-sidebar-nav .soso-nav-item[aria-current='page'] svg {
+  color: var(--text-primary);
+}
+.app-sidebar .soso-sidebar-nav .soso-nav-item > span > span {
+  font-size: 14px;
+}
+.discover-view h2 {
+  font-size: 21px;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+}
+.discover-view .soso-music-card {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  box-shadow: none;
+  translate: none;
+}
+.discover-view .soso-music-card > button:first-child {
+  border-radius: 10px;
+  margin-bottom: 9px;
+}
+.discover-view .soso-music-card[data-active='true'] > button:first-child {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: -2px;
+}
+.discover-recommendations {
+  gap: 20px;
+  padding: 3px 2px 6px;
+}
+@media (hover: hover) {
+  .discover-view .soso-music-card > button:first-child > span {
+    opacity: 0;
+    transition: opacity 140ms ease;
+  }
+  .discover-view .soso-music-card:hover > button:first-child > span,
+  .discover-view .soso-music-card:focus-within > button:first-child > span,
+  .discover-view .soso-music-card[data-active='true'] > button:first-child > span {
+    opacity: 1;
+  }
+}
+.discover-collection > div {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.discover-collection > div + div {
+  border-left: 1px solid var(--border-color);
+  padding-left: 28px;
+}
+.discover-collection .grid > .group {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+}
+.discover-collection .grid > .group img {
+  transform: none;
+}
+.discover-collection .space-y-2\.5 > .group {
+  padding: 8px 4px;
+  border-radius: 8px;
+}
+.discover-collection .space-y-2\.5 > .group h4 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.discover-collection .space-y-2\.5 > .group svg.fill-rose-500 {
+  fill: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
+/* Equal outer columns keep play centred even with a long title or no track. */
+@media (min-width: 768px) {
+  .soso-player-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 36%) minmax(0, 1fr);
+    gap: 20px;
+    height: 90px;
+    padding-inline: 24px;
+    background: var(--bg-player);
+    border-color: var(--border-color);
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+  .soso-player-bar .player-track {
+    min-width: 0;
+    max-width: 100%;
+    gap: 12px;
+  }
+  .soso-player-bar .player-center {
+    min-width: 0;
+    width: 100%;
+    margin: 0;
+  }
+  .soso-player-bar .player-tools {
+    min-width: 0;
+    gap: 14px;
+  }
+  .soso-player-bar .player-volume {
+    width: clamp(60px, 8vw, 120px);
+  }
+  .soso-player-bar .soso-transport {
+    gap: 13px;
+  }
+  .soso-player-bar .soso-transport .soso-transport-play {
+    background: var(--theme-accent);
+    color: #09110c;
+    box-shadow: none;
+  }
+  .soso-player-bar [data-tour='lyrics-guitar'] {
+    filter: none;
+  }
+  .soso-player-bar .soso-timeline-rail {
+    height: 4px;
+    box-shadow: none;
+  }
+}
+@media (min-width: 768px) and (max-width: 1150px) {
+  .soso-player-bar {
+    gap: 10px;
+    padding-inline: 14px;
+  }
+  .soso-player-bar .player-tools {
+    flex-direction: column;
+    gap: 0;
+  }
+  .soso-player-bar .player-track {
+    gap: 8px;
+  }
+}
+@media (max-width: 1023px) {
+  .discover-collection > div + div {
+    border-left: 0;
+    padding-left: 0;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+  }
+}

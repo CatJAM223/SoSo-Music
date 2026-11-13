@@ -1,10 +1,10 @@
 // Keep recording-specific timings separate, including versions with identical durations.
-// The namespace also prevents reuse of lyrics cached before strict title matching.
+// The namespace also refreshes timings cached before explicit pause markers were parsed.
 export function createLyricsCacheKey(title: string, artist: string, duration?: number): string {
   const durationSeconds =
     Number.isFinite(duration) && Number(duration) > 0 ? Math.round(Number(duration)) : null;
   return JSON.stringify([
-    'lyrics-v2',
+    'lyrics-v3',
     artist.trim().toLowerCase(),
     title.trim().toLowerCase(),
     durationSeconds,

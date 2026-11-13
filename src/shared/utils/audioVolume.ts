@@ -5,6 +5,8 @@ type Envelope = {
   writer?: (volume: number, factor: number) => void;
 };
 const envelopes = new WeakMap<VolumeTarget, Envelope>();
+const startupFades = new WeakMap<HTMLMediaElement, () => void>();
+const STARTUP_FADE_MS = 64;
 
 export function clampAudioVolume(value: number, fallback = 0.8): number {
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback;
@@ -30,6 +32,54 @@ export function registerAudioVolumeWriter(
 }
 export function releaseAudioVolumeWriter(audio: VolumeTarget): void {
   envelopes.delete(audio);
+}
+
+export function hasAudioStartupFade(audio: HTMLMediaElement): boolean {
+  return startupFades.has(audio);
+}
+
+export function cancelAudioStartupFade(audio: HTMLMediaElement): void {
+  startupFades.get(audio)?.();
+}
+
+/** Arm before play(), then ramp once decoded audio starts. */
+export function armAudioStartupFade(audio: HTMLMediaElement, volume: number): void {
+  cancelAudioStartupFade(audio);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = () => {
+    startupFades.delete(audio);
+    audio.removeEventListener('playing', start);
+    audio.removeEventListener('pause', pause);
+    audio.removeEventListener('error', stop);
+    audio.removeEventListener('ended', stop);
+    clearTimeout(timer);
+    resetAudioFadeVolume(audio);
+  };
+  const pause = () => {
+    // Source replacement can leave a pause event queued after the new play() call.
+    if (audio.paused) stop();
+  };
+  const start = () => {
+    if (audio.paused) return;
+    audio.removeEventListener('playing', start);
+    const startedAt = performance.now();
+    const step = () => {
+      const progress = (performance.now() - startedAt) / STARTUP_FADE_MS;
+      if (progress >= 1 || audio.paused) {
+        stop();
+        return;
+      }
+      setAudioFadeVolume(audio, envelopes.get(audio)?.volume ?? volume, progress);
+      timer = setTimeout(step, 8);
+    };
+    timer = setTimeout(step, 8);
+  };
+  startupFades.set(audio, stop);
+  setAudioFadeVolume(audio, volume, 0);
+  audio.addEventListener('playing', start);
+  audio.addEventListener('pause', pause);
+  audio.addEventListener('error', stop);
+  audio.addEventListener('ended', stop);
 }
 export function resetAudioFadeVolume(audio: VolumeTarget): void {
   const state = envelopes.get(audio);

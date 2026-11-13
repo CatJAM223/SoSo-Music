@@ -1,5 +1,39 @@
 # Changelog
 
+### [4.1.1] — 2026-11-13
+
+#### Playback and recommendations
+
+- Prepare the next queued track in a separate audio element and transfer its ready buffer at playback transitions, including HLS where supported.
+- Add bounded retries, cancellation and startup recovery for prepared audio; keep crossfade volume transitions smooth.
+- Let Wave discovery favor styles confirmed by multiple successful listens in the current session, with the affinity calculation in the Rust compute core.
+
+### [4.1.0] — 2026-11-13
+
+#### Playback and account reliability
+
+- Smooth the first milliseconds of YouTube Music playback to suppress startup transients without skipping the track opening.
+- Keep YouTube account prompts scoped to account-dependent actions, preserve explicit opt-out choices and recover safely when imported cookies change.
+- Improve stream startup recovery, offline audio handling, playback session ownership and listening-room reliability.
+- Harden media URL and file access checks, playback lifecycle cleanup, lyrics identity handling and background synchronization.
+
+### [4.0.2] — 2026-11-05
+
+- Try the same signed-in recording's watch response when the player API provides SABR-only or otherwise unsupported formats, without clearing login cookies.
+- Preserve the original format error if the alternate watch route is unavailable.
+- Add global shortcut registration, activation and renderer receipt diagnostics to distinguish OS/game input handling from background command delivery. Fullscreen Frostpunk input interception remains under investigation.
+
+### [4.0.1] — 2026-11-05
+
+#### Playback stability and offline downloads
+
+- Fall back from failed HLS manifests and broken renditions to other supported streams of the same recording.
+- Share a bounded startup deadline across URL resolution and automatic retries; reset it when playback starts.
+- Reject partial, truncated and error-document responses before caching audio. Preserve prefetch cache behavior and bound concurrent transfers.
+- Cancel offline operations through URL resolution, transfer and fallback when their track is removed or the cache is cleared.
+- Fix Electron manual-redirect downloads without a document origin.
+- Save progressive offline audio directly to private files with atomic completion, cancellation cleanup and local range playback. Keep existing IndexedDB downloads readable; HLS continues to use bounded segment assembly.
+
 ### [4.0.0] — 2026-11-01
 
 #### Listen together

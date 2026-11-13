@@ -194,7 +194,6 @@ export async function extractYouTubeAccountStream(
     (format) => format.mime_type?.startsWith('audio/') && !format.has_video,
   );
 
-  const chosen = selectYouTubeAudioFormat(formats, options);
   const loudness = info.player_config?.audio_config?.loudness_db;
   const metadata = {
     duration: info.basic_info.duration,
@@ -204,18 +203,40 @@ export async function extractYouTubeAccountStream(
   };
   const manifestUrl = info.streaming_data?.hls_manifest_url;
   let combinedHls = '';
-  if (manifestUrl && isYouTubeStreamUrl(manifestUrl)) {
-    const decoded = player ? await streamWait(player.decipher(manifestUrl)) : manifestUrl;
-    if (!isYouTubeStreamUrl(decoded)) throw new Error('Некорректный адрес аудио YouTube.');
-    const manifest = await streamWait(fetchManifest(decoded));
-    const url = selectYouTubeHlsAudio(manifest, decoded);
-    if (url) return { url, ...metadata, audioContainer: 'hls' };
-    combinedHls = selectCombinedHlsAudio(manifest, decoded);
+  if (!options.preferAlternateFormat && manifestUrl && isYouTubeStreamUrl(manifestUrl)) {
+    try {
+      const decoded = player ? await streamWait(player.decipher(manifestUrl)) : manifestUrl;
+      if (!isYouTubeStreamUrl(decoded)) throw new Error('Invalid YouTube manifest URL');
+      const manifest = await streamWait(fetchManifest(decoded));
+      const url = selectYouTubeHlsAudio(manifest, decoded);
+      if (url) return { url, ...metadata, audioContainer: 'hls' };
+      combinedHls = selectCombinedHlsAudio(manifest, decoded);
+    } catch {
+      // A broken rendition must not hide other playable formats. Cancellation still wins.
+      assertStreamResolveActive();
+    }
   }
-  if (chosen) {
-    const url = await streamWait(chosen.decipher(player));
-    if (isYouTubeStreamUrl(url))
-      return { url, ...metadata, audioContainer: 'progressive', audioItag: chosen.itag };
+  const switchingFromHls =
+    !!manifestUrl && options.preferAlternateFormat && options.excludeItag === undefined;
+  const directOptions = switchingFromHls ? { ...options, preferAlternateFormat: false } : options;
+  const formatOptions = directOptions.preferAlternateFormat
+    ? {
+        ...directOptions,
+        excludeItag: directOptions.excludeItag ?? selectYouTubeAudioFormat(formats)?.itag,
+      }
+    : directOptions;
+  const remaining = [...formats];
+  while (remaining.length) {
+    const candidate = selectYouTubeAudioFormat(remaining, formatOptions);
+    if (!candidate) break;
+    remaining.splice(remaining.indexOf(candidate), 1);
+    try {
+      const url = await streamWait(candidate.decipher(player));
+      if (isYouTubeStreamUrl(url))
+        return { url, ...metadata, audioContainer: 'progressive', audioItag: candidate.itag };
+    } catch {
+      assertStreamResolveActive();
+    }
   }
   if (combinedHls)
     return { url: combinedHls, ...metadata, audioIncludesVideo: true, audioContainer: 'hls' };
@@ -228,16 +249,20 @@ export async function extractYouTubeAccountStream(
   combined.sort((a, b) => (a.height || 360) - (b.height || 360) || a.bitrate - b.bitrate);
   const rejectedCombinedItag = options.excludeItag ?? combined[0]?.itag;
   for (const format of combined) {
-    if (options.preferAlternateFormat && format.itag === rejectedCombinedItag) continue;
-    const url = await streamWait(format.decipher(player));
-    if (isYouTubeStreamUrl(url))
-      return {
-        url,
-        ...metadata,
-        audioIncludesVideo: true,
-        audioContainer: 'progressive',
-        audioItag: format.itag,
-      };
+    if (directOptions.preferAlternateFormat && format.itag === rejectedCombinedItag) continue;
+    try {
+      const url = await streamWait(format.decipher(player));
+      if (isYouTubeStreamUrl(url))
+        return {
+          url,
+          ...metadata,
+          audioIncludesVideo: true,
+          audioContainer: 'progressive',
+          audioItag: format.itag,
+        };
+    } catch {
+      assertStreamResolveActive();
+    }
   }
   throw new Error('YouTube не выдал поддерживаемый аудиопоток для подключённой сессии.');
 }

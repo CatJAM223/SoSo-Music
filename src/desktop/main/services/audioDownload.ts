@@ -38,18 +38,56 @@ function isAllowedUrl(url: string): boolean {
 }
 
 type Options = {
+  maxBytes?: number;
+  signal?: AbortSignal;
   fetcher?: typeof desktopFetch;
   onProgress?: (receivedBytes: number, totalBytes: number) => void;
   rangeMode?: 'auto' | 'force';
+  sink?: {
+    write: (offset: number, chunk: Uint8Array) => Promise<void>;
+    reset: () => Promise<void>;
+  };
 };
 
 class SlowAudioTransfer extends Error {}
 
 /** Bounded transfers on the same Chromium/proxy connection used to resolve media URLs. */
+let transferTail: Promise<void> = Promise.resolve();
+/** Serialize whole-file allocations across all windows; queued owners can cancel immediately. */
 export async function downloadAudioBytes(url: string, options: Options = {}): Promise<Buffer> {
+  options.signal?.throwIfAborted();
+  const previous = transferTail;
+  let release!: () => void;
+  const slot = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  transferTail = previous.then(() => slot);
+  let abort!: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => reject(options.signal?.reason);
+    options.signal?.addEventListener('abort', abort, { once: true });
+  });
+  try {
+    await Promise.race([previous, cancelled]);
+    options.signal?.throwIfAborted();
+    return await transferAudioBytes(url, options);
+  } finally {
+    options.signal?.removeEventListener('abort', abort);
+    release();
+  }
+}
+async function transferAudioBytes(url: string, options: Options): Promise<Buffer> {
+  const maxAudioSize = Math.min(MAX_AUDIO_SIZE, options.maxBytes ?? MAX_AUDIO_SIZE);
+  if (!Number.isFinite(maxAudioSize) || maxAudioSize <= 0)
+    throw new Error('Invalid audio size limit');
   const fetcher = options.fetcher ?? desktopFetch;
   const controller = new AbortController();
-  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]);
+  const signal = AbortSignal.any([
+    controller.signal,
+    AbortSignal.timeout(60000),
+    ...(options.signal ? [options.signal] : []),
+  ]);
+  signal.throwIfAborted();
   let lastProgressTime = 0;
   let receivedBytes = 0;
   let expectedBytes = 0;
@@ -132,7 +170,8 @@ export async function downloadAudioBytes(url: string, options: Options = {}): Pr
     response: Response,
     limit: number,
     detectSlowTransfer = false,
-  ): Promise<Buffer> => {
+    offset = 0,
+  ): Promise<{ length: number; bytes: Buffer }> => {
     if (!response.body) throw new Error('Audio response has no body');
     const length = Number(response.headers.get('content-length')) || 0;
     if (length > limit) {
@@ -140,6 +179,7 @@ export async function downloadAudioBytes(url: string, options: Options = {}): Pr
       throw new Error('Audio response exceeds size limit');
     }
     const reader = response.body.getReader();
+    const target = !options.sink && length > 0 ? Buffer.allocUnsafe(length) : undefined;
     const chunks: Uint8Array[] = [];
     let loaded = 0;
     const startedAt = Date.now();
@@ -161,7 +201,9 @@ export async function downloadAudioBytes(url: string, options: Options = {}): Pr
         if (done) break;
         loaded += value.byteLength;
         if (loaded > limit) throw new Error('Audio response exceeds size limit');
-        chunks.push(value);
+        if (options.sink) await options.sink.write(offset + loaded - value.byteLength, value);
+        else if (target) target.set(value, loaded - value.byteLength);
+        else chunks.push(value);
         receivedBytes += value.byteLength;
         report();
         const elapsed = Date.now() - startedAt;
@@ -171,7 +213,10 @@ export async function downloadAudioBytes(url: string, options: Options = {}): Pr
       }
       if (length && loaded !== length) throw new Error('Incomplete audio response');
       // Buffer.concat accepts Uint8Array directly; avoid a second copy of every chunk.
-      return Buffer.concat(chunks, loaded);
+      return {
+        length: loaded,
+        bytes: options.sink ? Buffer.alloc(0) : target || Buffer.concat(chunks, loaded),
+      };
     } catch (error) {
       requestControllers.get(response)?.abort();
       await reader.cancel().catch(() => {});
@@ -187,7 +232,7 @@ export async function downloadAudioBytes(url: string, options: Options = {}): Pr
     const size = Number(match[3]);
     if (
       size <= 0 ||
-      size > MAX_AUDIO_SIZE ||
+      size > maxAudioSize ||
       Number(match[1]) !== start ||
       Number(match[2]) !== Math.min(end, size - 1) ||
       (total !== undefined && size !== total)
@@ -203,26 +248,27 @@ export async function downloadAudioBytes(url: string, options: Options = {}): Pr
     // Short, bounded requests avoid treating an offline transfer as one long playback stream.
     // Do not alter signed URL parameters. A CDN ignoring Range can return the full file once.
     let first = await request(url, useRanges ? `bytes=0-${RANGE_SIZE - 1}` : undefined);
-    let result: Buffer;
+    let result: { length: number; bytes: Buffer };
     if (youtube && !useRanges && first.response.status === 200) {
       expectedBytes =
         Number(first.response.headers.get('content-length')) ||
         Number(new URL(first.url).searchParams.get('clen')) ||
         0;
-      if (expectedBytes > MAX_AUDIO_SIZE) {
+      if (expectedBytes > maxAudioSize) {
         await first.response.body?.cancel();
         throw new Error('Audio exceeds size limit');
       }
       try {
-        result = await read(first.response, MAX_AUDIO_SIZE, expectedBytes >= 2 * RANGE_SIZE);
+        result = await read(first.response, maxAudioSize, expectedBytes >= 2 * RANGE_SIZE);
         if (expectedBytes && result.length !== expectedBytes)
           throw new Error('Incomplete audio file');
         expectedBytes = result.length;
         report(true);
-        return result;
+        return result.bytes;
       } catch (error) {
         if (!(error instanceof SlowAudioTransfer)) throw error;
         receivedBytes = 0;
+        await options.sink?.reset();
         first = await request(first.url, `bytes=0-${RANGE_SIZE - 1}`);
       }
     }
@@ -236,31 +282,37 @@ export async function downloadAudioBytes(url: string, options: Options = {}): Pr
       const firstBytes = await read(first.response, Math.min(RANGE_SIZE, expectedBytes));
       if (firstBytes.length !== Math.min(RANGE_SIZE, expectedBytes))
         throw new Error('Incomplete first audio range');
-      const pieces: Buffer[] = [firstBytes];
+      const complete = options.sink ? undefined : Buffer.allocUnsafe(expectedBytes);
+      complete?.set(firstBytes.bytes, 0);
       let nextStart = RANGE_SIZE;
-      await Promise.all(
-        Array.from(
-          { length: Math.min(RANGE_WORKERS, Math.ceil(expectedBytes / RANGE_SIZE) - 1) },
-          async () => {
-            while (nextStart < expectedBytes) {
-              const start = nextStart;
-              nextStart += RANGE_SIZE;
-              const end = Math.min(expectedBytes - 1, start + RANGE_SIZE - 1);
-              const part = await request(first.url, `bytes=${start}-${end}`);
-              try {
-                validateRange(part.response, start, end, expectedBytes);
-              } catch (error) {
-                await part.response.body?.cancel();
-                throw error;
-              }
-              const bytes = await read(part.response, end - start + 1);
-              if (bytes.length !== end - start + 1) throw new Error('Incomplete audio range');
-              pieces[start / RANGE_SIZE] = bytes;
+      const workers = Array.from(
+        { length: Math.min(RANGE_WORKERS, Math.ceil(expectedBytes / RANGE_SIZE) - 1) },
+        async () => {
+          while (nextStart < expectedBytes) {
+            const start = nextStart;
+            nextStart += RANGE_SIZE;
+            const end = Math.min(expectedBytes - 1, start + RANGE_SIZE - 1);
+            const part = await request(first.url, `bytes=${start}-${end}`);
+            try {
+              validateRange(part.response, start, end, expectedBytes);
+            } catch (error) {
+              await part.response.body?.cancel();
+              throw error;
             }
-          },
-        ),
+            const bytes = await read(part.response, end - start + 1, false, start);
+            if (bytes.length !== end - start + 1) throw new Error('Incomplete audio range');
+            complete?.set(bytes.bytes, start);
+          }
+        },
       );
-      result = Buffer.concat(pieces, expectedBytes);
+      try {
+        await Promise.all(workers);
+      } catch (error) {
+        controller.abort();
+        await Promise.allSettled(workers);
+        throw error;
+      }
+      result = { length: expectedBytes, bytes: complete ?? Buffer.alloc(0) };
     } else {
       // An unsolicited partial response cannot safely be stored as a complete song.
       if (first.response.status === 206) {
@@ -271,17 +323,17 @@ export async function downloadAudioBytes(url: string, options: Options = {}): Pr
         Number(first.response.headers.get('content-length')) ||
         Number(new URL(first.url).searchParams.get('clen')) ||
         0;
-      if (expectedBytes > MAX_AUDIO_SIZE) {
+      if (expectedBytes > maxAudioSize) {
         await first.response.body?.cancel();
         throw new Error('Audio exceeds size limit');
       }
-      result = await read(first.response, MAX_AUDIO_SIZE);
+      result = await read(first.response, maxAudioSize);
       if (expectedBytes && result.length !== expectedBytes)
         throw new Error('Incomplete audio file');
     }
     expectedBytes = result.length;
     report(true);
-    return result;
+    return result.bytes;
   } catch (error) {
     controller.abort(); // Stop sibling ranges when one fails; never store a partial song.
     throw error;

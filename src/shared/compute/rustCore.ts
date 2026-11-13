@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.ts';
 export const MAX_COMPUTE_INPUT = 8 * 1024 * 1024;
 interface ComputeExports {
+  wave_session_affinity: (matches: number) => number;
   wave_search_limit: (base: number, exposed: number, attempt: number) => number;
   wave_search_retry: (count: number, attempt: number) => number;
   taste_age_weight: (ageMs: number) => number;
@@ -62,6 +63,7 @@ export function initializeRustCompute(bytes: BufferSource): Promise<boolean> {
         exports.abi_version?.() !== 7 ||
         !(exports.memory instanceof WebAssembly.Memory) ||
         [
+          'wave_session_affinity',
           'wave_search_limit',
           'wave_search_retry',
           'taste_age_weight',

@@ -1,5 +1,7 @@
 // Russian source phrases are stable translation keys. Never translate catalog or user data.
 export const english: Record<string, string> = {
+  'Точная настройка': 'Fine tuning',
+  'Свои настройки': 'Custom settings',
   'Одна сеть / VPN': 'Same network / VPN',
   'Отправьте приглашение другу — плеер подключится автоматически. Используется публичная сеть iroh; её доступность может зависеть от провайдера.':
     'Send an invitation to your friend — the player connects automatically. Uses the public iroh network; availability may depend on your ISP.',
@@ -596,8 +598,8 @@ export const english: Record<string, string> = {
   'Проверьте сессию YouTube': 'Check your YouTube session',
   'Не удалось проверить сессию YouTube. Проверьте соединение и состояние аккаунта в настройках.':
     "Couldn't check your YouTube session. Check your connection and account status in Settings.",
-  'Вход выполнен, но получить поток не удалось. В настройках нажмите «Обновить сессию»: вход сохранится, а плеер повторит запрос. Если YouTube снова потребует проверку, завершите её в окне YouTube.':
-    "You're signed in, but the stream couldn't be loaded. Select Refresh session in Settings: your sign-in is kept and the player retries the request. If YouTube requests verification again, finish it in the YouTube window.",
+  'Откройте YouTube из настроек и выполните его запрос. Затем нажмите «Обновить сессию» и попробуйте запустить трек снова.':
+    'Open YouTube from Settings and follow its prompts. Then select Refresh session and try playing the track again.',
   'Если продолжить без YouTube, его треки будут недоступны до подключения аккаунта.':
     'Continuing without YouTube disables its tracks until you connect an account.',
   'Не показывать снова': "Don't show again",

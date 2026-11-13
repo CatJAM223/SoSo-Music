@@ -240,3 +240,27 @@ test('Foreground buffering invalidates late background sources without starting 
   assert.equal(cache.getCacheBytes(), 0);
   cache.clear();
 });
+
+test('Prefetch retries a busy download using its already resolved URL', async (t) => {
+  const { platformBridge } = await import('../src/shared/bridge/platformBridge.ts');
+  const cache = new AudioCacheService();
+  let resolutions = 0;
+  let downloads = 0;
+  t.mock.method(platformBridge, 'getFullStreamUrl', async () => {
+    resolutions++;
+    return 'https://test.invalid/audio.mp3';
+  });
+  t.mock.method(cache, 'getOrFetchBlobUrl', async (_id, url) => {
+    downloads++;
+    if (downloads === 2) cache.setCache('next', 'blob:next', 20000);
+    return url;
+  });
+  const song = { id: 'next', title: 'Next', artist: { name: 'Artist' }, source: 'soundcloud' };
+  await cache.prefetchTrack(song);
+  await cache.prefetchTrack(song);
+  await cache.prefetchTrack(song);
+  assert.equal(resolutions, 1);
+  assert.equal(downloads, 2);
+  assert.equal(cache.isCached('next'), true);
+  cache.clear();
+});

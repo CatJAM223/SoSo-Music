@@ -34,8 +34,9 @@ export function buildKaraokeLinesWithBreaks(
   const list: KaraokeLine[] = [];
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
-    const previousLine = lineIndex > 0 ? lines[lineIndex - 1] : null;
+    const previousLine = lines[lineIndex - 1];
 
+    // Line timestamps mark onsets. A gap between onsets says nothing about where singing ends.
     if (lineIndex === 0 && line.time > 7) {
       list.push({
         id: 'break-intro',
@@ -43,10 +44,14 @@ export function buildKaraokeLinesWithBreaks(
         text: '• • •',
         isInstrumentalBreak: true,
       });
-    } else if (previousLine && line.time - previousLine.time > 8) {
+    } else if (
+      previousLine?.endTime !== undefined &&
+      previousLine.endTime > previousLine.time &&
+      previousLine.endTime < line.time
+    ) {
       list.push({
-        id: `break-${previousLine.time}-${line.time}`,
-        time: previousLine.time + 1.5,
+        id: `break-${lineIndex}`,
+        time: previousLine.endTime,
         text: '• • •',
         isInstrumentalBreak: true,
       });
@@ -77,10 +82,10 @@ function normalizeLyricsWords(text: string): string {
 export function alignLyricsWithChords(
   timedLines: LyricsLine[],
   chordTab: string,
-): { time: number; text: string; chords: string }[] {
+): (LyricsLine & { chords: string })[] {
   if (!timedLines || timedLines.length === 0) return [];
   if (!chordTab || !chordTab.includes('[ch]')) {
-    return timedLines.map((line) => ({ time: line.time, text: line.text, chords: '' }));
+    return timedLines.map((line) => ({ ...line, chords: '' }));
   }
 
   const rawLines = chordTab.split('\n');
@@ -111,7 +116,7 @@ export function alignLyricsWithChords(
 
   return timedLines.map((line) => {
     const normalizedLine = normalizeLyricsWords(line.text);
-    if (!normalizedLine) return { time: line.time, text: line.text, chords: '' };
+    if (!normalizedLine) return { ...line, chords: '' };
 
     let bestPair: { chordsLine: string; normalizedLyrics: string } | null = null;
     let highestScore = 0;
@@ -136,8 +141,7 @@ export function alignLyricsWithChords(
     }
 
     return {
-      time: line.time,
-      text: line.text,
+      ...line,
       chords: bestPair ? bestPair.chordsLine : '',
     };
   });

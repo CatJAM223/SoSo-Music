@@ -1,6 +1,6 @@
 import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useDialogFocus } from '../../../shared/hooks/useDialogFocus';
@@ -15,8 +15,12 @@ import {
 import { setYouTubePlaybackDisabled } from '../../../shared/services/youtubeAvailability';
 import './YouTubeAccessDialog.css';
 
-type Props = { currentTrackId?: string | number; onOpenAccountSettings: () => void };
-export function YouTubeAccessDialog({ currentTrackId, onOpenAccountSettings }: Props) {
+type Props = {
+  currentTrackId?: string | number;
+  isPlaying: boolean;
+  onOpenAccountSettings: () => void;
+};
+export function YouTubeAccessDialog({ currentTrackId, isPlaying, onOpenAccountSettings }: Props) {
   useLocale();
   const [issue, setIssue] = useState<YouTubeAccessIssue | null>(null);
   const trackRef = useRef(currentTrackId);
@@ -27,6 +31,12 @@ export function YouTubeAccessDialog({ currentTrackId, onOpenAccountSettings }: P
     sequence.current++;
     setIssue((value) => (value && value.trackId !== currentTrackId ? null : value));
   }, [currentTrackId]);
+  useLayoutEffect(() => {
+    if (isPlaying) {
+      sequence.current++;
+      setIssue(null);
+    }
+  }, [isPlaying]);
   useEffect(() => {
     const api = window.electronAPI;
     if (!api?.getYouTubeAccountStatus || !api.connectYouTubeAccount) return;
@@ -35,6 +45,7 @@ export function YouTubeAccessDialog({ currentTrackId, onOpenAccountSettings }: P
       const value: unknown = (event as CustomEvent).detail;
       if (
         !isYouTubeAccessIssue(value) ||
+        value.source !== 'track' ||
         isYouTubeAccessHintHidden(value.reason) ||
         value.trackId !== trackRef.current
       )
@@ -66,7 +77,6 @@ export function YouTubeAccessDialog({ currentTrackId, onOpenAccountSettings }: P
     };
     const off = api.onYouTubeAccountChanged?.((status) => {
       if (status.connected && !status.error) {
-        setYouTubePlaybackDisabled(false);
         sequence.current++;
         setIssue(null);
       }
@@ -76,14 +86,6 @@ export function YouTubeAccessDialog({ currentTrackId, onOpenAccountSettings }: P
       sequence.current++;
       setIssue(null);
     });
-    const initialRequest = sequence.current;
-    api
-      .getYouTubeAccountStatus()
-      .then((status) => {
-        if (active && initialRequest === sequence.current && status.connected && !status.error)
-          setYouTubePlaybackDisabled(false);
-      })
-      .catch(() => {});
     window.addEventListener(YOUTUBE_ACCESS_ISSUE_EVENT, handleIssue);
     return () => {
       active = false;
@@ -93,18 +95,23 @@ export function YouTubeAccessDialog({ currentTrackId, onOpenAccountSettings }: P
       window.removeEventListener(YOUTUBE_ACCESS_ISSUE_EVENT, handleIssue);
     };
   }, []);
-  if (!issue) return null;
+  if (!issue || issue.trackId !== currentTrackId || isPlaying) return null;
+  const dismiss = () => {
+    sequence.current++;
+    setIssue(null);
+  };
   return (
     <AccessPanel
       key={issue.reason + ':' + issue.trackId}
       issue={issue}
       connected={connected}
-      onClose={() => {
+      onClose={dismiss}
+      onDisableYouTube={() => {
         setYouTubePlaybackDisabled(true);
-        setIssue(null);
+        dismiss();
       }}
       onOpenSettings={() => {
-        setIssue(null);
+        dismiss();
         onOpenAccountSettings();
       }}
     />
@@ -115,13 +122,21 @@ type PanelProps = {
   issue: YouTubeAccessIssue;
   connected: boolean | null;
   onClose: () => void;
+  onDisableYouTube: () => void;
   onOpenSettings: () => void;
 };
-function AccessPanel({ issue, connected, onClose, onOpenSettings }: PanelProps) {
+function AccessPanel({ issue, connected, onClose, onDisableYouTube, onOpenSettings }: PanelProps) {
   useLocale();
   const panel = useRef<HTMLDivElement>(null);
   const [hidden, setHidden] = useState(false);
   const copy = youtubeAccessHintCopy(issue);
+  const ageRestricted = issue.reason === 'age-restricted';
+  const statusUnknown = connected === null && !ageRestricted;
+  const description = statusUnknown
+    ? 'Не удалось проверить сессию YouTube. Проверьте соединение и состояние аккаунта в настройках.'
+    : connected && !ageRestricted
+      ? 'Откройте YouTube из настроек и выполните его запрос. Затем нажмите «Обновить сессию» и попробуйте запустить трек снова.'
+      : copy.description;
   useDialogFocus(panel, onClose);
   return createPortal(
     <div className="youtube-access-backdrop" onClick={onClose}>
@@ -137,32 +152,19 @@ function AccessPanel({ issue, connected, onClose, onOpenSettings }: PanelProps) 
         <div className="youtube-access-content">
           <div className="youtube-access-header">
             <h2 id="youtube-access-title">
-              {connected === null
-                ? t('Проверьте подключение к YouTube')
-                : connected
-                  ? t('Проверьте сессию YouTube')
-                  : t(copy.title)}
+              {t(statusUnknown ? 'Проверьте подключение к YouTube' : copy.title)}
             </h2>
             <button
               type="button"
               className="settings-close"
               aria-label={t('Закрыть')}
+              data-initial-focus
               onClick={onClose}
             >
               <X size={19} />
             </button>
           </div>
-          <p id="youtube-access-description">
-            {connected === null
-              ? t(
-                  'Не удалось проверить сессию YouTube. Проверьте соединение и состояние аккаунта в настройках.',
-                )
-              : connected
-                ? t(
-                    'Вход выполнен, но получить поток не удалось. В настройках нажмите «Обновить сессию»: вход сохранится, а плеер повторит запрос. Если YouTube снова потребует проверку, завершите её в окне YouTube.',
-                  )
-                : t(copy.description)}
-          </p>
+          <p id="youtube-access-description">{t(description)}</p>
           <p className="youtube-access-choice-note">
             {t('Если продолжить без YouTube, его треки будут недоступны до подключения аккаунта.')}
           </p>
@@ -178,7 +180,7 @@ function AccessPanel({ issue, connected, onClose, onOpenSettings }: PanelProps) 
             {t('Не показывать снова')}
           </label>
           <footer className="youtube-access-actions">
-            <button type="button" className="settings-action" data-initial-focus onClick={onClose}>
+            <button type="button" className="settings-action" onClick={onDisableYouTube}>
               {t('Без YouTube')}
             </button>
             <button

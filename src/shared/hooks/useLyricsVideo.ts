@@ -10,7 +10,6 @@ import {
   watchVideoProgress,
   syncVideoPlayback,
 } from '../utils/videoStreamPlayback';
-import { emitYouTubeAccessIssue } from '../utils/youtubeAccessHint';
 import { getVideoPlaybackError, type VideoPlaybackError } from '../utils/videoPlaybackError';
 
 type Options = {
@@ -180,11 +179,6 @@ export function useLyricsVideo({
             if (access !== 'unavailable') {
               setClipPlaybackError(access);
               setShowVideo(false);
-              emitYouTubeAccessIssue({
-                reason: access,
-                source: 'clip',
-                trackId: currentTrack?.id || '',
-              });
             } else {
               retryVideoStream();
             }
@@ -404,21 +398,14 @@ export function useLyricsVideo({
   const handleVideoToggle = () => {
     if (youtubeDisabled) return;
     if (activeVideoId && clipPlaybackError && clipPlaybackError !== 'unavailable') {
-      emitYouTubeAccessIssue({
-        reason: clipPlaybackError,
-        source: 'clip',
-        trackId: currentTrack?.id || '',
-      });
-      if (typeof window === 'undefined' || !window.electronAPI?.connectYouTubeAccount) {
-        emitToast(
-          clipPlaybackError === 'age-restricted'
-            ? 'YouTube требует подтверждения возраста для этого клипа.'
-            : clipPlaybackError === 'verification-required'
-              ? 'YouTube требует проверки на бота для этого клипа.'
-              : 'YouTube требует входа для этого клипа.',
-          'info',
-        );
-      }
+      emitToast(
+        clipPlaybackError === 'age-restricted'
+          ? 'YouTube требует подтверждения возраста для этого клипа.'
+          : clipPlaybackError === 'verification-required'
+            ? 'YouTube требует проверки на бота для этого клипа.'
+            : 'YouTube требует входа для этого клипа.',
+        'info',
+      );
       return;
     }
     if (!activeVideoId) {

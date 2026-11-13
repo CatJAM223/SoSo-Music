@@ -1,0 +1,234 @@
+{
+  "date": "2026-11-05",
+  "unitTests": {
+    "passed": 1306,
+    "failed": 0
+  },
+  "livePlayback": {
+    "method": "One public track per provider; isolated anonymous Electron profile; muted output; real remote CDN and media decoder; 90 seconds per track with pause/resume and seek; not full application UI. Resolver and media use Chromium after transport alignment.",
+    "results": [
+      {
+        "source": "youtube",
+        "resolved": true,
+        "transport": "progressive",
+        "itag": "140",
+        "resolveMs": 1054,
+        "playback": {
+          "ok": true,
+          "firstPlayingMs": 198,
+          "events": {
+            "waiting": 2,
+            "playing": 3,
+            "pause": 1,
+            "seeking": 1,
+            "seeked": 1
+          }
+        },
+        "summedProcessWorkingSetMiB": {
+          "first": 367.4,
+          "last": 362.9,
+          "min": 362.7,
+          "max": 367.4
+        }
+      },
+      {
+        "source": "soundcloud",
+        "resolved": true,
+        "transport": "hls",
+        "itag": null,
+        "resolveMs": 1012,
+        "playback": {
+          "ok": true,
+          "firstPlayingMs": 1109,
+          "events": {
+            "waiting": 2,
+            "playing": 3,
+            "pause": 1,
+            "seeking": 1,
+            "seeked": 1
+          }
+        },
+        "summedProcessWorkingSetMiB": {
+          "first": 420.6,
+          "last": 402.8,
+          "min": 398.1,
+          "max": 420.6
+        }
+      }
+    ]
+  },
+  "offlineProgressive": {
+    "source": "youtube",
+    "resolved": true,
+    "transport": "progressive",
+    "itag": "140",
+    "resolveMs": 901,
+    "playback": {
+      "ok": true,
+      "bytes": 3449447,
+      "duration": 213.089524,
+      "firstPlayingMs": 58,
+      "position": 41.435521
+    },
+    "summedProcessWorkingSetMiB": {
+      "first": 290.3,
+      "last": 290.3,
+      "min": 290.3,
+      "max": 290.3
+    }
+  },
+  "audioQuality": {
+    "ok": true,
+    "checks": {
+      "sliderIndependent": true,
+      "equalizerIndependent": true,
+      "amplitudeDifference": true,
+      "analysisSuspendsOnPause": true,
+      "analysisResumes": true,
+      "analysisSurvivesSeek": true,
+      "firstPlayGainFixed": true,
+      "previousAnalysisReleased": true,
+      "highSliderMatched": true,
+      "lowSliderMatched": true,
+      "toggleRestores": true,
+      "bypassPreservesDifference": true,
+      "crossfadeStarted": true,
+      "crossfadePower": true,
+      "bufferingHoldsFade": true,
+      "muteBothTracks": true,
+      "unmuteBothTracks": true,
+      "crossfadeCompletes": true,
+      "peakGuard": true
+    },
+    "profiles": {
+      "base": 12.257767552824298,
+      "loud": -5.8054436415932145,
+      "low-slider": 12.255579280620854,
+      "equalized": 12.255550142493842
+    },
+    "crossfadePower": 0.9995724985222041,
+    "limitedPeak": 0.9901962280273438,
+    "highDifferenceDb": 0.00010590366733631932,
+    "lowDifferenceDb": -0.0015381086364046983,
+    "high": [
+      0.11595408992190372,
+      0.11595267614749316
+    ],
+    "low": [
+      0.004348577175037727,
+      0.004349347294925761
+    ],
+    "restored": [
+      0.004348838515291213,
+      0.004347319986808091
+    ],
+    "expectedQuietGain": 4.100986858842452,
+    "externalRequests": 0,
+    "electron": "45.0.0",
+    "chromium": "156.0.8078.48"
+  },
+  "audioTransitions": {
+    "ok": true,
+    "results": [
+      {
+        "scenario": "normalized-real-audio",
+        "ok": true,
+        "combinedPower": 1
+      },
+      {
+        "scenario": "low-volume-and-buffering",
+        "ok": true,
+        "combinedPower": 0.014264038732150017
+      },
+      {
+        "scenario": "real-capture-and-fixed-replay-gain",
+        "ok": true,
+        "gainDb": 6.700483033316498,
+        "profileBytes": 163
+      }
+    ],
+    "externalRequests": 0,
+    "electron": "45.0.0",
+    "chromium": "156.0.8078.48"
+  },
+  "uiResponsiveness": {
+    "method": {
+      "legacyArtworkValidation": false,
+      "domTiming": "MutationObserver registered before dispatch; no timer polling",
+      "renderer": "React 19 production profiling build",
+      "profiling": "public React Profiler actualDuration and commit count; AST-instrumented production component invocation counters; commit/passive-effect durations are not measured",
+      "transport": "EventTarget fixture audio; real useAudioPlayerCore, AudioProvider, context hooks, TrackTable and TrackRow",
+      "profile": "isolated temporary Electron userData",
+      "externalRequests": 0,
+      "artwork": "missing fields and fully populated stable file URLs; no network artwork",
+      "screen": "hidden BrowserWindow, backgroundThrottling=false; no frame-presentation claims",
+      "readiness": "Actual model loading state and committed playback; initial stats delayed by 500ms"
+    },
+    "results": [
+      {
+        "tracks": 300,
+        "cpuThrottle": 1,
+        "artwork": "missing",
+        "switchDomP95Ms": 30.600000001490116,
+        "progressDomP95Ms": 1.3000000044703484
+      },
+      {
+        "tracks": 1000,
+        "cpuThrottle": 1,
+        "artwork": "missing",
+        "switchDomP95Ms": 11,
+        "progressDomP95Ms": 1
+      },
+      {
+        "tracks": 300,
+        "cpuThrottle": 4,
+        "artwork": "missing",
+        "switchDomP95Ms": 82.90000000596046,
+        "progressDomP95Ms": 6.800000004470348
+      },
+      {
+        "tracks": 1000,
+        "cpuThrottle": 4,
+        "artwork": "missing",
+        "switchDomP95Ms": 58.899999998509884,
+        "progressDomP95Ms": 6.100000001490116
+      },
+      {
+        "tracks": 300,
+        "cpuThrottle": 1,
+        "artwork": "stable-local",
+        "switchDomP95Ms": 17.5,
+        "progressDomP95Ms": 0.8999999985098839
+      },
+      {
+        "tracks": 1000,
+        "cpuThrottle": 1,
+        "artwork": "stable-local",
+        "switchDomP95Ms": 17,
+        "progressDomP95Ms": 0.8999999985098839
+      },
+      {
+        "tracks": 300,
+        "cpuThrottle": 4,
+        "artwork": "stable-local",
+        "switchDomP95Ms": 61.20000000298023,
+        "progressDomP95Ms": 4.100000001490116
+      },
+      {
+        "tracks": 1000,
+        "cpuThrottle": 4,
+        "artwork": "stable-local",
+        "switchDomP95Ms": 70.70000000298023,
+        "progressDomP95Ms": 4.600000001490116
+      }
+    ]
+  },
+  "limits": [
+    "No one-to-two-hour soak test.",
+    "No physical audio output listening or fidelity comparison.",
+    "Outage/recovery tested with controlled fixtures; system network was not disconnected.",
+    "Account lifecycle tested with local synthetic fixtures; no live account login.",
+    "Working sets are summed per-process and may count shared memory multiple times.",
+    "Single-track live samples cannot establish latency percentiles or general availability."
+  ]
+}

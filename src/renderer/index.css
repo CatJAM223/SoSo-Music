@@ -1,4 +1,6 @@
 @import 'tailwindcss' source(none);
+@import '../desktop/ui/visual-refresh.css';
+@import '../shared/components/theme-atmosphere.css';
 @config "../../tailwind.config.js";
 @source "..";
 

@@ -1,6 +1,10 @@
 import { AudioCrossfade } from '../../src/shared/services/audioCrossfade';
 import { TrackVolumeNormalization } from '../../src/shared/services/trackVolumeNormalization';
-import { applyAudioVolume, setAudioFadeVolume } from '../../src/shared/utils/audioVolume';
+import {
+  applyAudioVolume,
+  armAudioStartupFade,
+  setAudioFadeVolume,
+} from '../../src/shared/utils/audioVolume';
 import { LoudnessProfiles, normalizationGain } from '../../src/shared/utils/recordingLoudness';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -93,8 +97,20 @@ export async function runAudioTransitions() {
     results.push({ scenario: 'low-volume-and-buffering', ok: true, combinedPower: lowPower });
     next.pause();
     service.prepare(fresh, { id: 'fresh' });
-    fresh.volume = 0.03;
+    armAudioStartupFade(fresh, 0.03);
+    let startupVolume = -1;
+    fresh.addEventListener(
+      'playing',
+      () => {
+        startupVolume = raw(fresh);
+      },
+      { once: true },
+    );
     await fresh.play();
+    assert(startupVolume === 0, 'The real decoder started above zero volume');
+    await sleep(150);
+    assert(Math.abs(raw(fresh) - 0.03) < 1e-8, 'The startup ramp did not restore volume');
+    results.push({ scenario: 'real-decoder-startup-ramp', ok: true });
     const deadline = performance.now() + 21000;
     while (
       !values.has(LoudnessProfiles.STORAGE_KEY) ||

@@ -796,7 +796,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                           : clipPlaybackError === 'verification-required'
                             ? t('Проверка YouTube')
                             : clipPlaybackError === 'sign-in-required'
-                              ? t('Войти в YouTube')
+                              ? t('YouTube требует входа')
                               : clipPlaybackError
                                 ? t('Повторить')
                                 : t('Клип')}

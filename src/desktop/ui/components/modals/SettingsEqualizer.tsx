@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
   type KeyboardEvent,
   type PointerEvent,
+  type CSSProperties,
 } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { audioEqualizer } from '../../../../shared/services/audioEqualizer';
@@ -174,23 +175,22 @@ export function SettingsEqualizer() {
           <span />
         </button>
       </div>
-      <div className="equalizer-presets" role="group" aria-label={t('Пресеты эквалайзера')}>
-        {EQUALIZER_PRESETS.map((preset) => {
-          return (
-            <button
-              type="button"
-              key={preset.id}
-              aria-pressed={settings.presetId === preset.id}
-              title={t(preset.description)}
-              onClick={() => service.selectPreset(preset.id)}
-            >
-              {t(preset.label)}
-            </button>
-          );
-        })}
-      </div>
       <div className={`equalizer-panel ${settings.enabled ? '' : 'equalizer-disabled'}`}>
         <div className="equalizer-panel-top">
+          <select
+            aria-label={t('Пресеты эквалайзера')}
+            value={settings.presetId}
+            onChange={(event) => service.selectPreset(event.target.value)}
+          >
+            {!EQUALIZER_PRESETS.some((preset) => preset.id === settings.presetId) && (
+              <option value={settings.presetId}>{t('Свои настройки')}</option>
+            )}
+            {EQUALIZER_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {t(preset.label)}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={() => service.selectPreset('flat')}
@@ -200,127 +200,168 @@ export function SettingsEqualizer() {
             {t('Сбросить')}
           </button>
         </div>
-        <svg
-          ref={svgRef}
-          className="equalizer-graph"
-          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          role="group"
-          aria-label={t('Частотная характеристика эквалайзера')}
-          onPointerDown={handlePointerDown}
-          onPointerMove={(event) => {
-            if (drag.current?.pointerId === event.pointerId)
-              setFromPointer(event, drag.current.index);
-          }}
-          onPointerUp={(event) => {
-            if (drag.current?.pointerId === event.pointerId) {
+        <div className="equalizer-faders" role="group" aria-label={t('Эквалайзер')}>
+          <div className="equalizer-fader-scale" aria-hidden="true">
+            <span>+{EQUALIZER_LIMIT}</span>
+            <span>0 {t('дБ')}</span>
+            <span>−{EQUALIZER_LIMIT}</span>
+          </div>
+          {EQUALIZER_FREQUENCIES.map((frequency, index) => (
+            <label key={frequency} className="equalizer-fader">
+              <input
+                type="range"
+                min={-EQUALIZER_LIMIT}
+                max={EQUALIZER_LIMIT}
+                step={0.5}
+                value={settings.gains[index]}
+                style={
+                  {
+                    '--band-fill': `${((settings.gains[index] + EQUALIZER_LIMIT) / (2 * EQUALIZER_LIMIT)) * 100}%`,
+                  } as CSSProperties
+                }
+                disabled={!settings.enabled}
+                aria-label={frequencyLabel(frequency)}
+                aria-orientation="vertical"
+                aria-valuetext={gainLabel(settings.gains[index])}
+                onChange={(event) => service.setBandGain(index, Number(event.target.value))}
+              />
+              <span>{frequency >= 1000 ? `${frequency / 1000}k` : frequency}</span>
+              <output>
+                {settings.gains[index] > 0 ? '+' : ''}
+                {settings.gains[index]}
+              </output>
+            </label>
+          ))}
+        </div>
+        <details className="equalizer-advanced">
+          <summary>{t('Точная настройка')}</summary>
+          <svg
+            ref={svgRef}
+            className="equalizer-graph"
+            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+            role="group"
+            aria-label={t('Частотная характеристика эквалайзера')}
+            onPointerDown={handlePointerDown}
+            onPointerMove={(event) => {
+              if (drag.current?.pointerId === event.pointerId)
+                setFromPointer(event, drag.current.index);
+            }}
+            onPointerUp={(event) => {
+              if (drag.current?.pointerId === event.pointerId) {
+                drag.current = null;
+                setDragRange(null);
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+            }}
+            onPointerCancel={() => {
               drag.current = null;
               setDragRange(null);
-              event.currentTarget.releasePointerCapture(event.pointerId);
-            }
-          }}
-          onPointerCancel={() => {
-            drag.current = null;
-            setDragRange(null);
-          }}
-          onLostPointerCapture={() => {
-            drag.current = null;
-            setDragRange(null);
-          }}
-        >
-          <defs>
-            <linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="currentColor" stopOpacity="0.2" />
-              <stop offset="100%" stopColor="currentColor" stopOpacity="0.015" />
-            </linearGradient>
-          </defs>
-          {[-range, -range / 2, 0, range / 2, range].map((gain) => (
-            <g key={gain} className={gain === 0 ? 'equalizer-zero' : 'equalizer-grid'}>
-              <line x1={LEFT} x2={WIDTH - RIGHT} y1={y(gain)} y2={y(gain)} />
-              <text x={LEFT - 12} y={y(gain) + 4} textAnchor="end">
-                {gain > 0 ? '+' : ''}
-                {gain}
-              </text>
-            </g>
-          ))}
-          <text className="equalizer-axis-label" x={LEFT - 12} y={TOP - 10} textAnchor="end">
-            {t('дБ')}
-          </text>
-          {EQUALIZER_FREQUENCIES.map((frequency) => (
-            <g className="equalizer-grid" key={frequency}>
-              <line
-                x1={frequencyX(frequency)}
-                x2={frequencyX(frequency)}
-                y1={TOP}
-                y2={HEIGHT - BOTTOM}
-              />
-              <text x={frequencyX(frequency)} y={HEIGHT - BOTTOM + 24} textAnchor="middle">
-                {frequency >= 1000 ? `${frequency / 1000}k` : frequency}
-              </text>
-            </g>
-          ))}
-          <path d={area} fill={`url(#${id}-fill)`} />
-          <path d={line} className="equalizer-curve" />
-          {EQUALIZER_FREQUENCIES.map((frequency, index) => (
-            <g
-              key={frequency}
-              className={selectedBand === index ? 'equalizer-band selected' : 'equalizer-band'}
-            >
-              <circle
-                cx={frequencyX(frequency)}
-                cy={y(displayedGains[index])}
-                r={16}
-                className="equalizer-hit"
-                role="slider"
-                tabIndex={settings.enabled ? 0 : -1}
-                aria-disabled={!settings.enabled}
-                aria-label={frequencyLabel(frequency)}
-                aria-valuemin={-EQUALIZER_LIMIT}
-                aria-valuemax={EQUALIZER_LIMIT}
-                aria-valuenow={settings.gains[index]}
-                aria-valuetext={gainLabel(settings.gains[index])}
-                aria-orientation="vertical"
-                onFocus={() => setSelectedBand(index)}
-                onKeyDown={(event) => {
-                  if (settings.enabled) handleKeyDown(event, index);
-                }}
-                onDoubleClick={() => {
-                  if (settings.enabled) service.setBandGain(index, 0);
-                }}
-              >
-                <title>
-                  {frequencyLabel(frequency)} · {gainLabel(settings.gains[index])}
-                </title>
-              </circle>
-              <circle
-                cx={frequencyX(frequency)}
-                cy={y(displayedGains[index])}
-                r={selectedBand === index ? 6 : 4.5}
-                className="equalizer-handle"
-              />
-            </g>
-          ))}
-          <text className="equalizer-axis-label" x={WIDTH - RIGHT} y={HEIGHT - 4} textAnchor="end">
-            {t('Гц')}
-          </text>
-        </svg>
-        <div className="equalizer-panel-bottom">
-          <label className="equalizer-precise">
-            <span>{frequencyLabel(EQUALIZER_FREQUENCIES[selectedBand])}</span>
-            <EqualizerGainInput
-              key={selectedBand}
-              gain={settings.gains[selectedBand]}
-              disabled={!settings.enabled}
-              onChange={(gain) => service.setBandGain(selectedBand, gain)}
-            />
-            <span>{t('дБ')}</span>
-          </label>
-          <span
-            className="equalizer-headroom"
-            title={t('Громкость автоматически снижена с учётом суммарного усиления фильтров')}
+            }}
+            onLostPointerCapture={() => {
+              drag.current = null;
+              setDragRange(null);
+            }}
           >
-            {t('Запас громкости')}: {gainLabel(settings.enabled ? targetResponse.headroomDb : 0)}
-          </span>
-        </div>
+            <defs>
+              <linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="currentColor" stopOpacity="0.2" />
+                <stop offset="100%" stopColor="currentColor" stopOpacity="0.015" />
+              </linearGradient>
+            </defs>
+            {[-range, -range / 2, 0, range / 2, range].map((gain) => (
+              <g key={gain} className={gain === 0 ? 'equalizer-zero' : 'equalizer-grid'}>
+                <line x1={LEFT} x2={WIDTH - RIGHT} y1={y(gain)} y2={y(gain)} />
+                <text x={LEFT - 12} y={y(gain) + 4} textAnchor="end">
+                  {gain > 0 ? '+' : ''}
+                  {gain}
+                </text>
+              </g>
+            ))}
+            <text className="equalizer-axis-label" x={LEFT - 12} y={TOP - 10} textAnchor="end">
+              {t('дБ')}
+            </text>
+            {EQUALIZER_FREQUENCIES.map((frequency) => (
+              <g className="equalizer-grid" key={frequency}>
+                <line
+                  x1={frequencyX(frequency)}
+                  x2={frequencyX(frequency)}
+                  y1={TOP}
+                  y2={HEIGHT - BOTTOM}
+                />
+                <text x={frequencyX(frequency)} y={HEIGHT - BOTTOM + 24} textAnchor="middle">
+                  {frequency >= 1000 ? `${frequency / 1000}k` : frequency}
+                </text>
+              </g>
+            ))}
+            <path d={area} fill={`url(#${id}-fill)`} />
+            <path d={line} className="equalizer-curve" />
+            {EQUALIZER_FREQUENCIES.map((frequency, index) => (
+              <g
+                key={frequency}
+                className={selectedBand === index ? 'equalizer-band selected' : 'equalizer-band'}
+              >
+                <circle
+                  cx={frequencyX(frequency)}
+                  cy={y(displayedGains[index])}
+                  r={16}
+                  className="equalizer-hit"
+                  role="slider"
+                  tabIndex={settings.enabled ? 0 : -1}
+                  aria-disabled={!settings.enabled}
+                  aria-label={frequencyLabel(frequency)}
+                  aria-valuemin={-EQUALIZER_LIMIT}
+                  aria-valuemax={EQUALIZER_LIMIT}
+                  aria-valuenow={settings.gains[index]}
+                  aria-valuetext={gainLabel(settings.gains[index])}
+                  aria-orientation="vertical"
+                  onFocus={() => setSelectedBand(index)}
+                  onKeyDown={(event) => {
+                    if (settings.enabled) handleKeyDown(event, index);
+                  }}
+                  onDoubleClick={() => {
+                    if (settings.enabled) service.setBandGain(index, 0);
+                  }}
+                >
+                  <title>
+                    {frequencyLabel(frequency)} · {gainLabel(settings.gains[index])}
+                  </title>
+                </circle>
+                <circle
+                  cx={frequencyX(frequency)}
+                  cy={y(displayedGains[index])}
+                  r={selectedBand === index ? 6 : 4.5}
+                  className="equalizer-handle"
+                />
+              </g>
+            ))}
+            <text
+              className="equalizer-axis-label"
+              x={WIDTH - RIGHT}
+              y={HEIGHT - 4}
+              textAnchor="end"
+            >
+              {t('Гц')}
+            </text>
+          </svg>
+          <div className="equalizer-panel-bottom">
+            <label className="equalizer-precise">
+              <span>{frequencyLabel(EQUALIZER_FREQUENCIES[selectedBand])}</span>
+              <EqualizerGainInput
+                key={selectedBand}
+                gain={settings.gains[selectedBand]}
+                disabled={!settings.enabled}
+                onChange={(gain) => service.setBandGain(selectedBand, gain)}
+              />
+              <span>{t('дБ')}</span>
+            </label>
+            <span
+              className="equalizer-headroom"
+              title={t('Громкость автоматически снижена с учётом суммарного усиления фильтров')}
+            >
+              {t('Запас громкости')}: {gainLabel(settings.enabled ? targetResponse.headroomDb : 0)}
+            </span>
+          </div>
+        </details>
       </div>
       {error && (
         <p role="status" className="equalizer-error">

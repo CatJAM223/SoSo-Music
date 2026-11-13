@@ -217,9 +217,10 @@ export class LyricsService {
         continue;
       }
 
-      let text = cleanLyricText(line.replace(timeRegex, ''));
+      const rawText = line.replace(timeRegex, '').trim();
+      let text = cleanLyricText(rawText);
       text = text.replace(/\s*\/\/\s*|\s*\/\s*/g, ' ').trim();
-      if (!text) continue;
+      if (!text && rawText) continue;
 
       let match;
       timeRegex.lastIndex = 0;
@@ -241,7 +242,17 @@ export class LyricsService {
       }
     }
 
-    return result.sort((a, b) => a.time - b.time);
+    const lyrics: LyricsLine[] = [];
+    for (const line of result.sort((a, b) => a.time - b.time)) {
+      if (line.text) lyrics.push(line);
+      else {
+        const previous = lyrics[lyrics.length - 1];
+        // A timestamp without text explicitly ends the preceding vocal line.
+        if (previous && previous.endTime === undefined && line.time > previous.time)
+          previous.endTime = line.time;
+      }
+    }
+    return lyrics;
   }
 
   /**
@@ -267,7 +278,11 @@ export class LyricsService {
     // Trust near-exact matches; ignore absurd mismatches (likely wrong version entirely)
     if (Math.abs(diff) < 2 || Math.abs(diff) > 15) return lines;
 
-    return lines.map((l) => ({ ...l, time: Math.max(0, l.time + diff) }));
+    return lines.map((line) => ({
+      ...line,
+      time: Math.max(0, line.time + diff),
+      ...(line.endTime !== undefined ? { endTime: Math.max(0, line.endTime + diff) } : {}),
+    }));
   }
 
   public static parsePlainLyrics(plain: string, _duration: number = 180): LyricsLine[] {

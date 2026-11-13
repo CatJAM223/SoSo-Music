@@ -1,5 +1,9 @@
+import { remainingStartupBudget } from '../utils/playbackStartupBudget.ts';
 import type { StreamResolveOptions, Track } from '../types/index.ts';
-import { withStreamResolveDeadline } from '../utils/streamResolveDeadline.ts';
+import {
+  StreamResolveTimeoutError,
+  withStreamResolveDeadline,
+} from '../utils/streamResolveDeadline.ts';
 
 const STREAM_RESOLUTION_TIMEOUT_MS = 30000;
 type ResolveStream = (
@@ -14,6 +18,8 @@ export function resolvePlayerStream(
   signal: AbortSignal,
   resolve: ResolveStream,
 ): Promise<string> {
+  const timeout = Math.min(STREAM_RESOLUTION_TIMEOUT_MS, remainingStartupBudget(signal));
+  if (!timeout) return Promise.reject(new StreamResolveTimeoutError());
   const artist =
     typeof track.artist === 'object' && track.artist
       ? track.artist
@@ -32,7 +38,7 @@ export function resolvePlayerStream(
     if (url || options.forceRefresh) return url;
     return resolve(item, { ...options, forceRefresh: true }, operationSignal);
   };
-  return withStreamResolveDeadline(lookup(), STREAM_RESOLUTION_TIMEOUT_MS, signal).finally(() => {
+  return withStreamResolveDeadline(lookup(), timeout, signal).finally(() => {
     finished = true;
     operation.abort();
   });

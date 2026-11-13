@@ -56,6 +56,27 @@ test('Karaoke cache: duration, original version title and unknown duration stay 
   );
 });
 
+test('Karaoke retains a timed instrumental pause through alignment and chord matching', () => {
+  const lines = LyricsService.parseLrc(
+    '[00:14.00] One\n[00:16.00]\n[00:18.00]\n[00:30.00] Two\n[00:45.00] Three\n[01:00.00] Four',
+  );
+  assert.equal(lines.length, 4);
+  const shifted = LyricsService.applyAutoAlignment(lines, 100, 103);
+  const withChords = karaokeProcessing.alignLyricsWithChords(shifted, '[ch]C[/ch]\nOne');
+  const items = karaokeProcessing.buildKaraokeLinesWithBreaks(withChords);
+  assert.deepEqual(
+    items.map(({ time, isInstrumentalBreak }) => [time, isInstrumentalBreak]),
+    [
+      [0, true],
+      [17, false],
+      [19, true],
+      [33, false],
+      [48, false],
+      [63, false],
+    ],
+  );
+});
+
 test('Karaoke service: a second recording gets its own aligned timings and can reuse them', async () => {
   let requests = 0;
   const service = lyricsFixture(async () => {

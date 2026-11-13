@@ -112,7 +112,9 @@ export function createWaveMemory(storage?: StorageLike, now: () => number = Date
       return offered.map((entry) => entry.track);
     },
     recordPlayback(value: Track, seconds: number, force = false): boolean {
-      if (!requireRustCompute().wave_memory_ttl(seconds, value.duration)) return false;
+      const compute = requireRustCompute();
+      const ttl = compute.wave_memory_ttl(seconds, value.duration);
+      if (!ttl) return false;
       const id = String(value.id),
         stamp = now();
       if (
@@ -125,10 +127,15 @@ export function createWaveMemory(storage?: StorageLike, now: () => number = Date
       const track = waveMemoryTrack(value);
       if (!track) return false;
       lastObservation = { id, at: stamp, seconds };
-      played = [
-        ...played.filter((entry) => String(entry.track.id) !== id),
-        { track, at: stamp, seconds },
-      ].slice(-WAVE_HISTORY_LIMIT);
+      const previous = played.find((entry) => String(entry.track.id) === id);
+      // Update recency for the history cap while retaining the later expiry.
+      const remembered =
+        previous &&
+        previous.at + compute.wave_memory_ttl(previous.seconds || 0, previous.track.duration) >
+          stamp + ttl
+          ? previous
+          : { track, at: stamp, seconds };
+      played = [...played.filter((entry) => String(entry.track.id) !== id), remembered];
       offered = offered.filter((entry) => String(entry.track.id) !== id);
       save();
       return true;

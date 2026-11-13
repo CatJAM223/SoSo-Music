@@ -176,7 +176,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
   const isWaveLoading = isWaveStarting || (isWaveActive && isLoadingTrack);
 
   return (
-    <div className="space-y-4 md:space-y-8 animate-fade-in pb-12 select-none">
+    <div className="discover-view space-y-4 md:space-y-8 animate-fade-in pb-12 select-none">
       <div className="wave-hero relative z-20 py-4 text-slate-900 dark:text-white sm:py-5">
         <WaveControl
           mood={isWaveActive ? waveMood : selectedMood}
@@ -193,7 +193,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
       </div>
 
       <section aria-labelledby="daily-recommendations-title" className="space-y-4">
-        <div className="flex items-baseline justify-between gap-3">
+        <div className="flex flex-col items-start gap-1">
           <h2
             id="daily-recommendations-title"
             className="text-lg font-bold text-slate-900 dark:text-white"
@@ -224,7 +224,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
             {t('Слушайте музыку и отмечайте любимые треки — здесь появятся рекомендации.')}
           </p>
         ) : (
-          <div className="grid grid-cols-[repeat(5,minmax(140px,1fr))] gap-4 overflow-x-auto pb-2">
+          <div className="discover-recommendations grid grid-cols-[repeat(5,minmax(140px,1fr))] gap-4 overflow-x-auto pb-2">
             {recommendedTracks.map((track) => {
               const active = String(currentTrack?.id) === String(track.id);
               const cover =
@@ -393,7 +393,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
       )}
 
       {/* 2-COLUMN SPLIT: Любимые треки (Left) & Сохранённые альбомы (Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
+      <div className="discover-collection grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
         {/* 💖 LEFT COLUMN: Любимые треки */}
         <div className="flex flex-col justify-between bg-white dark:bg-zinc-900 rounded-2xl p-5 sm:p-7 border border-slate-200 dark:border-zinc-800 space-y-5">
           <div className="space-y-5">

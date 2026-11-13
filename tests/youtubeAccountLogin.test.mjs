@@ -53,8 +53,13 @@ function fixture(t) {
       headers: { 'content-type': 'video/mp4' },
     });
   const jar = new EventEmitter();
-  jar.get = async () => cookies;
+  jar.get = async () => [...cookies];
+  jar.set = async ({ url, domain, ...details }) => {
+    cookies.push({ ...details, domain: domain ?? new URL(url).hostname, hostOnly: !domain });
+  };
   jar.flushStore = async () => {};
+  const dialog = {};
+  const files = {};
   const browser = {
     fetch: (input, init) => accountTransport(input, init),
     cookies: jar,
@@ -193,8 +198,10 @@ function fixture(t) {
     },
     require: (name) =>
       name === 'electron'
-        ? { BrowserWindow: Window, net, session: { fromPartition: () => browser }, dialog: {} }
-        : require(name),
+        ? { BrowserWindow: Window, net, session: { fromPartition: () => browser }, dialog }
+        : name === 'node:fs/promises'
+          ? files
+          : require(name),
   };
   context.exports = context.module.exports;
   vm.runInNewContext(bundle.outputFiles[0].text, context, {
@@ -215,6 +222,8 @@ function fixture(t) {
     windows,
     logs,
     jar,
+    dialog,
+    files,
     Window,
     setTransport(value) {
       transport = value;
@@ -239,6 +248,139 @@ function fixture(t) {
     },
   };
 }
+
+const importCookies = (value, domain = '.youtube.com') =>
+  ['SAPISID', 'SID'].map((name) => ({
+    name,
+    value,
+    domain,
+    path: '/',
+    secure: true,
+    httpOnly: true,
+  }));
+
+function selectCookieFile(f, cookies) {
+  f.dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ['fixture.json'] });
+  f.files.stat = async () => ({ size: 512 });
+  f.files.readFile = async () => JSON.stringify(cookies);
+}
+
+test('Playback can resolve while the import picker and file read are pending', async (t) => {
+  const f = fixture(t);
+  accountClient(f, async () => validAudioInfo());
+  selectCookieFile(f, importCookies('synthetic'));
+  let picked,
+    fileRead,
+    picks = 0;
+  f.dialog.showOpenDialog = () => {
+    picks++;
+    return new Promise((resolve) => {
+      picked = resolve;
+    });
+  };
+  f.files.readFile = () =>
+    new Promise((resolve) => {
+      fileRead = resolve;
+    });
+  const imports = [f.account.importSession(), f.account.importSession()];
+  await tick();
+  assert.equal(picks, 1);
+  const whilePicking = f.account.resolve('W0LiTBNjJ_o', {});
+  await tick();
+  picked({ canceled: false, filePaths: ['fixture.json'] });
+  await tick();
+  const whileReading = f.account.resolve('W0LiTBNjJ_o', {});
+  let completed = 0;
+  const playback = Promise.all(
+    [whilePicking, whileReading].map(async (request) => {
+      assert.ok((await request)?.url);
+      completed++;
+    }),
+  );
+  await tick();
+  const completedBeforeImport = completed;
+  fileRead(JSON.stringify(importCookies('synthetic')));
+  await Promise.all([...imports, playback]);
+  assert.equal(completedBeforeImport, 2);
+  assert.equal(f.connections, 1);
+});
+
+test('Successful reimport of the same account clears its client and playback caches', async (t) => {
+  const f = fixture(t);
+  const cookies = importCookies('synthetic');
+  f.setCookies(cookies);
+  await f.account.status();
+  const epoch = f.account.epoch;
+  f.account.clientRequest = Promise.resolve('old client');
+  f.account.playerCache.set('old player', new ArrayBuffer(1));
+  const invalidations = [];
+  f.account.onChange = (invalidate) => {
+    if (invalidate) invalidations.push(f.account.epoch);
+  };
+  selectCookieFile(f, cookies);
+  const result = await f.account.importSession();
+  assert.equal(result.connected, true);
+  assert.equal(result.error, undefined);
+  assert.deepEqual(invalidations, [epoch + 1]);
+  assert.equal(f.account.clientRequest, null);
+  assert.equal(f.account.playerCache.size, 0);
+  assert.equal(f.connections, 1);
+});
+
+test('Import rejects cookies for another host before modifying the existing session', async (t) => {
+  const f = fixture(t);
+  const previous = importCookies('old');
+  f.setCookies(previous);
+  await f.account.status();
+  selectCookieFile(f, importCookies('new', 'music.youtube.com'));
+  const result = await f.account.importSession();
+  assert.equal(result.connected, true);
+  assert.match(result.error, /авторизации YouTube/);
+  assert.deepEqual(await f.jar.get({}), previous);
+  assert.equal(f.connections, 0);
+});
+
+test('Import restores the previous partition if Chromium drops an imported auth cookie', async (t) => {
+  const f = fixture(t);
+  const previous = [
+    ...importCookies('old'),
+    {
+      name: 'fixture',
+      value: 'login',
+      domain: 'accounts.google.com',
+      hostOnly: true,
+      path: '/',
+      secure: true,
+      httpOnly: true,
+      sameSite: 'strict',
+    },
+  ];
+  f.setCookies(previous);
+  const get = f.jar.get;
+  f.jar.get = async (options) => {
+    const stored = await get();
+    return options.url ? stored.filter((cookie) => cookie.domain === '.youtube.com') : stored;
+  };
+  await f.account.status();
+  const epoch = f.account.epoch;
+  const set = f.jar.set;
+  f.jar.set = async (details) => {
+    if (details.name !== 'SID' || details.value !== 'new') await set(details);
+  };
+  selectCookieFile(f, importCookies('new'));
+  const result = await f.account.importSession();
+  assert.equal(result.connected, true);
+  assert.match(result.error, /Прежняя сессия восстановлена/);
+  assert.equal(f.account.epoch, epoch);
+  assert.equal(f.connections, 0);
+  const restored = await f.jar.get({});
+  assert.deepEqual(
+    restored.map(({ name, value, domain }) => ({ name, value, domain })),
+    previous.map(({ name, value, domain }) => ({ name, value, domain })),
+  );
+  assert.equal(restored[2].hostOnly, true);
+  assert.equal(restored[2].sameSite, 'strict');
+});
 
 test('Sign-in navigation permits the Google→YouTube cookie handoff but rejects unrelated origins', () => {
   assert.equal(
@@ -546,24 +688,37 @@ test('Age-restricted recordings preserve the access error without marking the wh
   assert.equal((await f.account.status()).error, undefined);
 });
 
-test('A genuine session denial remains visible and a successful account stream notifies its removal', async (t) => {
+test('A late prefetch or clip access denial cannot change a working account status', async (t) => {
   const f = fixture(t);
-  let denied = true;
-  accountClient(f, async () =>
-    denied
-      ? {
-          basic_info: { id: 'W0LiTBNjJ_o' },
+  const denied = [];
+  accountClient(f, (id) => {
+    if (id === 'W0LiTBNjJ_o') return validAudioInfo();
+    return new Promise((resolve) =>
+      denied.push(() =>
+        resolve({
+          basic_info: { id },
           playability_status: { status: 'LOGIN_REQUIRED', reason: 'Sign in' },
-        }
-      : validAudioInfo(),
-  );
-  await assert.rejects(f.account.resolve('W0LiTBNjJ_o', {}), /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
-  assert.match((await f.account.status()).error, /отклонил сессию/);
+        }),
+      ),
+    );
+  });
+  await f.account.status();
   const changes = f.changes;
-  denied = false;
-  await f.account.resolve('W0LiTBNjJ_o', {});
+  const prefetch = assert.rejects(
+    f.account.resolve('ph9KP2_lT5Q', {}),
+    /YOUTUBE_AUDIO_LOGIN_REQUIRED/,
+  );
+  const clip = assert.rejects(
+    f.account.resolveVideo('gated000001'),
+    /YOUTUBE_AUDIO_LOGIN_REQUIRED/,
+  );
+  await tick();
+  assert.equal(denied.length, 2);
+  await f.account.resolve('W0LiTBNjJ_o', { allowSessionRecovery: true });
+  denied.forEach((release) => release());
+  await Promise.all([prefetch, clip]);
   assert.equal((await f.account.status()).error, undefined);
-  assert.equal(f.changes, changes + 1);
+  assert.equal(f.changes, changes);
   assert.ok(!f.logs.join(' ').includes('token=secret'));
 });
 
@@ -579,17 +734,21 @@ test('A successful account stream does not erase an unrelated login-window error
   assert.equal((await f.account.status()).error, error);
 });
 
-test('Disconnecting clears a genuine account denial before publishing disconnected status', async (t) => {
+test('Disconnecting clears an explicit refresh error before publishing disconnected status', async (t) => {
   const f = fixture(t);
-  accountClient(f, async () => ({
-    basic_info: { id: 'W0LiTBNjJ_o' },
-    playability_status: { status: 'LOGIN_REQUIRED', reason: 'Sign in' },
-  }));
-  await assert.rejects(f.account.resolve('W0LiTBNjJ_o', {}), /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
-  assert.ok((await f.account.status()).error);
+  accountClient(f, async () => validAudioInfo());
+  f.account.getClient = async () => {
+    throw new TypeError('Invalid client bootstrap');
+  };
+  assert.ok((await f.account.refresh()).error);
+  let published;
+  f.account.onChange = (invalidate) => {
+    if (invalidate) published = f.account.status();
+  };
   const disconnected = await f.account.disconnect();
   assert.equal(disconnected.connected, false);
   assert.equal(disconnected.error, undefined);
+  assert.equal((await published).connected, false);
 });
 
 test('A failed request from an old account cannot mark a newly connected account invalid', async (t) => {
@@ -607,7 +766,7 @@ test('A failed request from an old account cannot mark a newly connected account
   f.setCookies(['SAPISID', 'SID'].map((name) => ({ name, value: 'new-synthetic' })));
   await f.account.status();
   fail(new Error('YOUTUBE_AUDIO_LOGIN_REQUIRED'));
-  await assert.rejects(pending, /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
+  await assert.rejects(pending, /STREAM_PROVIDER_UNAVAILABLE/);
   assert.equal((await f.account.status()).connected, true);
   assert.equal((await f.account.status()).error, undefined);
 });
@@ -705,7 +864,7 @@ test('Real YouTube.js signs the account POST and parses a playable Format throug
   assert.ok(!f.logs.join(' ').includes('synthetic'));
 });
 
-test('Real parsed account denial remains explicit and a later signed successful response clears it', async (t) => {
+test('A real parsed player denial remains scoped to the requested recording', async (t) => {
   const f = fixture(t);
   let denied = true;
   f.setTransport(async () =>
@@ -735,7 +894,7 @@ test('Real parsed account denial remains explicit and a later signed successful 
   );
   await realAccountClient(f);
   await assert.rejects(f.account.resolve('W0LiTBNjJ_o', {}), /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
-  assert.ok((await f.account.status()).error);
+  assert.equal((await f.account.status()).error, undefined);
   denied = false;
   await f.account.resolve('W0LiTBNjJ_o', {});
   assert.equal((await f.account.status()).error, undefined);
@@ -840,7 +999,7 @@ test('SABR-only account response reports missing streams, never a signature or l
   assert.equal((await f.account.status()).error, undefined);
 });
 
-test('Manual refresh keeps account cookies, retries the failed recording and clears a resolved denial', async (t) => {
+test('Manual refresh keeps cookies and leaves recording selection to the player', async (t) => {
   const f = fixture(t);
   let denied = true,
     calls = 0;
@@ -864,15 +1023,17 @@ test('Manual refresh keeps account cookies, retries the failed recording and cle
   const [a, b] = await Promise.all([f.account.refresh(), f.account.refresh()]);
   assert.equal(a.connected, true);
   assert.equal(b.error, undefined);
-  assert.equal(calls, 2);
+  assert.equal(calls, 1);
   assert.equal(bootstraps, 1);
   assert.equal(f.windows.length, 0);
-  assert.equal(f.connections, 1);
+  assert.equal(f.connections, 0);
+  await f.account.resolve('W0LiTBNjJ_o', { allowSessionRecovery: true });
+  assert.equal(calls, 2);
   assert.ok(f.logs.some((line) => line.includes('cookies preserved')));
   assert.ok(!f.logs.join(' ').includes('synthetic'));
 });
 
-test('Failed format refresh preserves the account and reports formats rather than demanding logout', async (t) => {
+test('A recording with no formats remains a recording error after refreshing the account', async (t) => {
   const f = fixture(t);
   accountClient(f, async () => ({
     basic_info: { id: 'W0LiTBNjJ_o' },
@@ -881,19 +1042,23 @@ test('Failed format refresh preserves the account and reports formats rather tha
   await assert.rejects(f.account.resolve('W0LiTBNjJ_o', {}), /Не удалось получить аудио/);
   const status = await f.account.refresh();
   assert.equal(status.connected, true);
-  assert.match(status.error, /поддерживаемый поток/);
+  assert.equal(status.error, undefined);
+  await assert.rejects(
+    f.account.resolve('W0LiTBNjJ_o', {}),
+    (error) => error.cause.message === 'no-supported-audio',
+  );
   assert.equal(f.connections, 0);
   assert.equal(f.windows.length, 0);
   assert.ok(!f.logs.join(' ').includes('synthetic'));
 });
 
-test('Completing login clears a previous denial even when Google keeps the same identity cookies', async (t) => {
+test('Completing login clears a refresh error even when Google keeps the same identity cookies', async (t) => {
   const f = fixture(t);
-  accountClient(f, async () => ({
-    basic_info: { id: 'W0LiTBNjJ_o' },
-    playability_status: { status: 'LOGIN_REQUIRED', reason: 'Sign in' },
-  }));
-  await assert.rejects(f.account.resolve('W0LiTBNjJ_o', {}), /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
+  accountClient(f, async () => validAudioInfo());
+  f.account.getClient = async () => {
+    throw new Error('YOUTUBE_AUDIO_LOGIN_REQUIRED');
+  };
+  assert.ok((await f.account.refresh()).error);
   await f.account.connect();
   const win = f.windows[0];
   win.navigate('will-navigate', 'https://accounts.google.com/challenge');
@@ -902,21 +1067,6 @@ test('Completing login clears a previous denial even when Google keeps the same 
   await tick();
   assert.equal((await f.account.status()).error, undefined);
   assert.equal(f.connections, 1);
-});
-
-test('A current format failure after refresh replaces the older account-denial guidance', async (t) => {
-  const f = fixture(t);
-  let denied = true;
-  accountClient(f, async () => ({
-    basic_info: { id: 'W0LiTBNjJ_o' },
-    playability_status: denied ? { status: 'LOGIN_REQUIRED', reason: 'Sign in' } : { status: 'OK' },
-  }));
-  await assert.rejects(f.account.resolve('W0LiTBNjJ_o', {}), /YOUTUBE_AUDIO_LOGIN_REQUIRED/);
-  denied = false;
-  const status = await f.account.refresh();
-  assert.equal(status.connected, true);
-  assert.match(status.error, /поддерживаемый поток/);
-  assert.ok(!status.error.includes('отклонил сессию'));
 });
 
 test('Real signed account player handles the reported 23 descriptions with only progressive itag 18 addressed', async (t) => {
@@ -960,7 +1110,7 @@ test('Real signed account player handles the reported 23 descriptions with only 
   assert.equal((await f.account.status()).error, undefined);
 });
 
-test('A signed player response is not success when the CDN returns 403; refresh retries actual delivery', async (t) => {
+test('Manual refresh does not replay a recording after its signed CDN request failed', async (t) => {
   const f = fixture(t);
   let posts = 0,
     probes = 0,
@@ -1003,10 +1153,10 @@ test('A signed player response is not success when the CDN returns 403; refresh 
   assert.equal((await f.account.status()).connected, true);
   assert.equal((await f.account.status()).error, undefined); // A failed recording does not mean the account was logged out.
   const status = await f.account.refresh();
-  assert.equal(posts, 2);
-  assert.equal(probes, 2);
+  assert.equal(posts, 1);
+  assert.equal(probes, 1);
   assert.equal(status.connected, true);
-  assert.match(status.error, /HTTP 403/);
+  assert.equal(status.error, undefined);
   assert.equal(f.connections, 0);
   assert.ok(!f.logs.some((x) => x.includes('Authenticated audio resolved')));
   assert.ok(!f.logs.some((x) => x.includes('Playback session refreshed')));
@@ -1014,13 +1164,11 @@ test('A signed player response is not success when the CDN returns 403; refresh 
   assert.ok(!f.logs.join(' ').includes('secret'));
   assert.ok(!f.logs.join(' ').includes('synthetic'));
   denied = false;
-  const recovered = await f.account.refresh();
-  assert.equal(posts, 3);
-  assert.equal(probes, 3);
-  assert.equal(recovered.error, undefined);
-  assert.equal(recovered.connected, true);
-  assert.equal(f.connections, 1);
-  assert.ok(f.logs.some((x) => x.includes('failed recording delivery checked')));
+  const recovered = await f.account.resolve('W0LiTBNjJ_o', {});
+  assert.equal(posts, 2);
+  assert.equal(probes, 2);
+  assert.equal(recovered.deliveryVerified, true);
+  assert.equal(f.connections, 0);
 });
 
 test('Refresh without a failed recording does not announce that playback was verified', async (t) => {
@@ -1038,7 +1186,7 @@ test('Refresh without a failed recording does not announce that playback was ver
   assert.ok(f.logs.some((x) => x.includes('no recording checked')));
 });
 
-test('A CDN network failure remains a network failure after refresh, preserving login cookies', async (t) => {
+test('A CDN network failure stays with the recording after refreshing the account', async (t) => {
   const f = fixture(t);
   accountClient(f, async () => validAudioInfo());
   f.setMediaTransport(async () => {
@@ -1047,8 +1195,8 @@ test('A CDN network failure remains a network failure after refresh, preserving 
   await assert.rejects(f.account.resolve('W0LiTBNjJ_o', {}), (e) => e.cause.message === 'network');
   const status = await f.account.refresh();
   assert.equal(status.connected, true);
-  assert.match(status.error, /соединение/);
-  assert.ok(!status.error.includes('проверку'));
+  assert.equal(status.error, undefined);
+  await assert.rejects(f.account.resolve('W0LiTBNjJ_o', {}), (e) => e.cause.message === 'network');
   assert.equal(f.connections, 0);
   assert.ok(!f.logs.join(' ').includes('secret'));
 });

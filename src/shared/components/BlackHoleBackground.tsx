@@ -32,10 +32,10 @@ interface Infaller {
 
 const TILT = 0.075; // near edge-on disk, Gargantua style
 const DISK_INNER = 1.35;
-const DISK_OUTER = 6.2;
+const DISK_OUTER = 4.4;
 
 export const BlackHoleBackground: React.FC = () => {
-  const { themePreset } = useTheme();
+  const { themePreset, sceneIntensity } = useTheme();
   const isPaused = useAnimationsPaused();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -58,6 +58,7 @@ export const BlackHoleBackground: React.FC = () => {
     let time = 0;
     let previousFrame = 0;
     let frameScale = 1;
+    let readabilityShade: CanvasGradient | null = null;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const atmosphere = document.createElement('canvas');
     const atmosphereCtx = atmosphere.getContext('2d');
@@ -92,7 +93,7 @@ export const BlackHoleBackground: React.FC = () => {
         atmosphereCtx.fillRect(0, 0, width, height);
       }
       const glow = atmosphereCtx.createRadialGradient(cx, cy, horizonR * 0.8, cx, cy, horizonR * 5);
-      glow.addColorStop(0, 'rgba(255,160,64,0.28)');
+      glow.addColorStop(0, 'rgba(255,175,100,0.16)');
       glow.addColorStop(0.35, 'rgba(126,53,37,0.14)');
       glow.addColorStop(1, 'rgba(4,6,16,0)');
       atmosphereCtx.fillStyle = glow;
@@ -103,7 +104,7 @@ export const BlackHoleBackground: React.FC = () => {
       // approaching side. No uniform stack of concentric outlines.
       for (let i = 0; i < 64; i++) {
         const t = i / 63;
-        const radius = horizonR * (1.28 + Math.pow(t, 1.35) * 4.6);
+        const radius = horizonR * (1.28 + Math.pow(t, 1.35) * 3.1);
         const density = 0.55 + 0.45 * Math.sin(i * 1.73) ** 2;
         const light = diskLightCtx.createLinearGradient(cx - radius, cy, cx + radius, cy);
         light.addColorStop(0, `rgba(255,205,137,${(0.24 - t * 0.17) * density})`);
@@ -126,8 +127,8 @@ export const BlackHoleBackground: React.FC = () => {
         diskLightCtx.ellipse(
           cx,
           cy,
-          horizonR * (1.12 + t * 0.94),
-          horizonR * (1.1 + t * 0.85),
+          horizonR * (1.12 + t * 0.58),
+          horizonR * (1.1 + t * 0.54),
           0,
           Math.PI,
           Math.PI * 2,
@@ -163,9 +164,13 @@ export const BlackHoleBackground: React.FC = () => {
       canvas.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      cx = width * 0.58;
-      cy = height * 0.4;
-      horizonR = Math.max(38, Math.min(width, height) * 0.125);
+      cx = width * 0.64;
+      cy = height * 0.37;
+      horizonR = Math.max(38, Math.min(width, height) * 0.16);
+      readabilityShade = ctx.createLinearGradient(0, 0, width, height * 0.65);
+      readabilityShade.addColorStop(0, 'rgba(3,6,12,.65)');
+      readabilityShade.addColorStop(0.55, 'rgba(3,6,12,.04)');
+      readabilityShade.addColorStop(1, 'rgba(3,6,12,.12)');
     };
 
     const seedStars = () => {
@@ -175,7 +180,7 @@ export const BlackHoleBackground: React.FC = () => {
         stars.push({
           x: Math.random() * width,
           y: Math.random() * height,
-          size: 0.4 + Math.random() * 1.3,
+          size: 0.3 + Math.random() * 0.75,
           twinklePhase: Math.random() * Math.PI * 2,
           twinkleSpeed: 0.008 + Math.random() * 0.02,
         });
@@ -194,7 +199,7 @@ export const BlackHoleBackground: React.FC = () => {
           angle: Math.random() * Math.PI * 2,
           // Keplerian-ish: inner particles orbit faster
           speed: 0.02 / Math.pow(radius, 1.5),
-          size: 0.6 + Math.random() * 1.5,
+          size: 0.3 + Math.random() * 0.65,
           heat: 1 - norm,
           yJitter: (Math.random() - 0.5) * 3.4,
           wobblePhase: Math.random() * Math.PI * 2,
@@ -239,7 +244,8 @@ export const BlackHoleBackground: React.FC = () => {
       seedDisk();
       seedInfallers();
       buildLightLayers();
-      if (isPaused || reducedMotion.matches) render(performance.now());
+      if (isPaused || reducedMotion.matches || sceneIntensity === 'still')
+        render(performance.now());
     };
     window.addEventListener('resize', handleResize);
     layout();
@@ -256,10 +262,12 @@ export const BlackHoleBackground: React.FC = () => {
     };
 
     const render = (timestamp: number) => {
-      if (!isPaused && !reducedMotion.matches) animationFrameId = requestAnimationFrame(render);
+      if (!isPaused && !reducedMotion.matches && sceneIntensity !== 'still')
+        animationFrameId = requestAnimationFrame(render);
       if (previousFrame && timestamp - previousFrame < 1000 / 30 - 0.5) return;
       frameScale = previousFrame ? Math.min(3, (timestamp - previousFrame) / (1000 / 60)) : 1;
       previousFrame = timestamp;
+      frameScale *= sceneIntensity === 'quiet' ? 0.3 : 0.65;
       time += frameScale;
       ctx.clearRect(0, 0, width, height);
       ctx.globalCompositeOperation = 'source-over';
@@ -294,7 +302,7 @@ export const BlackHoleBackground: React.FC = () => {
         // Tangential smearing near the photon ring (Einstein arcs)
         const stretch = Math.min(3, ((horizonR * horizonR) / (d * d)) * 2.2);
         const tw = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(s.twinklePhase));
-        ctx.globalAlpha = tw * 0.9;
+        ctx.globalAlpha = tw * 0.55;
         ctx.fillStyle = '#e8edff';
         if (stretch > 0.25) {
           const tang = Math.atan2(dy, dx) + Math.PI / 2;
@@ -413,11 +421,11 @@ export const BlackHoleBackground: React.FC = () => {
       ctx.fill();
 
       // Photon ring — razor thin white-hot circle hugging the horizon
-      const photonPulse = 0.85 + 0.15 * Math.sin(time * 0.03);
+      const photonPulse = 0.7 + 0.08 * Math.sin(time * 0.015);
       ctx.strokeStyle = `rgba(255, 248, 236, ${photonPulse})`;
       ctx.lineWidth = 1.5;
       ctx.shadowColor = 'rgba(255, 200, 140, 0.8)';
-      ctx.shadowBlur = 14;
+      ctx.shadowBlur = 7;
       ctx.beginPath();
       ctx.arc(cx, cy, horizonR * 1.05, 0, Math.PI * 2);
       ctx.stroke();
@@ -477,6 +485,11 @@ export const BlackHoleBackground: React.FC = () => {
 
       // Near-side infallers (in front of the hole)
       drawInfallers(true);
+      if (readabilityShade) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = readabilityShade;
+        ctx.fillRect(0, 0, width, height);
+      }
     };
 
     render(performance.now());
@@ -496,7 +509,7 @@ export const BlackHoleBackground: React.FC = () => {
         layer.height = 0;
       }
     };
-  }, [themePreset, isPaused]);
+  }, [themePreset, sceneIntensity, isPaused]);
 
   if (themePreset !== 'blackhole') return null;
 

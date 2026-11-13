@@ -216,6 +216,7 @@ export function WaveControl({
       className="wave-control"
       data-settings-open={isOpen}
       data-playing={isActive && isPlaying}
+      data-loading={isLoading}
       data-mood={mood}
       aria-labelledby={id + '-title'}
     >
@@ -399,6 +400,7 @@ export function WaveControl({
           }}
         >
           <Settings size={19} aria-hidden="true" />
+          <span>{isOpen ? t('Закрыть настройки волны') : t('Настроить волну')}</span>
         </button>
       </footer>
     </section>

@@ -32,6 +32,7 @@ export type RoomSyncDecision = {
   action: 'none' | 'load' | 'prepare' | 'buffer' | 'play' | 'pause' | 'seek';
   playback?: RoomPlayback;
   replaceQueue?: boolean;
+  seekRevision?: number;
 };
 export type RoomRequest =
   | { op: 'status' | 'networks' | 'leave' }
@@ -46,7 +47,17 @@ export type RoomRequest =
       };
     }
   | { op: 'join'; payload: { displayName: string; invitation: string } }
-  | { op: 'pulse'; payload?: { id?: string; source?: string; entryId?: string; ready: boolean } }
+  | {
+      op: 'pulse';
+      payload?: {
+        id?: string;
+        source?: string;
+        entryId?: string;
+        ready: boolean;
+        ended?: boolean;
+        seekRevision?: number;
+      };
+    }
   | {
       op: 'command';
       payload:
@@ -66,6 +77,8 @@ export type RoomRequest =
         loading: boolean;
         blocked: boolean;
         ready?: boolean;
+        ended?: boolean;
+        seekRevision?: number;
         queue?: RoomSong[];
       };
     };

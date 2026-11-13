@@ -7,6 +7,7 @@ import {
   WAVE_OFFERED_TTL,
 } from '../src/shared/services/waveMemory.ts';
 import { gatherWaveDiscovery } from '../src/shared/services/waveDiscovery.ts';
+import { WAVE_HISTORY_LIMIT } from '../src/shared/utils/waveHistoryLimits.ts';
 import { sequenceWaveTracks } from '../src/shared/utils/waveQueue.ts';
 import {
   normalizeWaveBatchContext,
@@ -52,6 +53,30 @@ test('brief auditions expire after thirty minutes while substantial listens surv
   );
   now += 24 * 60 * 60 * 1000;
   assert.deepEqual(memory.playedTracks(), []);
+});
+
+test('A short replay preserves the original cooldown across reload without extending it', () => {
+  const saved = storage();
+  const started = 100000;
+  let now = started;
+  const memory = createWaveMemory(saved, () => now);
+  const heard = track('replayed', 'Known artist');
+  memory.recordPlayback(heard, 180);
+  for (let i = 1; i < WAVE_HISTORY_LIMIT; i++) {
+    memory.recordPlayback(track('brief-' + i, 'Other artist'), 5);
+  }
+  now += 60_000;
+  memory.recordPlayback(heard, 5, true);
+  memory.recordPlayback(track('new', 'New artist'), 5);
+  assert.ok(memory.playedTracks().some((item) => item.id === heard.id));
+  now += 31 * 60_000;
+  const restored = createWaveMemory(saved, () => now);
+  assert.deepEqual(
+    restored.playedTracks().map((item) => item.id),
+    [heard.id],
+  );
+  now = started + 24 * 60 * 60 * 1000 + 1;
+  assert.deepEqual(restored.playedTracks(), []);
 });
 
 test('Played memory survives reload while offered songs do not become played; caches contain only identity', () => {

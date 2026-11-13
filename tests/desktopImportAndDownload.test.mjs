@@ -1,3 +1,4 @@
+import { StreamRequestRegistry } from '../src/desktop/main/services/streamRequestRegistry.ts';
 import { extractEventRegistration } from './helpers/sourceInspection.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -75,7 +76,15 @@ function downloadHarness() {
   let handler;
   let time = 0;
   let requests = 0;
+  const registry = new StreamRequestRegistry();
   vm.runInNewContext(stripTypeScriptTypes(registration), {
+    audioDownloads: {
+      begin(owner, id) {
+        owner.once ??= () => {};
+        owner.removeListener ??= () => {};
+        return registry.begin(owner, id);
+      },
+    },
     ipcMain: {
       handle(_name, fn) {
         handler = fn;
@@ -150,8 +159,18 @@ test('Desktop audio download reports real bytes only to the requesting renderer 
 
 test('Desktop progress change preserves CDN restrictions and compatibility with callers without progress IDs', async () => {
   const h = downloadHarness();
-  assert.equal(await h.handler({}, 'https://localhost/audio.mp3', 'blocked'), null);
+  assert.equal(
+    await h.handler(
+      { sender: { once() {}, removeListener() {} } },
+      'https://localhost/audio.mp3',
+      'blocked',
+    ),
+    null,
+  );
   assert.equal(h.requests(), 0);
-  const data = await h.handler({}, 'https://cf-media.sndcdn.com/audio.mp3');
+  const data = await h.handler(
+    { sender: { once() {}, removeListener() {} } },
+    'https://cf-media.sndcdn.com/audio.mp3',
+  );
   assert.deepEqual([...data], [1, 2, 3, 4]);
 });

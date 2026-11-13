@@ -94,6 +94,10 @@ export function useDesktopWidgetSync({
   useEffect(() => {
     if (window.electronAPI?.onWidgetCommand) {
       const cleanup = window.electronAPI.onWidgetCommand((command, data) => {
+        if (['next', 'prev', 'togglePlay'].includes(command))
+          window.electronAPI?.logPlaybackEvent?.('DEBUG', '[Desktop:Command] Received', {
+            command,
+          });
         switch (command) {
           case 'requestState':
             if (window.electronAPI?.sendWidgetState) {

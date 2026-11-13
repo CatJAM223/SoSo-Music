@@ -4,7 +4,10 @@ import { YouTubeMusicService as yt } from '../src/desktop/main/services/youtubeM
 import { YouTubeMusicTransport as transport } from '../src/desktop/main/services/youtubeMusicTransport.ts';
 import { setYouTubeSessionReset } from '../src/desktop/main/services/desktopFetch.ts';
 import { clearYouTubeSessionCache } from '../src/desktop/main/services/youtubeSessionCache.ts';
-import { YOUTUBE_AUDIO_BOT_CHECK } from '../src/shared/utils/youtubeAudioAccessError.ts';
+import {
+  YOUTUBE_AUDIO_BOT_CHECK,
+  YOUTUBE_AUDIO_LOGIN_REQUIRED,
+} from '../src/shared/utils/youtubeAudioAccessError.ts';
 const bot = { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm you’re not a bot' };
 const response = (status) => Response.json({ playabilityStatus: status });
 const playable = (id) =>
@@ -37,6 +40,7 @@ function isolate(t) {
     'sessionEpoch',
     'sessionRecoveryRequest',
     'lastSessionRecoveryAt',
+    'accountResolver',
   ];
   const prior = Object.fromEntries(fields.map((key) => [key, yt[key]]));
   for (const key of fields.filter(
@@ -63,6 +67,36 @@ function isolate(t) {
 }
 const active = (id) =>
   yt.resolveDirectAudioStream(id, false, false, { allowSessionRecovery: true });
+
+test('A signed response from a changed session retries the same track without reporting a login error', async (t) => {
+  isolate(t);
+  const ids = [];
+  const url = 'https://rr1.googlevideo.com/videoplayback?itag=140';
+  yt.accountResolver = async (id) => {
+    ids.push(id);
+    if (ids.length === 1) {
+      yt.invalidateSessionCaches();
+      throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
+    }
+    return { url, deliveryVerified: true };
+  };
+  assert.equal(await active('recovery011'), url);
+  assert.deepEqual(ids, ['recovery011', 'recovery011']);
+  assert.equal(yt.audioAccessFailures.size, 0);
+});
+
+test('Repeated account changes give a temporary failure after one retry', async (t) => {
+  isolate(t);
+  let requests = 0;
+  yt.accountResolver = async () => {
+    requests++;
+    yt.invalidateSessionCaches();
+    throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
+  };
+  await assert.rejects(active('recovery012'), { message: 'STREAM_PROVIDER_UNAVAILABLE' });
+  assert.equal(requests, 2);
+  assert.equal(yt.audioAccessFailures.size, 0);
+});
 
 test('YouTube session recovery: browser cleanup leaves app storage and other providers untouched', async () => {
   const calls = [];

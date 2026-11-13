@@ -124,7 +124,7 @@ function normalize(value: unknown): PlaybackSession | null {
   const artworkCache: ArtworkCache = new Map();
   const track = cleanTrack(input.track, artworkCache);
   if (!track) return null;
-  const sourceQueue = Array.isArray(input.queue) ? input.queue : [];
+  let sourceQueue = Array.isArray(input.queue) ? input.queue : [];
   const selectedUid = readQueueEntryId(track);
   let occurrenceIndex = -1;
   if (selectedUid) {
@@ -141,7 +141,7 @@ function normalize(value: unknown): PlaybackSession | null {
       }
     }
   }
-  const selectedIndex =
+  let selectedIndex =
     occurrenceIndex >= 0
       ? occurrenceIndex
       : Number.isInteger(input.queueIndex) &&
@@ -149,6 +149,19 @@ function normalize(value: unknown): PlaybackSession | null {
           String(sourceQueue[input.queueIndex]?.id) === String(track.id)
         ? input.queueIndex
         : sourceQueue.findIndex((t) => String(t?.id) === String(track.id));
+  if (selectedUid && !sourceQueue.some((item) => readQueueEntryId(item) === selectedUid))
+    selectedIndex = -1;
+  if (
+    selectedIndex < 0 &&
+    Number.isInteger(input.queueIndex) &&
+    input.queueIndex >= -1 &&
+    input.queueIndex < sourceQueue.length
+  ) {
+    // Removing the audible occurrence leaves the cursor immediately before its successor.
+    selectedIndex = input.queueIndex + 1;
+    sourceQueue = [...sourceQueue];
+    sourceQueue.splice(selectedIndex, 0, track);
+  }
   // Keep the current item and its successors even in a very large queue.
   const start = Math.max(0, selectedIndex - Math.floor(MAX_QUEUE / 2));
   const queue: Track[] = [];

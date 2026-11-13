@@ -8,6 +8,7 @@
 export function isPlayableDirectAudioUrl(url: string | null | undefined): boolean {
   if (!url || typeof url !== 'string') return false;
   const trimmed = url.trim();
+  if (/^media:\/\/offline\/[a-f0-9-]{36}\.(?:mp4|mp3|webm|ogg|aac)$/.test(trimmed)) return true;
   if (
     !trimmed.startsWith('http://') &&
     !trimmed.startsWith('https://') &&

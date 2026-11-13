@@ -26,6 +26,8 @@ struct Snapshot {
     role: String,
     members: Vec<Member>,
     revision: u64,
+    #[serde(default)]
+    seek_revision: u64,
     playback: Playback,
 }
 
@@ -232,6 +234,8 @@ impl Runtime {
                     .as_f64()
                     .filter(|v| v.is_finite())
                     .unwrap_or(0.0);
+                let pending_seek =
+                    payload["seekRevision"].as_u64().unwrap_or_default() != snapshot.seek_revision;
                 let action = match &playback.track {
                     None if payload["playing"] == true || payload["loading"] == true => "pause",
                     None => "none",
@@ -253,6 +257,21 @@ impl Runtime {
                     Some(_) if payload["blocked"] == true => "none",
                     Some(_) if playback.preparing && payload["ready"] != true => "buffer",
                     Some(_) if playback.preparing => "none",
+                    Some(track)
+                        if track.duration == 0.0
+                            && pending_seek
+                            && (playback.playing || payload["playing"] == false) =>
+                    {
+                        "seek"
+                    }
+                    // Wait for the relay to apply the host's completion pulse.
+                    Some(track)
+                        if track.duration == 0.0
+                            && playback.playing
+                            && payload["ended"] == true =>
+                    {
+                        "none"
+                    }
                     Some(_) if payload["playing"] != playback.playing => {
                         if playback.playing {
                             "play"
@@ -288,7 +307,10 @@ impl Runtime {
                 let local_queue = serde_json::from_value::<Vec<Song>>(payload["queue"].clone())
                     .unwrap_or_default();
                 let replace_queue = local_queue != playback.queue;
-                Ok(json!({"action":action,"playback":playback,"replaceQueue":replace_queue}))
+                Ok(json!({
+                    "action":action, "playback":playback, "replaceQueue":replace_queue,
+                    "seekRevision":snapshot.seek_revision,
+                }))
             }
             _ => Err("invalid_command".into()),
         }
@@ -563,6 +585,39 @@ fn decode_snapshot(value: Value) -> Result<Snapshot, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn an_ended_decoder_applies_a_new_seek_before_waiting_for_room_advance() {
+        let mut runtime = Runtime::default();
+        runtime.state.lock().unwrap().snapshot = Some(
+            serde_json::from_value(json!({
+                "code":"room", "name":"Room", "selfId":"host", "role":"host", "members":[],
+                "revision":2, "seekRevision":2,
+                "playback":{
+                    "track":{
+                        "entryId":"one", "id":"sc_one", "source":"soundcloud",
+                        "title":"One", "artist":"Artist", "album":"", "duration":0
+                    },
+                    "queue":[], "playing":true, "position":1
+                }
+            }))
+            .unwrap(),
+        );
+        let mut sample = json!({
+            "entryId":"one", "id":"sc_one", "source":"soundcloud", "playing":false,
+            "position":30, "ended":true, "seekRevision":0
+        });
+        let decision = runtime.command("synchronize", &sample).unwrap();
+        assert_eq!(decision["action"], "seek");
+        assert_eq!(decision["seekRevision"], 2);
+        sample["seekRevision"] = json!(2);
+        sample["position"] = json!(1);
+        sample["ended"] = json!(false);
+        assert_eq!(
+            runtime.command("synchronize", &sample).unwrap()["action"],
+            "play"
+        );
+    }
+
     #[test]
     fn invitations_roundtrip_and_reject_public_plaintext() {
         let key = "0123456789abcdef0123456789abcdef";

@@ -1,6 +1,15 @@
 import { useLocale } from '../../i18n/useLocale';
 import { t, setLocale } from '../../i18n/locale';
 import { Check } from 'lucide-react';
+import { toMediaFileUrl } from '../../utils/formatters';
+import defaultDark from './theme-previews/default-dark.png';
+import defaultLight from './theme-previews/default-light.png';
+import sakuraPreview from './theme-previews/sakura.png';
+import clearPreview from './theme-previews/weather-clear.png';
+import rainPreview from './theme-previews/weather-rain.png';
+import blackholePreview from './theme-previews/blackhole.png';
+import nightPreview from './theme-previews/nighttrain.png';
+import analogPreview from './theme-previews/cassette.png';
 import {
   ACCENT_COLOR_OPTIONS,
   EASTER_EGG_THEME_OPTION,
@@ -46,8 +55,21 @@ export function SettingsAppearance({
     sceneIntensity,
     setSceneIntensity,
   } = useTheme();
-  const themes = [...THEME_OPTIONS, EASTER_EGG_THEME_OPTION];
+  const themes = [...THEME_OPTIONS, EASTER_EGG_THEME_OPTION].sort((a, b) => {
+    const position = (id: string) => (id === 'default' ? -1 : id === 'wallpaper' ? 1 : 0);
+    return position(a.id) - position(b.id);
+  });
   const showMode = themePreset === 'default' || themePreset === 'wallpaper';
+  const previews = {
+    default: themeMode === 'dark' ? defaultDark : defaultLight,
+    sakura: sakuraPreview,
+    weather: weatherMode === 'rain' ? rainPreview : clearPreview,
+    blackhole: blackholePreview,
+    nighttrain: nightPreview,
+    cassette: analogPreview,
+  };
+  const wallpaperUrl = wallpaperPath ? toMediaFileUrl(wallpaperPath) : null;
+  const wallpaperIsImage = /\.(gif|png|jpe?g|webp|avif|bmp)(?:[?#].*)?$/i.test(wallpaperPath ?? '');
 
   return (
     <div className="settings-page settings-appearance">
@@ -90,16 +112,66 @@ export function SettingsAppearance({
               className={`settings-theme-option ${themePreset === theme.id ? 'selected' : ''}`}
               onClick={() => setThemePreset(theme.id)}
               aria-pressed={themePreset === theme.id}
+              title={t(theme.description)}
             >
-              <span className={`settings-theme-swatch bg-linear-to-br ${theme.previewGradient}`} />
-              <span>{t(theme.name)}</span>
-              {themePreset === theme.id && <Check size={18} aria-hidden="true" />}
+              <span className="settings-theme-preview" aria-hidden="true">
+                {theme.id === 'wallpaper' ? (
+                  <>
+                    <span className="settings-theme-empty">
+                      {wallpaperUrl ? t('Видеообои') : t('Видео или GIF не выбрано')}
+                    </span>
+                    {wallpaperUrl &&
+                      (wallpaperIsImage ? (
+                        <img
+                          key={wallpaperUrl}
+                          src={wallpaperUrl}
+                          alt=""
+                          style={{
+                            filter: `brightness(${1 - wallpaperDim / 100}) blur(${wallpaperBlur / 4}px)`,
+                          }}
+                          onError={(event) => {
+                            event.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <video
+                          key={wallpaperUrl}
+                          src={wallpaperUrl}
+                          muted
+                          playsInline
+                          preload="auto"
+                          disablePictureInPicture
+                          style={{
+                            filter: `brightness(${1 - wallpaperDim / 100}) blur(${wallpaperBlur / 4}px)`,
+                          }}
+                          onLoadedMetadata={(event) => {
+                            event.currentTarget.currentTime = Math.min(
+                              0.1,
+                              event.currentTarget.duration || 0.1,
+                            );
+                          }}
+                          onError={(event) => {
+                            event.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      ))}
+                  </>
+                ) : (
+                  <img src={previews[theme.id]} alt="" loading="lazy" />
+                )}
+              </span>
+              <span className="settings-theme-caption">
+                <span>{t(theme.name)}</span>
+                {themePreset === theme.id && <Check size={18} aria-hidden="true" />}
+              </span>
             </button>
           ))}
         </div>
       </section>
 
-      {(themePreset === 'nighttrain' || themePreset === 'cassette') && (
+      {(themePreset === 'nighttrain' ||
+        themePreset === 'cassette' ||
+        themePreset === 'blackhole') && (
         <section className="settings-section">
           <h4>{t('Эффекты фона')}</h4>
           <div className="settings-row">

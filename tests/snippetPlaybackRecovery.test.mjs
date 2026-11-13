@@ -228,7 +228,7 @@ test('Snippet teardown and provider deadlines cancel work without a late state u
     await f.h.flush();
     if (action === 'unmount') f.h.unmount();
     else {
-      f.h.fireTimers(30000);
+      f.h.fireTimers(20000);
       await f.h.flush();
       assert.equal(f.h.api().isSnippetPlaying, false);
       assert.equal(f.toasts.length, 1);

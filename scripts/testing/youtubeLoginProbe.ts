@@ -29,6 +29,7 @@ app.whenReady().then(async () => {
   let external = 0;
   let accountPlayerRequests = 0;
   let denyPlayer = false;
+  let sabrOnly = false;
   let combinedPlayer = false;
   let mediaBytes: Buffer = Buffer.from([1, 2, 3]);
   let mediaRequests = 0;
@@ -115,6 +116,15 @@ app.whenReady().then(async () => {
           return Response.json({
             playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in' },
             videoDetails: { videoId: 'W0LiTBNjJ_o' },
+          });
+        if (sabrOnly)
+          return Response.json({
+            playabilityStatus: { status: 'OK' },
+            videoDetails: { videoId: 'W0LiTBNjJ_o', lengthSeconds: '106' },
+            streamingData: {
+              adaptiveFormats: [{ itag: 140, mimeType: 'audio/mp4', bitrate: 128000 }],
+              serverAbrStreamingUrl: 'https://rr1.googlevideo.com/sabr',
+            },
           });
         if (combinedPlayer)
           return Response.json({
@@ -363,6 +373,19 @@ app.whenReady().then(async () => {
     assert.equal((await account.status()).connected, true);
     watchRecovery = false;
     mediaRequests = 0;
+
+    // A streamless SABR player response must try the signed watch page before anonymous playback.
+    sabrOnly = true;
+    watchRecovery = true;
+    account.preferredWatchUntil = 0;
+    const beforeSabrWatch = watchRequests;
+    const sabrStream = await account.resolve('W0LiTBNjJ_o', { allowSessionRecovery: true });
+    assert.ok(sabrStream?.url.includes('itag=43'));
+    assert.equal(watchRequests, beforeSabrWatch + 1);
+    assert.equal((await account.status()).connected, true);
+    sabrOnly = false;
+    watchRecovery = false;
+    account.preferredWatchUntil = 0;
 
     // A pure speculative request must warm the URL cache without consuming active recovery.
     account.preferredWatchUntil = 0;

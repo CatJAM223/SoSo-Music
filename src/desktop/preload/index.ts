@@ -158,8 +158,14 @@ const api: ElectronAPI = {
   getFullStreamUrl: (track, options, requestId) =>
     ipcRenderer.invoke('music:getFullStreamUrl', track, options, requestId),
   cancelStreamResolve: (requestId) => ipcRenderer.invoke('music:cancelStreamResolve', requestId),
-  downloadAudioBuffer: (url: string, requestId?: string) =>
-    ipcRenderer.invoke('music:downloadAudioBuffer', url, requestId),
+  downloadAudioFile: (url: string, requestId: string) =>
+    ipcRenderer.invoke('music:downloadAudioFile', url, requestId),
+  getOfflineAudioUrl: (id: string) => ipcRenderer.invoke('music:offlineAudioUrl', id),
+  removeOfflineAudio: (id: string) => ipcRenderer.invoke('music:removeOfflineAudio', id),
+  cancelAudioDownload: (requestId: string) =>
+    ipcRenderer.invoke('music:cancelAudioDownload', requestId),
+  downloadAudioBuffer: (url: string, requestId?: string, maxBytes?: number) =>
+    ipcRenderer.invoke('music:downloadAudioBuffer', url, requestId, maxBytes),
   onAudioDownloadProgress: (callback) => {
     const listener = (
       _event: Electron.IpcRendererEvent,

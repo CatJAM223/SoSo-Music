@@ -241,7 +241,11 @@ function fixture({
         if (realCrossfade) normalization.release(target);
       },
       createPlayerAudio: () => {
-        if (!realCrossfade) return audio;
+        if (!realCrossfade) {
+          const current = createdAudio++ === 0 ? audio : new FixtureAudio();
+          if (!audioPool.includes(current)) audioPool.push(current);
+          return current;
+        }
         const current = createdAudio++ === 0 ? audio : new FixtureAudio();
         if (!audioPool.includes(current)) audioPool.push(current);
         current.playResult = () => {
@@ -825,7 +829,7 @@ test('SoundCloud startup waits for playback before bulk caching and cancels that
   f.audio.currentTime = 11;
   f.audio.dispatchEvent(new Event('timeupdate'));
   await f.h.flush();
-  assert.equal(f.background.filter((item) => item[0] === 'blob').length, 1);
+  assert.equal(f.background.filter((item) => item[0] === 'blob').length, 0);
   assert.equal(f.background.filter((item) => item[0] === 'prefetch').length, 1);
   assert.deepEqual(
     f.background.find((item) => item[0] === 'prefetch'),
@@ -903,6 +907,25 @@ test('A fresh fade-in does not briefly expose full volume in the play event befo
   await f.h.api().playTrack(f.props.queueRef.current[0]);
   await f.h.flush();
   assert.equal(f.audio.startEventVolume, 0);
+  f.h.unmount();
+});
+
+test('A new YouTube track starts at zero without crossfade and returns to the current slider volume', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const f = fixture({ realCrossfade: true });
+  await f.h.api().playTrack(f.props.queueRef.current[0]);
+  await f.h.flush();
+  assert.equal(f.audio.startEventVolume, 0);
+  assert.equal(f.audio.volume, 0);
+  now = 32;
+  t.mock.timers.tick(8);
+  assert.ok(f.audio.volume > 0 && f.audio.volume < 0.8);
+  volume.applyAudioVolume(f.audio, 0.3, false);
+  now = 72;
+  t.mock.timers.tick(8);
+  assert.equal(f.audio.volume, 0.3);
   f.h.unmount();
 });
 
@@ -1150,7 +1173,8 @@ test('Whole provider deadline bounds recovery too, and late results cannot repla
   f.audio.error = { code: 2, message: 'network' };
   f.audio.dispatchEvent(new Event('error'));
   await f.h.flush();
-  f.h.fireTimers(30000);
+  // Lookup receives the remaining startup budget after earlier lifecycle work.
+  f.h.fireTimers(20000, 1000);
   await f.h.flush();
   assert.equal(f.h.api().playbackIssue.kind, 'timeout');
   assert.equal(f.h.api().getPlaybackPosition(), 52);
@@ -1596,7 +1620,7 @@ test('Availability changes invalidate cached next targets without restarting the
   assert.deepEqual(prefetched(f), [queue[1].id, queue[2].id, queue[1].id]);
   assert.equal(f.audio.plays, 1);
   assert.equal(f.audio.paused, false);
-  assert.equal(f.bridgeCalls.length, 1);
+  assert.equal(f.bridgeCalls.filter((id) => id === queue[0].id).length, 1);
   f.h.unmount();
 });
 
@@ -1957,7 +1981,7 @@ test('Actual hook does not refresh a silently loading HLS source after pause or 
 
 // Exercise the real hook -> cache -> shared resolver ownership, replacing transport only.
 function sharedPrefetchFixture(t, options = {}) {
-  const cache = new AudioCacheService(),
+  const cache = new AudioCacheService({ maxConcurrentFetches: 2 }),
     shared = new SharedStreamResolver(),
     requests = [];
   const resolve = (item, settings, signal) =>
@@ -2151,5 +2175,71 @@ test('Engine attributes one measured Wave episode across playback, repeated play
   assert.equal(events.filter((e) => e.event === 'started').length, 1);
   assert.equal(events.filter((e) => e.event === 'outcome').length, 1);
   assert.equal(events.find((e) => e.event === 'outcome').reason, 'skip');
+  f.h.unmount();
+});
+
+test('Ready next audio transfers its existing buffer without another resolution or load', async () => {
+  const f = await bufferedFixture();
+  await prefetchTick(f);
+  const prepared = f.audioPool[1];
+  assert.ok(prepared);
+  prepared.readyState = 4;
+  const source = prepared.src;
+  const calls = f.bridgeCalls.length;
+  await f.h.api().nextTrack();
+  await f.h.flush();
+  assert.equal(f.props.audioRef.current, prepared);
+  assert.equal(prepared.src, source);
+  assert.equal(prepared.plays, 1);
+  assert.equal(f.bridgeCalls.length, calls);
+  f.h.unmount();
+});
+
+test('Prepared crossfade starts silent before the incoming play event', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = await bufferedFixture({ realCrossfade: true });
+  f.props.crossfadeDurationRef.current = 4;
+  await prefetchTick(f);
+  const prepared = f.audioPool[1];
+  prepared.readyState = 4;
+  f.audio.currentTime = 116;
+  f.audio.dispatchEvent(new Event('timeupdate'));
+  await f.h.flush();
+  assert.equal(f.props.audioRef.current, prepared);
+  assert.equal(prepared.startEventVolume, 0);
+  f.h.unmount();
+});
+
+test('Prepared pending playback is protected by a startup deadline', async () => {
+  const f = await bufferedFixture();
+  await prefetchTick(f);
+  const prepared = f.audioPool[1];
+  prepared.readyState = 4;
+  prepared.playResult = () => new Promise(() => {});
+  void f.h.api().nextTrack();
+  await f.h.flush();
+  f.h.fireTimers(8000);
+  await f.h.flush();
+  assert.ok(f.bridgeCalls.length > 2, 'startup timeout refreshes the stalled prepared source');
+  f.h.unmount();
+});
+
+test('Prepared crossfade falls back when outgoing playback ends during incoming start', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = await bufferedFixture({ realCrossfade: true });
+  f.props.crossfadeDurationRef.current = 4;
+  await prefetchTick(f);
+  const prepared = f.audioPool[1];
+  prepared.readyState = 4;
+  const start = deferred();
+  prepared.playResult = () => start.promise;
+  f.audio.currentTime = 116;
+  f.audio.dispatchEvent(new Event('timeupdate'));
+  await f.h.flush();
+  f.audio.pause();
+  prepared.paused = false;
+  start.resolve();
+  await f.h.flush();
+  assert.equal(f.props.isCrossfadingRef.current, false);
   f.h.unmount();
 });

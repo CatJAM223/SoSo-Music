@@ -92,6 +92,9 @@ export class MediaFileAccess {
 }
 
 const contentTypes: Record<string, string> = {
+  '.mp3': 'audio/mpeg',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
   '.mp4': 'video/mp4',
   '.m4v': 'video/mp4',
   '.webm': 'video/webm',
@@ -107,6 +110,7 @@ const contentTypes: Record<string, string> = {
 export function createMediaHandler(
   access: MediaFileAccess,
   devUrl?: string,
+  offline?: { resolve: (url: string) => string | null },
 ): (request: Request) => Promise<Response> {
   let devOrigin: string | undefined;
   try {
@@ -118,7 +122,7 @@ export function createMediaHandler(
     const origin = request.headers.get('origin');
     if (origin && origin !== 'null' && origin !== devOrigin)
       return new Response('Forbidden', { status: 403 });
-    const filePath = access.resolve(request.url);
+    const filePath = access.resolve(request.url) ?? offline?.resolve(request.url);
     if (!filePath) return new Response('File not available', { status: 404 });
     let descriptor: number | undefined;
     try {

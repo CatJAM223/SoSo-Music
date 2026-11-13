@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { Track } from '../types';
 import { isPlayableDirectAudioUrl } from '../utils/audioUrlValidator';
+import { readQueueEntryId } from '../utils/queueEntry';
 import { emitToast } from './ToastContext';
 import {
   AudioProgressContextType,
@@ -149,6 +150,13 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
   });
 
   const getPlaybackTime = playerCore.getPlaybackPosition;
+  const getEndedPlaybackEntryId = useCallback(
+    () =>
+      audioRef.current?.ended
+        ? readQueueEntryId(playerCore.currentTrackRef.current ?? undefined)
+        : undefined,
+    [playerCore.currentTrackRef],
+  );
   const getPlaybackSnapshot = useCallback(() => {
     const track = playerCore.currentTrackRef.current;
     return track
@@ -398,6 +406,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
       selectPausedTrack: playerCore.selectPausedTrack,
       preparePlayback: playerCore.preparePlayback,
       isPlaybackReady: playerCore.isPlaybackReady,
+      getEndedPlaybackEntryId,
       resumePlayback: playerCore.resumeMainAudio,
       setRoomFollower,
       setRoomControlHandler,
@@ -459,6 +468,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
       playerCore.selectPausedTrack,
       playerCore.preparePlayback,
       playerCore.isPlaybackReady,
+      getEndedPlaybackEntryId,
       playerCore.resumeMainAudio,
       setRoomFollower,
 

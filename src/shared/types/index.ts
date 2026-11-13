@@ -387,6 +387,7 @@ export interface ListeningHistoryItem {
 export interface LyricsLine {
   time: number; // seconds
   text: string;
+  endTime?: number; // explicit end of the vocal line, in seconds
 }
 
 export interface GuitarChordData {
@@ -573,9 +574,14 @@ export interface ElectronAPI {
     requestId?: string,
   ) => Promise<string>;
   cancelStreamResolve?: (requestId: string) => Promise<void>;
+  downloadAudioFile?: (url: string, requestId: string) => Promise<{ id: string; size: number }>;
+  getOfflineAudioUrl?: (id: string) => Promise<string | null>;
+  removeOfflineAudio?: (id: string) => Promise<void>;
+  cancelAudioDownload?: (requestId: string) => Promise<void>;
   downloadAudioBuffer?: (
     url: string,
     requestId?: string,
+    maxBytes?: number,
   ) => Promise<Uint8Array | ArrayBuffer | null>;
   onAudioDownloadProgress?: (
     callback: (progress: { requestId: string; receivedBytes: number; totalBytes: number }) => void,

@@ -4,6 +4,18 @@ import ts from 'typescript';
 
 // Exercise the production engine directly. No React lifecycle or playback logic is simulated.
 export function playbackEngineRuntime(url, bindings, globals = {}) {
+  bindings['./preparedAudio.ts'] ??= {
+    source: new URL('../../src/shared/services/preparedAudio.ts', import.meta.url),
+  };
+  bindings['../utils/playbackStartupBudget'] ??= {
+    source: new URL('../../src/shared/utils/playbackStartupBudget.ts', import.meta.url),
+  };
+  if (!Object.hasOwn(bindings, '../utils/streamResolveDeadline.ts')) {
+    bindings['../utils/streamResolveDeadline.ts'] = {
+      source: new URL('../../src/shared/utils/streamResolveDeadline.ts', import.meta.url),
+    };
+  }
+
   const timers = new Map();
   let serial = 0,
     engine,
@@ -28,6 +40,16 @@ export function playbackEngineRuntime(url, bindings, globals = {}) {
     clearTimeout: (id) => timers.delete(id),
     ...globals,
     require(name) {
+      const aliases = {
+        './playerStreamResolution.ts': '../services/playerStreamResolution',
+        './audioCacheService.ts': '../services/audioCacheService',
+        './createPlayerAudio.ts': '../services/createPlayerAudio',
+        '../bridge/platformBridge.ts': '../bridge/platformBridge',
+        '../utils/audioUrlValidator.ts': '../utils/audioUrlValidator',
+      };
+      if (!Object.hasOwn(bindings, name) && aliases[name]) name = aliases[name];
+      if (name === '../utils/playbackStartupBudget.ts' || name === './playbackStartupBudget.ts')
+        name = '../utils/playbackStartupBudget';
       if (!Object.hasOwn(bindings, name)) throw new Error('Unstubbed import ' + name);
       if (bindings[name]?.source) bindings[name] = evaluate(bindings[name].source);
       return bindings[name];
@@ -70,9 +92,9 @@ export function playbackEngineRuntime(url, bindings, globals = {}) {
       engine.mount();
       return this.render();
     },
-    fireTimers(delay) {
+    fireTimers(delay, tolerance = 0) {
       for (const [id, timer] of [...timers])
-        if (timer.delay === delay) {
+        if (timer.delay <= delay && timer.delay >= delay - tolerance) {
           timers.delete(id);
           timer.callback();
         }

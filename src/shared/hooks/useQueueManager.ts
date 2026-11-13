@@ -128,7 +128,7 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
       const retained = queueRef.current.find(
         (item) => queueEntryKey(item) === queueEntryKey(fallbackTrack ?? undefined),
       );
-      setQueue(fallbackTrack ? [retained ?? createQueueEntry(fallbackTrack)] : []);
+      setQueue(fallbackTrack ? [retained ?? fallbackTrack] : []);
       setQueueIndex(fallbackTrack ? 0 : -1);
     },
     [setQueue, setQueueIndex],

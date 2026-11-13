@@ -120,15 +120,15 @@ test('Hardcore Lyrics: Enhanced LRC word tags and HTML entities are perfectly sa
   assert.equal(parsed[3].time, 38.9);
 });
 
-test('Hardcore Karaoke: buildKaraokeLinesWithBreaks inserts intro and mid-song instrumental breaks', () => {
+test('Hardcore Karaoke: intro countdown stays but a long lyric line is not a break', () => {
   const lyrics = [
     { time: 10.0, text: 'First verse starts after a long intro' },
-    { time: 14.0, text: 'Second verse follows immediately' },
-    { time: 24.5, text: 'Third verse starts after an 10.5-second guitar solo' },
+    { time: 14.0, text: 'Second line is sung slowly for ten seconds' },
+    { time: 24.5, text: 'Third line follows the long vocal line' },
   ];
 
   const karaoke = buildKaraokeLinesWithBreaks(lyrics);
-  assert.equal(karaoke.length, 5); // intro break + line 0 + line 1 + mid break + line 2
+  assert.equal(karaoke.length, 4);
 
   // Intro break (time: 0, text: '• • •')
   assert.equal(karaoke[0].isInstrumentalBreak, true);
@@ -142,14 +142,9 @@ test('Hardcore Karaoke: buildKaraokeLinesWithBreaks inserts intro and mid-song i
   // Line 1
   assert.equal(karaoke[2].isInstrumentalBreak, false);
 
-  // Mid-song instrumental break between 14.0 and 24.5 (gap > 8s)
-  assert.equal(karaoke[3].isInstrumentalBreak, true);
-  assert.equal(karaoke[3].time, 14.0 + 1.5);
-  assert.equal(karaoke[3].text, '• • •');
-
-  // Line 2
-  assert.equal(karaoke[4].isInstrumentalBreak, false);
-  assert.equal(karaoke[4].text, 'Third verse starts after an 10.5-second guitar solo');
+  assert.equal(karaoke[3].isInstrumentalBreak, false);
+  assert.equal(karaoke[3].time, 24.5);
+  assert.equal(karaoke[3].text, 'Third line follows the long vocal line');
 });
 
 test('Hardcore WaveEngine: Filter long mixes and podcasts', () => {

@@ -117,6 +117,8 @@ test('Actual audio playing callback sends structured route metadata instead of p
   const context = {
     engine: { transition() {} },
     qualityEpisode: null,
+    playbackAbortRef: { current: new AbortController() },
+    completeStartupBudget() {},
     audio,
     audioRef: { current: audio },
     pendingResolutionRef: { current: false },

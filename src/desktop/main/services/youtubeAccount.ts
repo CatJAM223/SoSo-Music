@@ -11,7 +11,7 @@ import {
   getStreamResolveFailure,
   streamHttpFailure,
 } from '../../../shared/utils/streamResolveError.ts';
-import { BrowserWindow, dialog, session, type Session } from 'electron';
+import { BrowserWindow, dialog, session, type CookiesSetDetails, type Session } from 'electron';
 import fs from 'node:fs/promises';
 import { electronFetch } from './electronFetch.ts';
 import {
@@ -21,7 +21,12 @@ import {
 } from './youtubeWatchPage.ts';
 import type { Innertube } from 'youtubei.js';
 import type { StreamResolveOptions, YouTubeAccountStatus } from '../../../shared/types/index.ts';
-import { buildYouTubeCookieHeader, parseYouTubeCookieFile } from './youtubeAccountCookies.ts';
+import {
+  buildYouTubeCookieHeader,
+  parseYouTubeCookieFile,
+  YOUTUBE_ACCOUNT_COOKIE_URL,
+  type YouTubeAccountCookie,
+} from './youtubeAccountCookies.ts';
 import {
   extractYouTubeAccountStream,
   extractYouTubeAccountVideo,
@@ -30,10 +35,7 @@ import {
 } from './youtubeAccountStream.ts';
 import { PlaybackLogger } from './playbackLogger.ts';
 import { probeYouTubeMedia, discardYouTubeResponse } from './youtubeMediaProbe.ts';
-import {
-  getYouTubeAudioAccessError,
-  YOUTUBE_AUDIO_LOGIN_REQUIRED,
-} from '../../../shared/utils/youtubeAudioAccessError.ts';
+import { getYouTubeAudioAccessError } from '../../../shared/utils/youtubeAudioAccessError.ts';
 
 import {
   allowedYouTubeLoginUrl,
@@ -88,13 +90,7 @@ export class YouTubeAccountService {
   private completeLogin: (() => void) | null = null;
   private cookieHeader = '';
   private error = '';
-  private sessionError = '';
   private refreshError = '';
-  private lastFailedMedia: {
-    videoId: string;
-    kind: 'audio' | 'video';
-    options: StreamResolveOptions;
-  } | null = null;
   private epoch = 0;
   private clientRequest: Promise<Innertube> | null = null;
   private deliveryRecovery: Promise<boolean> | null = null;
@@ -103,6 +99,7 @@ export class YouTubeAccountService {
   private playerCache = new Map<string, ArrayBuffer>();
   private cipherQueue: Promise<unknown> = Promise.resolve();
   private mutation: Promise<YouTubeAccountStatus> | null = null;
+  private importRequest: Promise<YouTubeAccountStatus> | null = null;
   private onChange: (invalidate?: boolean) => void;
   private cookieTimer: ReturnType<typeof setTimeout> | undefined;
   private getParent: () => BrowserWindow | null;
@@ -140,9 +137,7 @@ export class YouTubeAccountService {
     return {
       connected: !!this.cookieHeader,
       loginOpen: !!this.loginWindow && !this.loginWindow.isDestroyed(),
-      ...(this.error || this.refreshError || this.sessionError
-        ? { error: this.error || this.refreshError || this.sessionError }
-        : {}),
+      ...(this.error || this.refreshError ? { error: this.error || this.refreshError } : {}),
     };
   }
 
@@ -153,12 +148,16 @@ export class YouTubeAccountService {
     this.onChange(true);
   }
 
+  private async readCookieHeader(): Promise<string> {
+    const cookies = await this.accountSession.cookies.get({ url: YOUTUBE_ACCOUNT_COOKIE_URL });
+    return buildYouTubeCookieHeader(cookies);
+  }
+
   private async refreshCookies(force = false): Promise<void> {
     if (this.mutation && !force) return;
     const epoch = this.epoch;
-    const cookies = await this.accountSession.cookies.get({ url: 'https://www.youtube.com/' });
-    if (epoch !== this.epoch) return;
-    const next = buildYouTubeCookieHeader(cookies);
+    const next = await this.readCookieHeader();
+    if (epoch !== this.epoch || (this.mutation && !force)) return;
     if (next === this.cookieHeader) return;
     const identity = (header: string) =>
       header
@@ -170,7 +169,6 @@ export class YouTubeAccountService {
     this.cookieHeader = next;
     if (!identityChanged) return;
     this.error = '';
-    this.sessionError = '';
     this.refreshError = '';
     this.invalidate();
     await this.accountSession.cookies.flushStore();
@@ -256,7 +254,6 @@ export class YouTubeAccountService {
         return;
       if (returnedToYouTube) {
         this.error = '';
-        this.sessionError = '';
         this.refreshError = '';
         this.playerCache.clear();
         this.invalidate();
@@ -360,9 +357,18 @@ export class YouTubeAccountService {
     return this.snapshot();
   }
   async importSession(): Promise<YouTubeAccountStatus> {
-    if (this.mutation) return this.mutation;
-    const work = (async () => {
-      const epoch = this.epoch;
+    if (this.importRequest) return this.importRequest;
+    const request = this.chooseAndImportSession();
+    this.importRequest = request;
+    try {
+      return await request;
+    } finally {
+      if (this.importRequest === request) this.importRequest = null;
+    }
+  }
+
+  private async chooseAndImportSession(): Promise<YouTubeAccountStatus> {
+    try {
       const options = {
         title: 'Подключить сессию YouTube из браузера',
         properties: ['openFile'] as 'openFile'[],
@@ -372,72 +378,101 @@ export class YouTubeAccountService {
       const selection = await (parent
         ? dialog.showOpenDialog(parent, options)
         : dialog.showOpenDialog(options));
-      if (selection.canceled || !selection.filePaths[0] || epoch !== this.epoch)
-        return this.status();
+      const file = selection.filePaths[0];
+      if (selection.canceled || !file) return this.status();
+      const epoch = this.epoch;
+      if ((await fs.stat(file)).size > 256 * 1024)
+        throw new Error('Экспортируйте cookies только для YouTube: файл слишком большой.');
+      const cookies = parseYouTubeCookieFile(await fs.readFile(file, 'utf8'));
+
+      // Playback may continue while the picker is open and the file is validated.
+      while (this.mutation) await this.mutation;
+      if (epoch !== this.epoch) return this.status();
+      const work = Promise.resolve().then(() => this.applyImportedSession(cookies));
+      this.mutation = work;
       try {
-        const file = selection.filePaths[0];
-        if ((await fs.stat(file)).size > 256 * 1024)
-          throw new Error('Экспортируйте cookies только для YouTube: файл слишком большой.');
-        const cookies = parseYouTubeCookieFile(await fs.readFile(file, 'utf8'));
-        if (epoch !== this.epoch) return this.status();
-        // Validation is complete before replacing any existing account.
-        this.closeLogin();
-        const previous = await this.accountSession.cookies.get({ domain: 'youtube.com' });
-        try {
-          await this.accountSession.clearStorageData({ storages: ['cookies'] });
-          for (const cookie of cookies)
-            await this.accountSession.cookies.set({
-              ...cookie,
-              url:
-                'https://' +
-                (cookie.domain || '.youtube.com').replace(/^\./, '') +
-                (cookie.path || '/'),
-            });
-        } catch {
-          await this.accountSession.clearStorageData({ storages: ['cookies'] });
-          for (const cookie of previous)
-            await this.accountSession.cookies.set({
-              name: cookie.name,
-              value: cookie.value,
-              domain: cookie.domain,
-              path: cookie.path,
-              secure: cookie.secure,
-              httpOnly: cookie.httpOnly,
-              ...(cookie.expirationDate ? { expirationDate: cookie.expirationDate } : {}),
-              url: 'https://' + (cookie.domain || '.youtube.com').replace(/^\./, '') + cookie.path,
-            });
-          throw new Error('Не удалось сохранить сессию YouTube.');
-        }
-        this.error = '';
-        this.sessionError = '';
-        this.refreshError = '';
-        await this.refreshCookies(true);
-        await this.accountSession.cookies.flushStore();
-        this.onChange();
-        PlaybackLogger.info('[YouTubeMusic:Account] YouTube session imported');
-        if (this.cookieHeader) this.onConnected();
-      } catch (error) {
-        // These errors come from our validator/file operations; never log file contents.
-        this.error =
-          error instanceof Error && /YouTube|cookies|сессии|списка/.test(error.message)
-            ? error.message
-            : 'Не удалось прочитать файл сессии YouTube.';
-        this.onChange();
+        return await work;
+      } finally {
+        if (this.mutation === work) this.mutation = null;
       }
+    } catch (error) {
+      // These errors come from our validator/file operations; never log file contents.
+      this.error =
+        error instanceof Error && /YouTube|cookies|сессии|списка/.test(error.message)
+          ? error.message
+          : 'Не удалось прочитать файл сессии YouTube.';
+      this.onChange();
       return this.snapshot();
-    })();
-    this.mutation = work;
-    try {
-      return await work;
-    } finally {
-      if (this.mutation === work) this.mutation = null;
     }
+  }
+
+  private async replaceCookies(
+    cookies: readonly (Omit<CookiesSetDetails, 'url'> & { hostOnly?: boolean })[],
+  ): Promise<void> {
+    await this.accountSession.clearStorageData({ storages: ['cookies'] });
+    for (const {
+      domain,
+      hostOnly,
+      path = '/',
+      name,
+      value,
+      secure,
+      httpOnly,
+      sameSite,
+      expirationDate,
+    } of cookies) {
+      const url = new URL('https://' + (domain || '.youtube.com').replace(/^\./, ''));
+      url.pathname = path;
+      await this.accountSession.cookies.set({
+        url: url.href,
+        domain: hostOnly ? undefined : domain,
+        path,
+        name,
+        value,
+        secure,
+        httpOnly,
+        sameSite,
+        expirationDate,
+      });
+    }
+  }
+
+  private async applyImportedSession(
+    cookies: YouTubeAccountCookie[],
+  ): Promise<YouTubeAccountStatus> {
+    this.closeLogin();
+    // The clear affects the entire isolated partition, including cookies used by the login window.
+    const previous = await this.accountSession.cookies.get({});
+    let next: string;
+    try {
+      await this.replaceCookies(cookies);
+      next = await this.readCookieHeader();
+      if (!next) throw new Error('Chromium did not apply the imported YouTube cookies');
+      await this.accountSession.cookies.flushStore();
+    } catch {
+      try {
+        await this.replaceCookies(previous);
+        await this.accountSession.cookies.flushStore();
+      } catch {
+        this.cookieHeader = await this.readCookieHeader().catch(() => '');
+        this.invalidate();
+        throw new Error('Не удалось импортировать сессию YouTube и восстановить прежние cookies.');
+      }
+      throw new Error('Не удалось сохранить сессию YouTube. Прежняя сессия восстановлена.');
+    }
+    this.cookieHeader = next;
+    this.error = '';
+    this.refreshError = '';
+    this.playerCache.clear();
+    this.invalidate();
+    PlaybackLogger.info('[YouTubeMusic:Account] YouTube session imported');
+    this.onConnected();
+    return this.snapshot();
   }
 
   /** Rebuild playback state without deleting the signed-in browser's cookies. */
   async refresh(): Promise<YouTubeAccountStatus> {
     if (this.mutation) return this.mutation;
-    const retry = this.lastFailedMedia;
     const work = (async () => {
       try {
         await this.refreshCookies(true);
@@ -449,31 +484,19 @@ export class YouTubeAccountService {
         PlaybackLogger.info(
           '[YouTubeMusic:Account] Refreshing playback session (cookies preserved)',
         );
-        if (retry) await this.resolveMedia(retry.videoId, retry.kind, retry.options);
-        else await this.getClient();
-        this.sessionError = '';
+        await this.getClient();
         this.refreshError = '';
         this.onChange();
-        if (retry) this.onConnected();
         PlaybackLogger.info(
-          '[YouTubeMusic:Account] ' +
-            (retry
-              ? 'Playback session refreshed and failed recording delivery checked'
-              : 'Playback cache refreshed; no recording checked'),
+          '[YouTubeMusic:Account] Playback cache refreshed; no recording checked',
         );
       } catch (error) {
         const reason = accountAudioFailureReason(error);
         this.refreshError = getYouTubeAudioAccessError(error)
           ? 'YouTube всё ещё требует проверку. Откройте YouTube и завершите её или импортируйте новую сессию из браузера.'
-          : reason.startsWith('cdn-')
-            ? 'Аккаунт подключён, но сервер YouTube не отдаёт поток' +
-              (/^cdn-http-/.test(reason) ? ' (HTTP ' + reason.slice(-3) + ')' : '') +
-              '. Обновление кэша не устранило отказ сервера.'
-            : reason === 'no-supported-audio' || reason === 'no-supported-video'
-              ? 'Вход сохранён, но YouTube не выдал поддерживаемый поток. Повторное подключение аккаунта может не помочь.'
-              : reason === 'network' || getStreamResolveFailure(error)
-                ? 'Не удалось обновить воспроизведение YouTube. Вход сохранён; проверьте соединение и попробуйте снова.'
-                : 'Вход сохранён, но плеер не смог подготовить воспроизведение YouTube. Откройте трек в окне YouTube и повторите попытку.';
+          : reason === 'network' || getStreamResolveFailure(error)
+            ? 'Не удалось обновить воспроизведение YouTube. Вход сохранён; проверьте соединение и попробуйте снова.'
+            : 'Вход сохранён, но плеер не смог подготовить воспроизведение YouTube. Откройте трек в окне YouTube и повторите попытку.';
         this.onChange();
         PlaybackLogger.warn(
           '[YouTubeMusic:Account] Playback session refresh failed (' +
@@ -492,20 +515,26 @@ export class YouTubeAccountService {
   }
 
   async disconnect(): Promise<YouTubeAccountStatus> {
-    if (this.mutation) await this.mutation;
-    this.closeLogin();
-    this.lastFailedMedia = null;
-    this.cookieHeader = '';
-    this.error = '';
-    this.sessionError = '';
-    this.refreshError = '';
-    this.invalidate();
-    await this.accountSession.clearStorageData();
-    await this.accountSession.clearCache();
-    await this.accountSession.cookies.flushStore();
-    PlaybackLogger.info('[YouTubeMusic:Account] Local YouTube session disconnected');
-    this.onChange();
-    return this.snapshot();
+    while (this.mutation) await this.mutation;
+    const work = Promise.resolve().then(async () => {
+      this.cookieHeader = '';
+      this.error = '';
+      this.refreshError = '';
+      this.closeLogin();
+      this.invalidate();
+      await this.accountSession.clearStorageData();
+      await this.accountSession.clearCache();
+      await this.accountSession.cookies.flushStore();
+      PlaybackLogger.info('[YouTubeMusic:Account] Local YouTube session disconnected');
+      this.onChange();
+      return this.snapshot();
+    });
+    this.mutation = work;
+    try {
+      return await work;
+    } finally {
+      if (this.mutation === work) this.mutation = null;
+    }
   }
 
   private closeLogin(): void {
@@ -839,6 +868,7 @@ export class YouTubeAccountService {
     let stage: 'bootstrap' | 'player' | 'audio' | 'video' | 'delivery' = 'bootstrap';
     try {
       // Reuse a verified route briefly across songs, rather than paying the same 403 on every click.
+      let formatFallbackError: unknown;
       let useWatchPage = kind === 'audio' && Date.now() < this.preferredWatchUntil;
       for (let attempt = 0; attempt < 2; attempt++) {
         const client = await timeYouTubeResolve(videoId, 'account-bootstrap', () =>
@@ -855,10 +885,15 @@ export class YouTubeAccountService {
             );
           } catch (error) {
             assertStreamResolveActive();
+            if (epoch !== this.epoch) throw error;
+            if (formatFallbackError && !getYouTubeAudioAccessError(error)) {
+              stage = kind;
+              throw formatFallbackError;
+            }
             if (getStreamResolveFailure(error)) throw error;
-            if (kind === 'audio') this.preferredWatchUntil = 0;
             // A per-recording access restriction must never be replaced with a different source.
             if (getYouTubeAudioAccessError(error)) throw error;
+            if (kind === 'audio') this.preferredWatchUntil = 0;
             PlaybackLogger.warn(
               '[YouTubeMusic:AccountWatch] Watch response unavailable' +
                 (attempt === 0 || kind === 'video' || options.allowSessionRecovery
@@ -867,7 +902,7 @@ export class YouTubeAccountService {
             );
           }
         }
-        if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
+        if (epoch !== this.epoch) throw createStreamResolveError('provider');
         // A speculative watch failure must not repeat the identical API URL that just failed.
         if (
           useWatchPage &&
@@ -920,28 +955,45 @@ export class YouTubeAccountService {
           );
         }
         const extract = kind === 'audio' ? extractYouTubeAccountStream : extractYouTubeAccountVideo;
-        const stream = await timeYouTubeResolve(videoId, 'account-extract', () =>
-          extract(
-            videoId,
-            info,
-            watch?.player ?? client.session.player,
-            async (url) => {
-              const response = await streamWait(this.fetch(url));
-              if (!response.ok) {
-                await streamWait(discardYouTubeResponse(response));
-                throw new Error('YouTube manifest unavailable');
-              }
-              return response.text();
-            },
-            options,
-          ),
-        );
-        if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
+        let stream: YouTubeAccountStream;
+        try {
+          stream = await timeYouTubeResolve(videoId, 'account-extract', () =>
+            extract(
+              videoId,
+              info,
+              watch?.player ?? client.session.player,
+              async (url) => {
+                const response = await streamWait(this.fetch(url));
+                if (!response.ok) {
+                  await streamWait(discardYouTubeResponse(response));
+                  throw new Error('YouTube manifest unavailable');
+                }
+                return response.text();
+              },
+              options,
+            ),
+          );
+        } catch (error) {
+          assertStreamResolveActive();
+          if (getStreamResolveFailure(error) || getYouTubeAudioAccessError(error)) throw error;
+          if (attempt === 0 && !watch) {
+            // WEB can return SABR-only formats with no playable addresses. The same
+            // signed-in recording's watch response is a delivery fallback, not a new login.
+            formatFallbackError = error;
+            useWatchPage = true;
+            PlaybackLogger.info(
+              '[YouTubeMusic:AccountRecovery] Trying signed watch page after unsupported player formats',
+            );
+            continue;
+          }
+          throw error;
+        }
+        if (epoch !== this.epoch) throw createStreamResolveError('provider');
         stage = 'delivery';
         const delivery = await timeYouTubeResolve(videoId, 'account-delivery', () =>
           probeYouTubeMedia(stream.url, kind),
         );
-        if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
+        if (epoch !== this.epoch) throw createStreamResolveError('provider');
         if (!delivery.ok) {
           if (
             attempt === 0 &&
@@ -950,9 +1002,10 @@ export class YouTubeAccountService {
           ) {
             // Prefetch can try the same recording's watch response without touching session/cache state.
             const reset =
-              delivery.reason === 'cdn-http' && (kind === 'video' || options.allowSessionRecovery)
+              delivery.reason === 'cdn-http' && kind === 'audio' && options.allowSessionRecovery
                 ? await streamShared(() => this.recoverDelivery())
                 : false;
+            if (epoch !== this.epoch) throw createStreamResolveError('provider');
             useWatchPage = !watch;
             if (watch && kind === 'audio') this.preferredWatchUntil = 0;
             PlaybackLogger.info(
@@ -964,7 +1017,6 @@ export class YouTubeAccountService {
                 reset +
                 ')',
             );
-            if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
             continue;
           }
           const failure = new Error('YouTube media delivery failed');
@@ -1005,13 +1057,6 @@ export class YouTubeAccountService {
               (stream.audioContainer === 'hls' ? 'HLS' : 'progressive') +
               ' rendition; no audio-only stream was provided',
           );
-        if (this.lastFailedMedia?.videoId === videoId && this.lastFailedMedia.kind === kind)
-          this.lastFailedMedia = null;
-        if (this.sessionError || this.refreshError) {
-          this.sessionError = '';
-          this.refreshError = '';
-          this.onChange();
-        }
         PlaybackLogger.info(
           '[YouTubeMusic:Account] Authenticated ' +
             kind +
@@ -1026,24 +1071,15 @@ export class YouTubeAccountService {
       throw new Error('YouTube media delivery failed');
     } catch (error) {
       assertStreamResolveActive();
+      if (epoch !== this.epoch) throw createStreamResolveError('provider');
       if (getStreamResolveFailure(error)) throw error;
-      if (epoch !== this.epoch) throw new Error(YOUTUBE_AUDIO_LOGIN_REQUIRED);
-      this.lastFailedMedia = { videoId, kind, options: { ...options } };
       const access = getYouTubeAudioAccessError(error);
-      // Transport/format failures concern this recording, not the account's login state.
-      // Age restrictions are also per-recording and must not suggest reconnecting a valid account.
-      if (access === 'verification-required' || access === 'sign-in-required') {
-        const message =
-          'YouTube отклонил сессию. Нажмите «Обновить сессию» или завершите проверку в окне YouTube.';
-        if (this.sessionError !== message) {
-          this.sessionError = message;
-          this.onChange();
-        }
-      }
       PlaybackLogger.warn(
         '[YouTubeMusic:Account] Authenticated playback failed for ' +
           videoId +
           (access ? ' (' + access + ')' : ' (stream unavailable)') +
+          ' source=' +
+          (kind === 'video' ? 'clip' : options.allowSessionRecovery ? 'playback' : 'prefetch') +
           ' stage=' +
           stage +
           ' failure=' +

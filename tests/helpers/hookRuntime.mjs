@@ -5,6 +5,15 @@ import ts from 'typescript';
 // Run a whole production hook with deterministic effects and clocks. Only its
 // platform dependencies are replaced; callbacks and cleanup are never copied.
 export function hookRuntime(url, bindings, globals = {}) {
+  bindings['../utils/playbackStartupBudget'] ??= {
+    source: new URL('../../src/shared/utils/playbackStartupBudget.ts', import.meta.url),
+  };
+  if (!Object.hasOwn(bindings, '../utils/streamResolveDeadline.ts')) {
+    bindings['../utils/streamResolveDeadline.ts'] = {
+      source: new URL('../../src/shared/utils/streamResolveDeadline.ts', import.meta.url),
+    };
+  }
+
   const slots = [],
     timers = new Map();
   let cursor = 0,
@@ -79,6 +88,8 @@ export function hookRuntime(url, bindings, globals = {}) {
     clearTimeout: (id) => timers.delete(id),
     ...globals,
     require(name) {
+      if (name === '../utils/playbackStartupBudget.ts' || name === './playbackStartupBudget.ts')
+        name = '../utils/playbackStartupBudget';
       if (name === 'react') return react;
       if (!Object.hasOwn(bindings, name)) throw new Error('Unstubbed import ' + name);
       if (bindings[name]?.source) {

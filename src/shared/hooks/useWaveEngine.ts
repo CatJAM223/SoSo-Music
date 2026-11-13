@@ -316,7 +316,9 @@ export function useWaveEngine({
                   [],
                   musicOptions(),
                 );
-                if (!isCurrent() || controller.signal.aborted) return;
+                if (!isCurrent()) return;
+                // A refresh that cancelled this refill still needs its own provider batch.
+                if (controller.signal.aborted) break;
                 if (
                   queueRef.current !== prev ||
                   queueIndexRef.current !== rankIndex ||
