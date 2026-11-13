@@ -6,6 +6,7 @@
 
 - Prepare the next queued track in a separate audio element and transfer its ready buffer at playback transitions, including HLS where supported.
 - Add bounded retries, cancellation and startup recovery for prepared audio; keep crossfade volume transitions smooth.
+- Restore the buffered-range indicator when a prepared track becomes active. Discard failed or obsolete prepared media and ignore stale HLS errors after switching sources.
 - Let Wave discovery favor styles confirmed by multiple successful listens in the current session, with the affinity calculation in the Rust compute core.
 
 ### [4.1.0] — 2026-11-13

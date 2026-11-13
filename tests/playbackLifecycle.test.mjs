@@ -2185,6 +2185,8 @@ test('Ready next audio transfers its existing buffer without another resolution 
   assert.ok(prepared);
   prepared.readyState = 4;
   const source = prepared.src;
+  prepared.duration = 175;
+  prepared.buffered = { length: 1, start: () => 0, end: () => 42 };
   const calls = f.bridgeCalls.length;
   await f.h.api().nextTrack();
   await f.h.flush();
@@ -2192,6 +2194,28 @@ test('Ready next audio transfers its existing buffer without another resolution 
   assert.equal(prepared.src, source);
   assert.equal(prepared.plays, 1);
   assert.equal(f.bridgeCalls.length, calls);
+  assert.deepEqual(
+    f.h.api().bufferedRanges.map(({ start, end }) => [start, end]),
+    [[0, 42]],
+  );
+  assert.equal(f.h.api().duration, 175);
+  prepared.buffered = { length: 2, start: (i) => (i ? 90 : 0), end: (i) => (i ? 120 : 60) };
+  prepared.dispatchEvent(new Event('progress'));
+  await f.h.flush();
+  assert.deepEqual(
+    f.h.api().bufferedRanges.map(({ start, end }) => [start, end]),
+    [
+      [0, 60],
+      [90, 120],
+    ],
+  );
+  await f.h.api().playTrack(track('replacement'));
+  await f.h.flush();
+  assert.equal(
+    f.h.api().bufferedRanges.length,
+    0,
+    'old buffered segments cannot belong to the replacement',
+  );
   f.h.unmount();
 });
 
@@ -2241,5 +2265,37 @@ test('Prepared crossfade falls back when outgoing playback ends during incoming 
   start.resolve();
   await f.h.flush();
   assert.equal(f.props.isCrossfadingRef.current, false);
+  f.h.unmount();
+});
+
+test('A prepared element with a decoder error is discarded before queue navigation', async () => {
+  const f = await bufferedFixture();
+  await prefetchTick(f);
+  const prepared = f.audioPool[1];
+  prepared.readyState = 4;
+  prepared.error = { code: 3 };
+  await f.h.api().nextTrack();
+  await f.h.flush();
+  assert.notEqual(f.props.audioRef.current, prepared);
+  assert.equal(prepared.plays, 0);
+  assert.equal(prepared.src, '');
+  assert.equal(f.h.api().currentTrack.id, f.props.queueRef.current[1].id);
+  f.h.unmount();
+});
+
+test('Returning to the original next target releases the obsolete prepared element', async () => {
+  const queue = ['current', 'next', 'later'].map(track);
+  const f = await bufferedFixture({ queue });
+  await prefetchTick(f);
+  const first = f.audioPool[1];
+  const inserted = track('inserted');
+  f.props.setQueue([queue[0], inserted, queue[1], queue[2]]);
+  await prefetchTick(f, 3);
+  const obsolete = f.audioPool[2];
+  assert.equal(first.src, '');
+  assert.ok(obsolete.src);
+  f.props.setQueue(queue);
+  await prefetchTick(f, 4);
+  assert.equal(obsolete.src, '', 'queue changes must not retain audio for the wrong successor');
   f.h.unmount();
 });

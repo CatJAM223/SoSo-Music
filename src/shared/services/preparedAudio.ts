@@ -23,8 +23,8 @@ export class PreparedAudio {
   prepare(track: Track): void {
     const id = String(track.id);
     if (this.target === id) return;
-    if (this.lastAttempt.id === id && Date.now() - this.lastAttempt.at < 15000) return;
     this.clear();
+    if (this.lastAttempt.id === id && Date.now() - this.lastAttempt.at < 15000) return;
     this.lastAttempt = { id, at: Date.now() };
     this.target = id;
     const controller = new AbortController();
@@ -51,11 +51,13 @@ export class PreparedAudio {
                 backBufferLength: 0,
               })
             : null;
-        const fail = () => this.clear();
+        const fail = () => {
+          if (this.entry?.audio === audio) this.clear();
+        };
         const hlsError = (_: unknown, data: { fatal: boolean }) => {
           if (data.fatal) fail();
         };
-        const timer = setTimeout(() => this.clear(), 5 * 60 * 1000);
+        const timer = setTimeout(fail, 5 * 60 * 1000);
         const detach = () => {
           clearTimeout(timer);
           audio.removeEventListener('error', fail);
@@ -83,6 +85,8 @@ export class PreparedAudio {
       !entry ||
       entry.id !== String(id) ||
       entry.audio.readyState < 3 ||
+      entry.audio.error !== null ||
+      entry.audio.ended ||
       Date.now() - entry.at > 5 * 60 * 1000
     ) {
       this.clear();

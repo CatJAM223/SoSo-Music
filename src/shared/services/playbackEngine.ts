@@ -2246,6 +2246,9 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     handledMediaErrorRef.current = null;
     if (prepared) {
       pendingResolutionRef.current = false;
+      bufferedSourceRef.current = { audio, url: audio.currentSrc || audio.src };
+      setBufferedRanges(readAudioBufferedRanges(audio, bufferedSourceRef.current));
+      if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration);
       playableSource = {
         recordingId: recordingKey(track),
         providerTrack: providerTrackRef(track),
@@ -2260,6 +2263,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       if (overlap) audio.volume = 0;
       else armTrackStartupFade(audio);
       const activeAudio = audio;
+      const startupSignal = playbackAbortRef.current.signal;
       const stopWatch = watchAudioStartup(
         audio,
         () => currentRequestId === streamRequestIdRef.current,
@@ -2270,14 +2274,22 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
         stopWatch();
         activeAudio.removeEventListener('playing', cleanupWatch);
         activeAudio.removeEventListener('error', cleanupWatch);
+        startupSignal.removeEventListener('abort', cleanupWatch);
         if (pendingStartupCleanupRef.current.get(activeAudio) === cleanupWatch)
           pendingStartupCleanupRef.current.delete(activeAudio);
       };
       pendingStartupCleanupRef.current.set(audio, cleanupWatch);
       audio.addEventListener('playing', cleanupWatch, { once: true });
       audio.addEventListener('error', cleanupWatch, { once: true });
+      startupSignal.addEventListener('abort', cleanupWatch, { once: true });
       prepared.hls?.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal && audioRef.current === activeAudio) handleErrorRef.current?.();
+        if (
+          data.fatal &&
+          audioRef.current === activeAudio &&
+          currentRequestId === streamRequestIdRef.current &&
+          mainHlsRef.current === prepared.hls
+        )
+          handleErrorRef.current?.();
       });
       try {
         await audio.play();
