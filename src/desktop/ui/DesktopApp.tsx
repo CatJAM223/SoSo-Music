@@ -29,11 +29,6 @@ import { useAudioState } from '../../shared/context/AudioContext';
 import { parseMultiArtists } from '../../shared/utils/artistParser';
 import { MultiArtistModal } from './components/modals/MultiArtistModal';
 import { CursorGlow } from './components/CursorGlow';
-import { SakuraFallingPetals } from './components/SakuraFallingPetals';
-import { WeatherEffects } from './components/WeatherEffects';
-import { BlackHoleBackground } from './components/BlackHoleBackground';
-import { WallpaperBackground } from './components/WallpaperBackground';
-import { ListeningSceneBackground } from './components/ListeningSceneBackground';
 import { ErrorBoundary } from '../../shared/components/ErrorBoundary';
 import { useTheme } from '../../shared/context/ThemeContext';
 import {
@@ -45,6 +40,30 @@ import {
 } from './navigationHistory';
 
 import { CatLoader } from './components/CatLoader';
+
+const SakuraFallingPetals = lazy(() =>
+  import('./components/SakuraFallingPetals').then((module) => ({
+    default: module.SakuraFallingPetals,
+  })),
+);
+const WeatherEffects = lazy(() =>
+  import('./components/WeatherEffects').then((module) => ({ default: module.WeatherEffects })),
+);
+const BlackHoleBackground = lazy(() =>
+  import('./components/BlackHoleBackground').then((module) => ({
+    default: module.BlackHoleBackground,
+  })),
+);
+const WallpaperBackground = lazy(() =>
+  import('./components/WallpaperBackground').then((module) => ({
+    default: module.WallpaperBackground,
+  })),
+);
+const ListeningSceneBackground = lazy(() =>
+  import('./components/ListeningSceneBackground').then((module) => ({
+    default: module.ListeningSceneBackground,
+  })),
+);
 
 const SettingsModal = lazy(() =>
   import('./components/modals/SettingsModal').then((module) => ({ default: module.SettingsModal })),
@@ -311,29 +330,16 @@ export const DesktopApp: React.FC = () => {
         <CursorGlow />
       </ErrorBoundary>
 
-      {/* Floating Sakura Petals Animation */}
-      <ErrorBoundary mode="silent" name="SakuraFallingPetals">
-        <SakuraFallingPetals />
-      </ErrorBoundary>
-
-      {/* Dynamic Weather Leaves & Rain Animation */}
-      <ErrorBoundary mode="silent" name="WeatherEffects">
-        <WeatherEffects />
-      </ErrorBoundary>
-
-      {/* Black Hole Event Horizon Background */}
-      <ErrorBoundary mode="silent" name="BlackHoleBackground">
-        <BlackHoleBackground />
-      </ErrorBoundary>
-
-      {/* Custom Video Wallpaper Background */}
-      <ErrorBoundary mode="silent" name="WallpaperBackground">
-        <WallpaperBackground />
-      </ErrorBoundary>
-
-      {/* Main Desktop Workspace with Sidebar */}
-      <ErrorBoundary mode="silent" name="ListeningSceneBackground">
-        <ListeningSceneBackground />
+      <ErrorBoundary key={themePreset} mode="silent" name="ThemeBackground">
+        <Suspense fallback={null}>
+          {themePreset === 'sakura' && <SakuraFallingPetals />}
+          {themePreset === 'weather' && <WeatherEffects />}
+          {themePreset === 'blackhole' && <BlackHoleBackground />}
+          {themePreset === 'wallpaper' && <WallpaperBackground />}
+          {(themePreset === 'nighttrain' || themePreset === 'cassette') && (
+            <ListeningSceneBackground />
+          )}
+        </Suspense>
       </ErrorBoundary>
       <div className="flex flex-1 min-h-0 relative overflow-hidden z-10">
         <Sidebar

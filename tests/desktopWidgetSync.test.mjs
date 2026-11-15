@@ -12,11 +12,13 @@ const deferred = () => {
 };
 function fixture(initial = Promise.resolve(false)) {
   const sent = [],
+    progress = [],
     commands = [],
     intervals = new Map();
   let next = 0,
     visibility,
     remote;
+  const audio = Object.assign(new EventTarget(), { currentTime: 12, duration: 180, volume: 0.6 });
   const props = {
     currentTrack: { id: 'one', title: 'One' },
     currentTrackRef: ref({ id: 'one', title: 'One' }),
@@ -25,7 +27,8 @@ function fixture(initial = Promise.resolve(false)) {
     duration: 180,
     likedTrackIds: new Set(),
     volume: 0.6,
-    audioRef: ref({ currentTime: 12, duration: 180, volume: 0.6 }),
+    audio,
+    audioRef: ref(audio),
     togglePlay: () => commands.push('toggle'),
     nextTrack: () => commands.push('next'),
     prevTrack: () => commands.push('prev'),
@@ -38,6 +41,7 @@ function fixture(initial = Promise.resolve(false)) {
   };
   const api = {
     sendWidgetState: (value) => sent.push(value),
+    sendWidgetProgress: (value) => progress.push(value),
     isWidgetOpen: () => initial,
     onWidgetVisibilityChanged: (fn) => {
       visibility = fn;
@@ -70,6 +74,7 @@ function fixture(initial = Promise.resolve(false)) {
     h,
     props,
     sent,
+    progress,
     commands,
     intervals,
     visibility: () => visibility,
@@ -101,11 +106,15 @@ test('Only a playing open widget receives periodic progress correction; closing 
   assert.equal([...f.intervals.values()][0].ms, 5000);
   f.props.audioRef.current.currentTime = 27;
   f.tick();
-  assert.equal(f.sent.at(-1).currentTime, 27);
+  assert.deepEqual(f.progress, [27]);
+  assert.equal(f.sent.length, 1, 'the correction does not resend track metadata');
   f.props.isPlaying = false;
   f.props.isPlayingRef.current = false;
   f.h.render();
   assert.equal(f.intervals.size, 0);
+  f.props.audio.currentTime = 48;
+  f.props.audio.dispatchEvent(new Event('seeked'));
+  assert.deepEqual(f.progress, [27, 48]);
   f.props.isPlaying = true;
   f.props.isPlayingRef.current = true;
   f.h.render();
@@ -116,6 +125,8 @@ test('Only a playing open widget receives periodic progress correction; closing 
   const count = f.sent.length;
   f.tick();
   assert.equal(f.sent.length, count);
+  f.props.audio.dispatchEvent(new Event('seeked'));
+  assert.deepEqual(f.progress, [27, 48]);
   f.h.unmount();
 });
 test('Initial widget handshake cannot override a newer open/close event', async () => {

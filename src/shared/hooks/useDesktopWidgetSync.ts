@@ -10,6 +10,7 @@ interface UseDesktopWidgetSyncProps {
   likedTrackIds: Set<string>;
   volume: number;
   audioRef: React.MutableRefObject<HTMLAudioElement | null>;
+  audio?: HTMLAudioElement | null;
   togglePlay: () => void;
   nextTrack: () => void;
   prevTrack: () => void;
@@ -27,6 +28,7 @@ export function useDesktopWidgetSync({
   likedTrackIds,
   volume,
   audioRef,
+  audio,
   togglePlay,
   nextTrack,
   prevTrack,
@@ -72,23 +74,16 @@ export function useDesktopWidgetSync({
 
   // Only an open widget needs progress correction; the overlay uses discrete metadata above.
   useEffect(() => {
-    if (!widgetOpen || !isPlaying || !window.electronAPI?.sendWidgetState) return;
-    const interval = setInterval(() => {
-      if (window.electronAPI?.sendWidgetState && currentTrackRef.current) {
-        const idStr = String(currentTrackRef.current.id);
-        const isLiked = likedTrackIds.has(idStr);
-        window.electronAPI.sendWidgetState({
-          track: currentTrackRef.current,
-          isPlaying: true,
-          currentTime: audioRef.current?.currentTime || 0,
-          duration: audioRef.current?.duration || 180,
-          isLiked,
-          volume: audioRef.current?.volume ?? 1,
-        });
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [widgetOpen, isPlaying, likedTrackIds, currentTrackRef, audioRef]);
+    const send = window.electronAPI?.sendWidgetProgress;
+    if (!widgetOpen || !audio || !send) return;
+    const sync = () => send(audio.currentTime);
+    audio.addEventListener('seeked', sync);
+    const interval = isPlaying ? setInterval(sync, 5000) : undefined;
+    return () => {
+      clearInterval(interval);
+      audio.removeEventListener('seeked', sync);
+    };
+  }, [widgetOpen, isPlaying, audio]);
 
   // Listen to remote commands from Desktop Mini-Widget
   useEffect(() => {

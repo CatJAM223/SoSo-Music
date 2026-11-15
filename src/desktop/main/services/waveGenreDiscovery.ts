@@ -97,10 +97,14 @@ async function resolveGenreDiscovery(
     if (addedSources.has(track.source) || !matchesWaveArtist(track, song.artist)) continue;
     if (!areSameWaveSong(expected, buildWaveSongIdentity(track, options.artists))) continue;
     if (
-      options.pool.add({
-        ...track,
-        tags: [...new Set([genre, ...(track.tags || [])])].slice(0, 16),
-      })
+      options.pool.add(
+        {
+          ...track,
+          tags: [...new Set([genre, ...(track.tags || [])])].slice(0, 16),
+        },
+        'genre',
+        genre,
+      )
     )
       addedSources.add(track.source);
   }

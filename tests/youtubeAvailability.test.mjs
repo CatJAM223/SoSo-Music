@@ -47,11 +47,7 @@ function callback(name, file = '../services/playbackEngine.ts') {
     '(' +
       expression
         .replaceAll(/engine\.transition\([^;]+;/g, '')
-        .replace('playableSource = null;', '')
-        .replace(
-          /if \(audioRef.current\) finishPlaybackSession\(audioRef.current, false, false, ['"]skip['"]\);/,
-          '',
-        ) +
+        .replace('playableSource = null;', '') +
       ')',
     {
       compilerOptions: { target: ts.ScriptTarget.ES2022 },
@@ -366,6 +362,8 @@ test('Actual next-track callback skips blocked items and stops an all-YouTube re
     ...tastePolicy,
     AbortController,
     currentTrackRef: { current: sc },
+    automaticCrossfadeRef: { current: false },
+    finishPlaybackSession() {},
     audioRef: {
       current: {
         pause() {

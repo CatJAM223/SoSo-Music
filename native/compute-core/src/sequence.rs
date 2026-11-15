@@ -1,5 +1,5 @@
 //! Complete Wave preparation, taste scoring, filtering and selection. One Rust implementation.
-use super::ranking::{Candidate, Job as RankJob, Profile};
+use super::ranking::{familiarity_targets, Candidate, Job as RankJob, Profile};
 use super::{prepare, read_job, same_song, Cursor, Song, Token, INPUT, MAX_INPUT, OUTPUT};
 struct Reader<'a> {
     bytes: &'a [u8],
@@ -43,6 +43,7 @@ struct Aux {
     profile: Profile,
     id: usize,
     liked: bool,
+    heard_evidence: bool,
 }
 struct RawCandidate {
     valid: bool,
@@ -181,7 +182,11 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
         bytes: bytes.get(end..)?,
         offset: 0,
     };
-    if r.int(u32::MAX as usize)? != 0x46574f53 || r.int(3)? != 3 {
+    if r.int(u32::MAX as usize)? != 0x46574f53 {
+        return None;
+    }
+    let version = r.int(4)?;
+    if version < 3 {
         return None;
     }
     let mood = r.int(5)?;
@@ -191,6 +196,7 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let adjustment = r.raw()?;
+    let novelty_setting = if version == 4 { Some(r.int(2)?) } else { None };
     let counts: Option<Vec<usize>> = (0..7).map(|_| r.int(4096)).collect();
     let sizes = counts?;
     if sizes.iter().sum::<usize>() != songs.candidates.len() {
@@ -229,6 +235,7 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
             profile: r.profile()?,
             id: r.int(65535)?,
             liked: r.flag()?,
+            heard_evidence: version == 4 && r.flag()?,
         });
     }
     let mut raw = Vec::with_capacity(sizes[0]);
@@ -285,6 +292,29 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
         .iter()
         .flat_map(|&i| aux[i].artists.iter().copied())
         .collect();
+    let mut heard_by_artist = std::collections::HashMap::<usize, Vec<usize>>::new();
+    let mut heard_ids = std::collections::HashSet::new();
+    if novelty_setting.is_some() {
+        for &artist in aux[starts[1]..starts[1] + sizes[1]]
+            .iter()
+            .flat_map(|entry| &entry.artists)
+        {
+            // Recent songs already have a cooldown; their artists still establish familiarity.
+            heard_by_artist.entry(artist).or_default();
+        }
+        // The positive session can also contain an explicit radio seed before it has played.
+        for group in [3, 6] {
+            for i in starts[group]..starts[group] + sizes[group] {
+                if !aux[i].heard_evidence {
+                    continue;
+                }
+                heard_ids.insert(aux[i].id);
+                for &id in &aux[i].artists {
+                    heard_by_artist.entry(id).or_default().push(i);
+                }
+            }
+        }
+    }
     let previous_liked = sizes[1] > 0
         && liked(
             starts[1] + sizes[1] - 1,
@@ -352,6 +382,25 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
                 styles: a.profile.styles.clone(),
             },
             known,
+            familiarity: if novelty_setting.is_some()
+                && (exact_like
+                    || heard_ids.contains(&a.id)
+                    || a.artists.iter().any(|id| {
+                        heard_by_artist.get(id).is_some_and(|entries| {
+                            entries.iter().any(|&h| {
+                                same_song(&songs.candidates[h], &songs.candidates[i], &songs.tokens)
+                            })
+                        })
+                    })) {
+                0
+            } else if known
+                || (novelty_setting.is_some()
+                    && a.artists.iter().any(|id| heard_by_artist.contains_key(id)))
+            {
+                1
+            } else {
+                2
+            },
             liked: liked(i, &aux, &songs.candidates, &liked_indices, &songs.tokens),
             source: raw.source,
             music: music_score(&a.profile, mood, &taste, &positive, &skipped, &learned) + genre,
@@ -398,12 +447,17 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
         .filter(|(i, _)| keep[*i])
         .map(|(_, id)| *id)
         .collect();
-    let candidates = candidates
+    let candidates: Vec<Candidate> = candidates
         .into_iter()
         .enumerate()
         .filter(|(i, _)| keep[*i])
         .map(|(_, c)| c)
         .collect();
+    let familiarity: Vec<u32> = if novelty_setting.is_some() {
+        candidates.iter().map(|c| c.familiarity as u32).collect()
+    } else {
+        Vec::new()
+    };
     let result = super::ranking::calculate(RankJob {
         candidates,
         pairs,
@@ -412,6 +466,9 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
         mood,
         previous_liked,
         novelty: discovery(mood, adjustment),
+        familiarity_targets: novelty_setting
+            .filter(|_| mood != 5)
+            .map(|setting| familiarity_targets(mood, setting, adjustment)),
         phase: if mood == 3 { 0.75 } else { 0.0 },
         offset,
         counts: artist_counts,
@@ -423,7 +480,8 @@ fn execute(bytes: &[u8]) -> Option<Vec<u8>> {
             .chunks_exact(4)
             .flat_map(|bytes| {
                 let index = u32::from_le_bytes(bytes.try_into().unwrap()) as usize;
-                (mapping[index] as u32).to_le_bytes()
+                (mapping[index] as u32 | (familiarity.get(index).copied().unwrap_or(0) << 12))
+                    .to_le_bytes()
             })
             .collect(),
     )
@@ -533,6 +591,7 @@ pub extern "C" fn music_affinity(length: usize) -> i32 {
                     profile,
                     id,
                     liked: false,
+                    heard_evidence: false,
                 });
             }
         }

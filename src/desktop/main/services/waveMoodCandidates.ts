@@ -1,4 +1,6 @@
 import type { Track, WaveMood } from '../../../shared/types/index.ts';
+import type { WaveMethod, WaveMethodScores } from '../../../shared/types/wavePolicy.ts';
+import { allocateWaveArtistSearch } from './waveSearchPolicy.ts';
 import { requireRustCompute } from '../../../shared/compute/rustCore.ts';
 import {
   getWaveArtistNames,
@@ -59,6 +61,8 @@ export interface WaveMoodCandidates {
   rotate: (artists: string[]) => string[];
   searchAttempt?: number;
   searchHasMore?: boolean;
+  methodScores?: WaveMethodScores;
+  movedSearchSlot?: boolean;
 }
 
 type ArtistReplies = Awaited<ReturnType<typeof fetchArtists>>;
@@ -107,12 +111,13 @@ function acceptArtistReplies(
   artists: string[],
   replies: ArtistReplies,
   limit: number,
+  method: WaveMethod = 'artist',
 ): void {
   replies.forEach((reply, index) => {
     if (reply.status !== 'fulfilled') return;
     for (const provider of reply.value) {
       if (provider.status === 'fulfilled')
-        options.pool.addRanked(provider.value.data || [], limit, artists[index]);
+        options.pool.addRanked(provider.value.data || [], limit, artists[index], method);
     }
   });
 }
@@ -161,6 +166,7 @@ async function searchCombinedArtists(
         ),
         3,
         artists[index],
+        'artist',
       );
   });
 }
@@ -241,7 +247,8 @@ async function fillDiscover(options: WaveMoodCandidates): Promise<void> {
     for (const track of reply.value.data || []) {
       if (similar.length && !matchesWaveArtist(track, targets[index])) continue;
       const artists = getWaveArtistKeys(track, options.artists);
-      if (artists.length && !artists.some((artist) => known.has(artist))) options.pool.add(track);
+      if (artists.length && !artists.some((artist) => known.has(artist)))
+        options.pool.add(track, 'similar', targets[index]);
     }
   });
   if (options.pool.size >= 15 || options.hasTaste) return;
@@ -262,23 +269,31 @@ async function fillArtistRadio(options: WaveMoodCandidates): Promise<void> {
   );
   replies.forEach((reply, index) => {
     if (reply.status === 'fulfilled')
-      options.pool.addRanked(reply.value.data || [], 3, artists[index]);
+      options.pool.addRanked(reply.value.data || [], 3, artists[index], 'artist');
   });
 }
 
 async function fillFlow(options: WaveMoodCandidates): Promise<void> {
   if (!options.hasTaste) return fillEmptyWaveCandidates(options);
-  const artists = options.rotate(options.artists).slice(0, 8);
-  const nearby = await similarNames(options, artists.slice(0, 3), 4, (name) =>
+  const ordered = options.rotate(options.artists);
+  const nearby = await similarNames(options, ordered.slice(0, 3), 4, (name) =>
     options.artists.some((known) => known.toLowerCase() === name.toLowerCase()),
   );
-  const discovery = shuffled(nearby).slice(0, 3);
+  const [artistLimit, similarLimit] = allocateWaveArtistSearch(
+    options.searchAttempt ? undefined : options.methodScores,
+    ordered.length,
+    nearby.length,
+  );
+  options.movedSearchSlot ||= artistLimit !== Math.min(8, ordered.length);
+  const artists = ordered.slice(0, artistLimit);
+  const discovery = shuffled(nearby).slice(0, similarLimit);
   const [familiarReplies, discoveryReplies] = await Promise.all([
     fetchArtists(options, artists, 10),
     fetchArtists(options, discovery, 8),
   ]);
   acceptArtistReplies(options, artists, familiarReplies, 2);
-  acceptArtistReplies(options, discovery, discoveryReplies, 2);
+  acceptArtistReplies(options, discovery, discoveryReplies, 2, 'similar');
+  // Keep the existing fallback budget even when ordinary artist searches move one slot.
   await fillArtistRadio(options);
 }
 

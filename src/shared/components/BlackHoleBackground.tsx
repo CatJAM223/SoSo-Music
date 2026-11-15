@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAnimationsPaused } from '../hooks/useAnimationsPaused';
+import { decorativeCanvasScale } from '../utils/decorativeCanvas';
 
 interface Star {
   x: number;
@@ -51,7 +52,7 @@ export const BlackHoleBackground: React.FC = () => {
     let animationFrameId = 0;
     let width = 0;
     let height = 0;
-    let dpr = Math.min(window.devicePixelRatio || 1, 1.25);
+    let dpr = 1;
     let horizonR = 60;
     let cx = 0;
     let cy = 0;
@@ -149,6 +150,9 @@ export const BlackHoleBackground: React.FC = () => {
         diskLightCtx.stroke();
         diskLightCtx.globalAlpha = 1;
       }
+      // Both layers are static between resizes. Blend them once and keep one backing surface.
+      atmosphereCtx.drawImage(diskLight, 0, 0, width, height);
+      diskLight.width = diskLight.height = 0;
     };
 
     const stars: Star[] = [];
@@ -158,6 +162,7 @@ export const BlackHoleBackground: React.FC = () => {
     const layout = () => {
       width = window.innerWidth;
       height = window.innerHeight;
+      dpr = decorativeCanvasScale(width, height, sceneIntensity === 'quiet' ? 1 : 1.25);
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
       canvas.style.width = `${width}px`;
@@ -238,7 +243,6 @@ export const BlackHoleBackground: React.FC = () => {
     };
 
     const handleResize = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 1.25);
       layout();
       seedStars();
       seedDisk();
@@ -264,7 +268,8 @@ export const BlackHoleBackground: React.FC = () => {
     const render = (timestamp: number) => {
       if (!isPaused && !reducedMotion.matches && sceneIntensity !== 'still')
         animationFrameId = requestAnimationFrame(render);
-      if (previousFrame && timestamp - previousFrame < 1000 / 30 - 0.5) return;
+      const fps = sceneIntensity === 'quiet' ? 24 : 30;
+      if (previousFrame && timestamp - previousFrame < 1000 / fps - 0.5) return;
       frameScale = previousFrame ? Math.min(3, (timestamp - previousFrame) / (1000 / 60)) : 1;
       previousFrame = timestamp;
       frameScale *= sceneIntensity === 'quiet' ? 0.3 : 0.65;
@@ -273,7 +278,6 @@ export const BlackHoleBackground: React.FC = () => {
       ctx.globalCompositeOperation = 'source-over';
       ctx.lineCap = 'round';
       ctx.drawImage(atmosphere, 0, 0, width, height);
-      ctx.drawImage(diskLight, 0, 0, width, height);
 
       // --- Deep space starfield with gravitational lensing ---
       for (const s of stars) {

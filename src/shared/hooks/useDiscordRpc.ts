@@ -1,100 +1,60 @@
 import { useEffect } from 'react';
-import { Track } from '../types';
+import type { Track } from '../types';
 import { detectTrackSource, resolveTrackCover } from '../utils/formatters';
-
-interface UseDiscordRpcProps {
-  currentTrack: Track | null;
-  isPlaying: boolean;
-  duration: number;
-  currentTime: number;
-  getCurrentTime: () => number;
-}
-
-const isDiscordEnabled = (): boolean => {
-  try {
-    return localStorage.getItem('soso_discord_rpc') !== 'false';
-  } catch {
-    return true;
-  }
-};
 
 export function useDiscordRpc({
   currentTrack,
   isPlaying,
   duration,
-  currentTime,
-  getCurrentTime,
-}: UseDiscordRpcProps) {
-  // Sync playback state with Discord Rich Presence on track change / play / pause
+  audio,
+}: {
+  currentTrack: Track | null;
+  isPlaying: boolean;
+  duration: number;
+  audio: HTMLAudioElement | null;
+}) {
   useEffect(() => {
-    if (!(window as any).electronAPI?.updateDiscordRpc) return;
-
-    if (!isDiscordEnabled()) {
-      (window as any).electronAPI.clearDiscordRpc?.();
-      return;
-    }
-
-    if (currentTrack) {
-      const artistName =
-        currentTrack.artist?.name ||
-        (typeof currentTrack.artist === 'string' ? currentTrack.artist : '') ||
-        'Исполнитель';
-
-      const albumTitle =
-        currentTrack.album?.title ||
-        (typeof currentTrack.album === 'string' ? currentTrack.album : '') ||
-        'SoSo Music';
-
-      const coverUrl = resolveTrackCover(currentTrack, '');
-
-      (window as any).electronAPI.updateDiscordRpc({
+    const api = window.electronAPI;
+    if (!api?.updateDiscordRpc) return;
+    const publish = () => {
+      try {
+        if (localStorage.getItem('soso_discord_rpc') === 'false') return;
+      } catch {
+        // Restricted storage falls back to the default setting.
+      }
+      if (!currentTrack) {
+        void api.clearDiscordRpc?.();
+        return;
+      }
+      void api.updateDiscordRpc({
         trackId: currentTrack.id,
         source: detectTrackSource(currentTrack),
         title: currentTrack.title || 'Трек',
-        artist: artistName,
-        album: albumTitle,
-        duration: duration || currentTrack.duration || 180,
-        currentTime: getCurrentTime() || currentTime,
-        isPlaying: isPlaying,
-        coverUrl: coverUrl,
-      });
-    } else {
-      (window as any).electronAPI.clearDiscordRpc?.();
-    }
-  }, [currentTrack?.id, isPlaying, duration]);
-
-  // Periodic Discord RPC update while playing (every 5s) to maintain sync
-  useEffect(() => {
-    if (!isPlaying || !currentTrack || !(window as any).electronAPI?.updateDiscordRpc) return;
-    if (!isDiscordEnabled()) return;
-
-    const interval = setInterval(() => {
-      if (currentTrack) {
-        const artistName =
+        artist:
           currentTrack.artist?.name ||
           (typeof currentTrack.artist === 'string' ? currentTrack.artist : '') ||
-          'Исполнитель';
-        const albumTitle =
+          'Исполнитель',
+        album:
           currentTrack.album?.title ||
           (typeof currentTrack.album === 'string' ? currentTrack.album : '') ||
-          'SoSo Music';
-        const coverUrl = resolveTrackCover(currentTrack, '');
-
-        const curTime = getCurrentTime();
-        (window as any).electronAPI?.updateDiscordRpc({
-          trackId: currentTrack.id,
-          source: detectTrackSource(currentTrack),
-          title: currentTrack.title || 'Трек',
-          artist: artistName,
-          album: albumTitle,
-          duration: duration || currentTrack.duration || 180,
-          currentTime: curTime || 0,
-          isPlaying: true,
-          coverUrl: coverUrl,
-        });
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [isPlaying, currentTrack?.id, duration]);
+          'SoSo Music',
+        duration:
+          Number.isFinite(duration) && duration > 0 ? duration : currentTrack.duration || 180,
+        currentTime: audio?.currentTime ?? 0,
+        isPlaying: isPlaying && !!audio && !audio.paused && audio.readyState >= 3,
+        coverUrl: resolveTrackCover(currentTrack, ''),
+      });
+    };
+    publish();
+    audio?.addEventListener('seeked', publish);
+    audio?.addEventListener('playing', publish);
+    audio?.addEventListener('waiting', publish);
+    window.addEventListener('soso:discord-rpc-changed', publish);
+    return () => {
+      audio?.removeEventListener('seeked', publish);
+      audio?.removeEventListener('playing', publish);
+      audio?.removeEventListener('waiting', publish);
+      window.removeEventListener('soso:discord-rpc-changed', publish);
+    };
+  }, [currentTrack, duration, isPlaying, audio]);
 }

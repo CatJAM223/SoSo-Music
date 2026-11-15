@@ -176,6 +176,18 @@ app
       return {poppins:poppins.length,bold:bold.length,numeric:numeric.length,russian:russian.length};
     })()`);
       console.log('BUNDLED_FONTS_OK ' + JSON.stringify(fonts));
+      await window.webContents.executeJavaScript(`(async()=>{
+        const wait=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Wave novelty control timed out');};
+        window.fixtureSetLocale('en');window.renderWaveQueueFixture();
+        await wait(()=>document.querySelector('.wave-settings'));
+        const select=()=>document.querySelector('.wave-novelty select');
+        if(select().tabIndex!==-1)throw Error('Closed novelty setting accepts focus');
+        document.querySelector('.wave-settings').click();await wait(()=>select().tabIndex===0);
+        if(select().labels[0]?.textContent!=='Music discovery'||select().value!=='balanced')throw Error('Missing localized novelty setting');
+        select().value='fresh';select().dispatchEvent(new Event('change',{bubbles:true}));
+        await wait(()=>window.fixtureNovelty==='fresh');window.fixtureSetLocale('ru');
+      })()`);
+      console.log('WAVE_NOVELTY_UI_OK');
       await window.webContents.executeJavaScript(
         'document.documentElement.classList.add("dark");document.documentElement.dataset.theme="wallpaper";document.documentElement.style.setProperty("--theme-accent-rgb","234, 179, 8");',
       );

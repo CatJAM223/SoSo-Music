@@ -24,14 +24,15 @@ export function usePlaybackPersistence({
 }: Props): void {
   const [writer] = useState(() => new PlaybackSessionWriter());
   const flush = useCallback(() => {
-    writer.save(getSnapshot(), true);
+    writer.save(getSnapshot(), true, true);
   }, [writer, getSnapshot]);
   useEffect(() => {
     flush();
   }, [flush, track, queue, queueIndex, repeatMode, isShuffle]);
   useEffect(() => {
     const checkpoint = () => {
-      writer.save(getSnapshot());
+      // QueueManager and PlaybackEngine replace the snapshots they publish.
+      writer.save(getSnapshot(), false, true);
     };
     const background = () => {
       if (document.visibilityState === 'hidden') flush();

@@ -123,6 +123,12 @@ const api: ElectronAPI = {
   },
 
   getAnimationsPaused: () => ipcRenderer.invoke('ui:getAnimationsPaused'),
+  getWindowVisible: () => ipcRenderer.invoke('ui:getWindowVisible'),
+  onWindowVisible: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, visible: boolean) => callback(visible);
+    ipcRenderer.on('ui:windowVisible', handler);
+    return () => ipcRenderer.removeListener('ui:windowVisible', handler);
+  },
 
   // Theme animation freeze (window minimized / hidden to tray)
   onAnimationsPaused: (callback: (paused: boolean) => void) => {
@@ -202,6 +208,12 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener('widget:visibilityChanged', handler);
   },
   sendWidgetState: (state: any) => ipcRenderer.send('widget:sendState', state),
+  sendWidgetProgress: (time) => ipcRenderer.send('widget:sendProgress', time),
+  onWidgetProgress: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, time: number) => callback(time);
+    ipcRenderer.on('widget:progress', handler);
+    return () => ipcRenderer.removeListener('widget:progress', handler);
+  },
   sendWidgetCommand: (command: string, data?: any) =>
     ipcRenderer.send('widget:command', { command, data }),
   onWidgetCommand: (callback: (command: string, data?: any) => void) => {
@@ -218,6 +230,7 @@ const api: ElectronAPI = {
   getLibraryPage: (request) => ipcRenderer.invoke('db:getLibraryPage', request),
   getLibraryStats: () => ipcRenderer.invoke('db:getLibraryStats'),
   getLibraryPlaybackTracks: (request) => ipcRenderer.invoke('db:getLibraryPlaybackTracks', request),
+  getLibraryPlaybackRows: (request) => ipcRenderer.invoke('db:getLibraryPlaybackRows', request),
   getSavedAlbumIds: () => ipcRenderer.invoke('db:getSavedAlbumIds'),
   getArtistMembership: () => ipcRenderer.invoke('db:getArtistMembership'),
 
@@ -339,6 +352,7 @@ const exposed =
         toggleWidget: api.toggleWidget,
         sendWidgetCommand: api.sendWidgetCommand,
         onWidgetStateUpdate: api.onWidgetStateUpdate,
+        onWidgetProgress: api.onWidgetProgress,
       }
     : api;
 contextBridge.exposeInMainWorld('electronAPI', exposed);

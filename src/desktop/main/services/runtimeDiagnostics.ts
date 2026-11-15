@@ -109,8 +109,9 @@ export function startRuntimeDiagnostics(
   log('info', 'Session started', { ...state, executable: process.execPath });
   if (app.isReady()) snapshot();
   else app.once('ready', snapshot);
-  const timer = setInterval(snapshot, 60000);
-  timer.unref();
+  const timer =
+    process.env.SOSO_RUNTIME_PROFILE === '1' ? setInterval(snapshot, 60000) : undefined;
+  timer?.unref();
   app.on('child-process-gone', (_event, details) => {
     log(details.reason === 'clean-exit' ? 'info' : 'error', 'Child process gone', details);
   });

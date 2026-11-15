@@ -13,6 +13,9 @@ import {
 } from '../src/shared/utils/dailyRecommendations.ts';
 import { normalizeWaveSeed } from '../src/shared/utils/waveRecommendations.ts';
 import { createDailyDislikePolicy } from '../src/shared/utils/dailyDislikes.ts';
+import { validateWaveContext } from '../src/desktop/main/ipc/waveInput.ts';
+import { readWaveMethodScores, readWaveNovelty } from '../src/shared/types/wavePolicy.ts';
+import { attributeWaveBatch, readWaveRecommendation } from '../src/shared/services/waveQuality.ts';
 const track = (id, artist = 'Singer ' + id, title = 'Melody ' + id) => ({
   id,
   title,
@@ -21,6 +24,31 @@ const track = (id, artist = 'Singer ' + id, title = 'Melody ' + id) => ({
   duration: 180,
   source: 'youtube',
   preview: '',
+});
+
+test('Daily five excludes IDs and song families past the Rust packet limit and yields during selection', async () => {
+  const known = Array.from({ length: 4097 }, (_, index) =>
+    track('old-' + index, 'Library artist', 'Original title ' + index),
+  );
+  known.push(track('last', 'Night Signal', 'Clouds Over the Station'));
+  const exact = track('last', 'Different credits', 'Renamed upload');
+  const family = track('alias', 'Night Signal', 'Clouds Over the Station (sped up)');
+  const picks = Array.from({ length: 5 }, (_, index) =>
+    track('new-' + index, 'Singer ' + index, 'Fresh tune ' + index),
+  );
+  assert.deepEqual(selectDailyRecommendations([exact, family, ...picks], known, [], 3), picks);
+  assert.deepEqual(selectDailyRecommendations([family], known), []);
+  let turns = 0;
+  const result = await createDailyDislikePolicy([]).selectAsync(
+    [exact, family, ...picks],
+    known,
+    3,
+    async () => {
+      turns++;
+    },
+  );
+  assert.deepEqual(result, picks);
+  assert.ok(turns > 1);
 });
 function storage() {
   const values = new Map();
@@ -176,8 +204,15 @@ test('Daily IPC uses taste and dislikes, excludes recent/previous songs, and lea
     normalizeWaveSeed,
     selectDailyRecommendations,
     createDailyDislikePolicy,
+    validateWaveContext,
+    readWaveMethodScores,
+    readWaveNovelty,
+    attributeWaveBatch,
+    readWaveRecommendation,
+    PlaybackLogger: { info() {} },
     dbManager: {
       getDislikedTrackIds: () => ['yt_blocked'],
+      getTastePolicy: () => ({ revision: 2 }),
       getLikedTracks: () => likes,
       getTasteLikedTracks: () => likes,
       getWaveTasteTracks: () => [track('taste')],
@@ -191,7 +226,7 @@ test('Daily IPC uses taste and dislikes, excludes recent/previous songs, and lea
     WaveEngine: {
       async getWaveBatch(...values) {
         args = values;
-        return [track('fresh')];
+        return [{ ...track('fresh'), waveProvenance: [{ method: 'similar' }] }];
       },
     },
   };
@@ -201,6 +236,21 @@ test('Daily IPC uses taste and dislikes, excludes recent/previous songs, and lea
   assert.ok(args[1].some((t) => t.id === 'yt_liked'));
   for (const id of ['yt_liked', 'yt_recent', 'yt_blocked', 'yesterday'])
     assert.ok(args[2].includes(id));
+  const [daily] = await handler(null, ['yesterday'], [], {
+    novelty: 'fresh',
+    tasteRevision: 2,
+    methodScores: { similar: 0.5 },
+  });
+  assert.equal(args[5].novelty, 'fresh');
+  assert.equal(args[5].methodScores.similar, 0.5);
+  assert.equal(daily.waveRecommendation.surface, 'daily');
+  assert.equal(daily.waveRecommendation.provenance[0].method, 'similar');
+  await handler(null, [], [], {
+    novelty: 'fresh',
+    tasteRevision: 1,
+    methodScores: { similar: 0.5 },
+  });
+  assert.equal(args[5].methodScores, undefined);
   ctx.dbManager.getLikedTracks = () => [];
   ctx.dbManager.getTasteLikedTracks = () => [];
   ctx.dbManager.getWaveTasteTracks = () => [];
@@ -231,4 +281,32 @@ test('An old persisted snapshot cannot replace today when writing storage fails'
   await load();
   assert.equal((await load()).tracks[0].id, 'today');
   assert.equal(calls, 1);
+});
+
+test('A completed daily selection stays cached until the next day and forwards the latest Wave policy then', async () => {
+  const saved = storage();
+  let now = new Date(2026, 10, 14, 15);
+  const requests = [];
+  const fetch = async (previous, _, options) => {
+    requests.push({ previous, options });
+    return Array.from({ length: 5 }, (_, i) => track(requests.length + '-' + i));
+  };
+  const load = createDailyRecommendationLoader(
+    saved,
+    fetch,
+    () => now,
+    () => 3,
+  );
+  const first = await load('', 'all', { tasteRevision: 3, novelty: 'balanced' });
+  const second = await load('', 'all', { tasteRevision: 3, novelty: 'fresh' });
+  assert.deepEqual(first, second);
+  assert.equal(requests.length, 1);
+  now = new Date(2026, 10, 15, 0);
+  await load('', 'all', { tasteRevision: 3, novelty: 'fresh', methodScores: { similar: 0.5 } });
+  assert.equal(requests[1].options.novelty, 'fresh');
+  assert.equal(requests[1].options.methodScores.similar, 0.5);
+  assert.deepEqual(
+    requests[1].previous,
+    first.tracks.map((item) => item.id),
+  );
 });

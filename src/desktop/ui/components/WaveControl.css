@@ -489,6 +489,28 @@
 .wave-source-check {
   margin-left: auto;
 }
+.wave-novelty {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 8px 0;
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+.wave-novelty select {
+  width: 100%;
+  padding: 7px 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+.wave-novelty select:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 2px;
+}
 @container (max-width: 740px) {
   .wave-control[data-settings-open='true'] .wave-control-stage {
     height: 660px;

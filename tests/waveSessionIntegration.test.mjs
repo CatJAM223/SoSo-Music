@@ -1,5 +1,6 @@
 import { recordingKey } from '../src/shared/types/musicDomain.ts';
 import * as quality from '../src/shared/services/waveQuality.ts';
+import * as waveLearning from '../src/shared/services/waveLearning.ts';
 import { isTasteEligible } from '../src/shared/utils/tastePolicy.ts';
 import { stripModuleImports } from './helpers/sourceInspection.mjs';
 import {
@@ -45,6 +46,7 @@ function waveHarness(
   now = Date.now,
   loadPolicy = async () => ({ revision: 0, exclusions: [] }),
   calculate = async (...args) => queue.resequenceWaveQueue(...args),
+  adaptiveWave = false,
 ) {
   const calls = [],
     plays = [],
@@ -84,6 +86,13 @@ function waveHarness(
     saveWaveSource,
     recordingKey,
     ...quality,
+    logWaveQuality: (event) => logs.push(event),
+    ...waveLearning,
+    createWaveLearning: () => waveLearning.createWaveLearning(storage ?? undefined, now),
+    wavePolicyEnabled: () => adaptiveWave,
+    window: { addEventListener() {}, removeEventListener() {} },
+    setTimeout,
+    clearTimeout,
     ...identity,
     ...queue,
     ...feedback,
@@ -141,6 +150,58 @@ function waveHarness(
     unmount: () => cleanups.forEach((cleanup) => cleanup()),
   };
 }
+
+test('Novelty changes coalesce in Wave, preserve current and next, and expose the latest policy to Daily', async (t) => {
+  const settings = new Map();
+  let calls = 0;
+  const songs = ['a', 'b', 'c', 'd'].map((id) => song(id, 'Artist ' + id, 'Song ' + id));
+  const h = waveHarness(
+    [songs],
+    [],
+    {
+      getItem: (key) => settings.get(key) ?? null,
+      setItem: (key, value) => settings.set(key, value),
+    },
+    () => 1000,
+    undefined,
+    async (...args) => {
+      calls++;
+      return queue.resequenceWaveQueue(...args);
+    },
+    true,
+  );
+  t.after(h.unmount);
+  await h.api.startWave();
+  const [current, next] = h.queueRef.current;
+  const callsBefore = calls;
+  h.api.setWaveNovelty('familiar');
+  h.api.setWaveNovelty('fresh');
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  assert.equal(h.calls.length, 1);
+  assert.equal(calls, callsBefore + 1);
+  assert.equal(h.queueRef.current[0], current);
+  assert.equal(h.queueRef.current[1], next);
+  assert.equal(h.api.waveSearchOptions('default', 'all').novelty, 'fresh');
+  h.api.stopWave();
+  for (let i = 0; i < 5; i++) {
+    const [daily] = quality.attributeWaveBatch(
+      [{ ...songs[i % songs.length], waveProvenance: [{ method: 'similar' }] }],
+      'default',
+      [],
+      () => {},
+      undefined,
+      { source: 'all', revision: 0, enabled: true, surface: 'daily' },
+    );
+    const end = new quality.WaveQualityEpisode(daily, 'daily-' + i, (event) =>
+      h.api.observeWaveQuality(daily, event),
+    );
+    end.started();
+    end.finish(180, 200, 'ended');
+    h.api.handleWaveLike(daily);
+  }
+  assert.equal(h.api.waveSearchOptions('default', 'all').methodScores.similar, 5 / 11);
+  assert.equal(h.plays.length, 1);
+});
 
 test('Wave start keeps a different artist song sharing the seed title and suppresses only the seed family', async () => {
   const seed = song('seed', 'Artist A', 'Home');

@@ -23,10 +23,22 @@ const videoPath = path.join(directory, 'selected wallpaper.webm');
 class HiddenWindow extends BrowserWindow {
   constructor(options) {
     super({ ...options, show: false });
+    this.probeOverlay = options.title === 'SoSo Music Overlay';
+    this.probeVisible = false;
     windows.push({ window: this, title: options.title });
   }
   show() {}
-  showInactive() {}
+  showInactive() {
+    if (this.probeOverlay) this.probeVisible = true;
+  }
+  isVisible() {
+    return this.probeOverlay ? this.probeVisible : super.isVisible();
+  }
+  hide() {
+    if (!this.probeOverlay) return super.hide();
+    this.probeVisible = false;
+    this.emit('hide');
+  }
   focus() {}
 }
 class SilentTray extends EventEmitter {
@@ -257,6 +269,23 @@ app
     main.emit('focus');
     await checkVideo(main, 'focus restored');
 
+    if (phase === 'initial') {
+      const overlayWindow = () =>
+        windows.find(
+          ({ title, window }) => title === 'SoSo Music Overlay' && !window.isDestroyed(),
+        )?.window;
+      await main.webContents.executeJavaScript('window.electronAPI.setPlayerOverlayEnabled(true)');
+      assert.equal(overlayWindow(), undefined, 'Do not load the overlay with the player focused');
+      main.isFocused = () => false;
+      main.emit('blur');
+      await until(() => overlayWindow()?.isVisible(), 'show overlay when player loses focus');
+      main.isFocused = () => true;
+      main.emit('focus');
+      assert.equal(overlayWindow().isVisible(), false, 'Hide the overlay when the player is focused');
+      await main.webContents.executeJavaScript('window.electronAPI.setPlayerOverlayEnabled(false)');
+      assert.equal(overlayWindow(), undefined);
+    }
+
     const url = fs.readFileSync(path.join(directory, 'expected-url.txt'), 'utf8');
     assert.equal(
       await main.webContents.executeJavaScript("localStorage.getItem('soso_wallpaper_path')"),
@@ -337,7 +366,7 @@ app
     );
     assert.deepEqual(
       await widget.webContents.executeJavaScript('Object.keys(window.electronAPI).sort()'),
-      ['onWidgetStateUpdate', 'sendWidgetCommand', 'toggleWidget'],
+      ['onWidgetProgress', 'onWidgetStateUpdate', 'sendWidgetCommand', 'toggleWidget'],
     );
     widget.isVisible = () => true;
     await widget.webContents.executeJavaScript('void window.electronAPI.toggleWidget(); true');

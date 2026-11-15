@@ -73,6 +73,8 @@ function cleanTrack(value: unknown, artworkCache: ArtworkCache): Track | null {
   const source = ['youtube', 'soundcloud', 'deezer'].includes(String(item.source))
     ? (item.source as Track['source'])
     : undefined;
+  const recommendation = readWaveRecommendation(item.waveRecommendation);
+  const queueEntryId = readQueueEntryId(item);
   return {
     id: key,
     ...(typeof item.recordingId === 'string' &&
@@ -81,10 +83,8 @@ function cleanTrack(value: unknown, artworkCache: ArtworkCache): Track | null {
       ? { recordingId: item.recordingId }
       : {}),
     queueOrigin: normalizePlaybackOrigin(item.queueOrigin),
-    ...(readWaveRecommendation(item.waveRecommendation)
-      ? { waveRecommendation: readWaveRecommendation(item.waveRecommendation) }
-      : {}),
-    ...(readQueueEntryId(item) ? { queueEntryId: readQueueEntryId(item) } : {}),
+    ...(recommendation ? { waveRecommendation: recommendation } : {}),
+    ...(queueEntryId ? { queueEntryId } : {}),
     title,
     source,
     duration:
@@ -212,30 +212,71 @@ export function readPlaybackSession(store: Storage | null = storage()): Playback
 /** No timer, no stream credentials; unchanged checkpoints never rewrite storage. */
 export class PlaybackSessionWriter {
   private savedAt = -Infinity;
-  private serialized = '';
+  private savedMetadata = '';
+  private savedQueue = '';
+  private prepared?: {
+    track: Track;
+    queue: Track[];
+    index: number;
+    selected: Track;
+    selectedIndex: number;
+    queueJson: string;
+  };
   private store: Storage | null;
   private now: () => number;
   constructor(store: Storage | null = storage(), now: () => number = Date.now) {
     this.store = store;
     this.now = now;
   }
-  save(input: PlaybackSessionInput | null, force = false): boolean {
+  /** Pass immutableQueue only when the producer replaces tracks and the queue on updates. */
+  save(input: PlaybackSessionInput | null, force = false, immutableQueue = false): boolean {
     if (!this.store || !input || (!force && this.now() - this.savedAt < PLAYBACK_SAVE_INTERVAL_MS))
       return false;
-    const session = normalize({ ...input, version: 1, savedAt: undefined });
-    if (!session) return false;
-    const serialized = JSON.stringify(session);
-    if (serialized.length > MAX_SESSION_BYTES) return false;
-    if (serialized === this.serialized) {
-      this.savedAt = this.now();
+
+    let prepared = immutableQueue ? this.prepared : undefined;
+    if (
+      !prepared ||
+      prepared.queue !== input.queue ||
+      prepared.track !== input.track ||
+      prepared.index !== input.queueIndex
+    ) {
+      this.prepared = undefined;
+      const session = normalize({ ...input, version: 1, savedAt: undefined });
+      if (!session) return false;
+      const queueJson = JSON.stringify(session.queue);
+      if (queueJson.length > MAX_SESSION_BYTES) return false;
+      prepared = {
+        track: input.track,
+        queue: input.queue,
+        index: input.queueIndex,
+        selected: session.track,
+        selectedIndex: session.queueIndex,
+        queueJson,
+      };
+      if (immutableQueue) this.prepared = prepared;
+    }
+    const { selected, selectedIndex, queueJson } = prepared;
+    const metadata = JSON.stringify({
+      version: 1,
+      track: selected,
+      queueIndex: selectedIndex,
+      position: clampPlaybackPosition(input.position, selected.duration),
+      repeatMode: ['off', 'all', 'one'].includes(input.repeatMode) ? input.repeatMode : 'off',
+      isShuffle: input.isShuffle === true,
+    });
+    const now = this.now();
+    if (metadata === this.savedMetadata && queueJson === this.savedQueue) {
+      this.savedAt = now;
       return false;
     }
-    const stored = JSON.stringify({ ...session, savedAt: this.now() });
+    // Keep the same v1 storage format while reusing the serialized queue.
+    const stored = metadata.slice(0, -1) + ',"savedAt":' + now + ',"queue":' + queueJson + '}';
     if (stored.length > MAX_SESSION_BYTES) return false;
     try {
       this.store.setItem(PLAYBACK_SESSION_KEY, stored);
-      this.serialized = serialized;
-      this.savedAt = this.now();
+      this.savedMetadata = metadata;
+      this.savedQueue = queueJson;
+      this.savedAt = now;
       return true;
     } catch {
       return false;

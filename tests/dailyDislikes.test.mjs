@@ -5,6 +5,8 @@ import vm from 'node:vm';
 import { stripTypeScriptTypes } from 'node:module';
 import ts from 'typescript';
 import { createDailyDislikePolicy, dailyDislikeKey } from '../src/shared/utils/dailyDislikes.ts';
+import { readWaveNovelty } from '../src/shared/types/wavePolicy.ts';
+import { readWaveRecommendation } from '../src/shared/services/waveQuality.ts';
 import {
   createDailyRecommendationLoader,
   selectDailyRecommendations,
@@ -62,6 +64,23 @@ test('one daily dislike rejects the song and its copies, but only lowers the art
     ['fresh', 'other'],
   );
   assert.equal(policy.artistFeedback['rejected artist'], -0.75);
+});
+test('A daily batch excludes dislikes past the packet boundary and preserves artist ranking', () => {
+  const rows = Array.from({ length: 4096 }, (_, index) =>
+    dislike(String(index), 'Previously rejected ' + index, 'Fixture Artist'),
+  );
+  rows.push(dislike('last', 'Existing distant constellation', 'Boundary Artist'));
+  const policy = createDailyDislikePolicy(rows);
+  const copy = song('copy', 'Boundary Artist', 'Existing distant constellation (Official Video)');
+  assert.equal(policy.accepts(copy), false);
+  assert.equal(policy.artistFeedback['boundary artist'], -0.75);
+  const hidden = song('last', 'Different artist', 'Different title');
+  const ranked = policy.select(
+    [song('later', 'Boundary Artist', 'Another empty shore'), copy, hidden,
+      song('first', 'Different artist', 'Moon over the ocean')],
+    [],
+  );
+  assert.deepEqual(ranked.map((track) => track.id), ['first', 'later']);
 });
 test('two disliked songs reduce artist priority without banning other songs or collaborations', () => {
   const policy = createDailyDislikePolicy(two);
@@ -172,6 +191,8 @@ function dailyHandler(db, fetch) {
     normalizeWaveSeed,
     selectDailyRecommendations,
     createDailyDislikePolicy,
+    readWaveNovelty,
+    readWaveRecommendation,
   });
   return handler;
 }
@@ -273,7 +294,7 @@ test('partial daily snapshots retry after five minutes and carry previous song m
   assert.equal(calls, 2);
 });
 
-function dailyHook(fetch) {
+function dailyHook(fetch, useWindowVisible = () => true) {
   const window = Object.assign(new EventTarget(), {
       localStorage: storage(),
       electronAPI: { getRecommendedTracks: fetch },
@@ -282,6 +303,7 @@ function dailyHook(fetch) {
   return hookRuntime(
     new URL('../src/desktop/ui/hooks/useDailyRecommendations.ts', import.meta.url),
     {
+      '../../../shared/hooks/useWindowVisible': { useWindowVisible },
       '../../../shared/hooks/useTastePolicy': {
         readTastePolicy: () => ({ revision: 0 }),
         refreshTastePolicy: async () => ({ revision: 0 }),
@@ -335,5 +357,23 @@ test('actual daily hook ignores late pre-dislike responses and pending completio
   pending.resolve([song('late')]);
   await new Promise((r) => setImmediate(r));
   assert.equal(h2.lateUpdates(), 0);
+  h.unmount();
+});
+
+test('The daily view postpones starting a new selection until the window is visible', async () => {
+  let visible = false;
+  let calls = 0;
+  const h = dailyHook(async () => {
+    calls++;
+    return [song('fresh')];
+  }, () => visible);
+  h.render(new Set());
+  await h.flush();
+  assert.equal(calls, 0);
+  visible = true;
+  h.render();
+  await h.flush();
+  assert.equal(calls, 1);
+  assert.equal(h.api().tracks[0].id, 'fresh');
   h.unmount();
 });

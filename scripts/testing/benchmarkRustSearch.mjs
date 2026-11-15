@@ -67,7 +67,7 @@ for (const [count, query, distinct] of [
 }
 const report = {
   node: process.version,
-  abi: 7,
+  abi: 8,
   method:
     '31 alternating paired warm samples, 5 complete calls each; includes metadata preparation, packing, WASM, copying and index mapping. Previous TS implementation vs Rust scoring with invocation-local metadata caches. Synthetic fixed inputs, no provider latency or WASM startup.',
   rows,

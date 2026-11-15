@@ -1,7 +1,7 @@
 {
   "name": "soso-music",
   "productName": "SoSo Music",
-  "version": "4.1.1",
+  "version": "4.2.0",
   "description": "Desktop Music Player with SoundCloud, YouTube Music and SQLite",
   "main": "dist-electron/main.js",
   "scripts": {

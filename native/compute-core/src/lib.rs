@@ -332,7 +332,7 @@ fn calculate_job(mut job: Job) -> Option<Vec<u8>> {
 }
 #[no_mangle]
 pub extern "C" fn abi_version() -> u32 {
-    7
+    8
 }
 #[no_mangle]
 pub extern "C" fn reserve(length: usize) -> usize {

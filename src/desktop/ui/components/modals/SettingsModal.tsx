@@ -388,12 +388,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [isOpen, activeTab, loadListeningStats, loadLastListenedTrack]);
 
   const handleToggleDiscord = () => {
-    setIsDiscordEnabled((prev) => {
-      const next = !prev;
-      localStorage.setItem('soso_discord_rpc', String(next));
-      platformBridge.toggleDiscordRpc(next);
-      return next;
-    });
+    const next = !isDiscordEnabled;
+    setIsDiscordEnabled(next);
+    localStorage.setItem('soso_discord_rpc', String(next));
+    platformBridge.toggleDiscordRpc(next);
+    window.dispatchEvent(new Event('soso:discord-rpc-changed'));
   };
 
   // Zapret DPI Integration State & Handlers

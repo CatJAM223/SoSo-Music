@@ -30,16 +30,11 @@ export class DiscordRPCService {
   private static isEnabled = true;
   private static lastActivity: DiscordPlaybackData | null = null;
   private static reconnectTimer: NodeJS.Timeout | null = null;
-
-  /**
-   * Initialize and connect to local Discord client IPC
-   */
-  static init() {
-    this.connect();
-  }
+  private static progressTimer?: NodeJS.Timeout;
+  private static activityAt = 0;
 
   static connect() {
-    if (this.isConnected || this.isConnecting || !this.isEnabled) return;
+    if (this.isConnected || this.isConnecting || !this.isEnabled || !this.lastActivity) return;
     this.isConnecting = true;
     this.tryConnectPipe(0);
   }
@@ -58,7 +53,7 @@ export class DiscordRPCService {
   }
 
   private static tryConnectPipe(pipeIndex: number) {
-    if (!this.isEnabled) {
+    if (!this.isEnabled || !this.lastActivity) {
       this.isConnecting = false;
       return;
     }
@@ -81,6 +76,10 @@ export class DiscordRPCService {
 
     sock.once('connect', () => {
       this.isConnecting = false;
+      if (!this.isEnabled || !this.lastActivity) {
+        sock.destroy();
+        return;
+      }
       this.socket = sock;
       this.sendHandshake();
     });
@@ -100,7 +99,7 @@ export class DiscordRPCService {
           if (body.cmd === 'DISPATCH' && body.evt === 'READY') {
             this.isConnected = true;
             if (this.lastActivity) {
-              this.sendActivityToDiscord(this.lastActivity);
+              this.publishActivity();
             }
           }
         }
@@ -141,14 +140,14 @@ export class DiscordRPCService {
 
   private static scheduleReconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = setTimeout(() => {
-      if (this.isEnabled && !this.isConnected) {
-        this.connect();
-      }
-    }, 8000);
+    this.reconnectTimer = null;
+    if (!this.isEnabled || !this.lastActivity) return;
+    this.reconnectTimer = setTimeout(() => this.connect(), 8000);
+    this.reconnectTimer.unref();
   }
 
   private static cleanup() {
+    clearTimeout(this.progressTimer);
     this.isConnected = false;
     this.isConnecting = false;
     if (this.socket) {
@@ -177,15 +176,30 @@ export class DiscordRPCService {
    * Public API to update Discord Rich Presence
    */
   static updateActivity(data: DiscordPlaybackData) {
-    this.lastActivity = data;
     if (!this.isEnabled) return;
+    this.lastActivity = data;
+    this.activityAt = Date.now();
 
     if (!this.isConnected) {
       this.connect();
       return;
     }
 
-    this.sendActivityToDiscord(data);
+    this.publishActivity();
+  }
+
+  private static publishActivity() {
+    clearTimeout(this.progressTimer);
+    const activity = this.lastActivity;
+    if (!activity || !this.isConnected) return;
+    const elapsed = activity.isPlaying ? Math.max(0, Date.now() - this.activityAt) / 1000 : 0;
+    const duration = activity.duration || 180;
+    const currentTime = Math.min(duration, (activity.currentTime ?? 0) + elapsed);
+    this.sendActivityToDiscord({ ...activity, currentTime });
+    if (this.isConnected && activity.isPlaying && currentTime < duration) {
+      this.progressTimer = setTimeout(() => this.publishActivity(), 5000);
+      this.progressTimer.unref();
+    }
   }
 
   public static formatDiscordTime(secs: number): string {
@@ -287,6 +301,9 @@ export class DiscordRPCService {
    */
   static clearActivity() {
     this.lastActivity = null;
+    clearTimeout(this.progressTimer);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     if (!this.socket || !this.isConnected) return;
 
     try {
@@ -320,9 +337,6 @@ export class DiscordRPCService {
       this.cleanup();
     } else {
       this.connect();
-      if (this.lastActivity) {
-        this.updateActivity(this.lastActivity);
-      }
     }
   }
 

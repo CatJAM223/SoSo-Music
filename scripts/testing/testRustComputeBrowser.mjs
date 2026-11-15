@@ -42,6 +42,11 @@ window.computeResult=(async()=>{
   if(probe.calls!==syncCalls)throw Error('Worker calculation ran on the renderer thread');
   if(JSON.stringify(actual)!==JSON.stringify(expected))throw Error('Worker queue changed '+mood);
   if(actual.some(track=>!c.tracks.includes(track)))throw Error('Worker replaced Track objects');
+  const adaptive=reseq.slice();
+  adaptive[7]={...c.options,novelty:'fresh'};
+  const adaptiveExpected=resequenceWaveQueue(...adaptive);
+  const adaptiveActual=await resequenceWaveQueueInWorker(...adaptive);
+  if(JSON.stringify(adaptiveActual)!==JSON.stringify(adaptiveExpected))throw Error('Adaptive worker differs '+mood);
  }
  const large=rankingCase(1000,300,1000);let ticks=0,maxGap=0,last=performance.now();
  const timer=setInterval(()=>{const now=performance.now();maxGap=Math.max(maxGap,now-last);last=now;ticks++;},4);

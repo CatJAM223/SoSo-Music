@@ -60,7 +60,7 @@ function knownWaveArtists(names: readonly string[]): KnownWaveArtists {
     names: [...names],
     keys,
     lookup: new Set(keys),
-    maxWords: Math.max(0, ...keys.map((key) => key.split(' ').length)),
+    maxWords: keys.reduce((max, key) => Math.max(max, key.split(' ').length), 0),
   };
   knownArtistIndexes.set(names, index);
   return index;
@@ -71,7 +71,11 @@ export function getWaveArtistKeys(
   track: WaveTrackLike,
   knownArtists: readonly string[] = [],
 ): string[] {
-  const fields = waveSongFields(track, knownArtists);
+  const catalog = knownWaveArtists(knownArtists);
+  return waveArtistKeys(waveSongFields(track, catalog), catalog);
+}
+
+function waveArtistKeys(fields: WaveTrackLike, catalog: KnownWaveArtists): string[] {
   const rawArtist = typeof fields.artist === 'string' ? fields.artist : fields.artist?.name || '';
   const title = fields.title || '';
   const coreTitle = normalizeWaveArtist(cleanWaveSongTitle(title));
@@ -85,7 +89,6 @@ export function getWaveArtistKeys(
     .map(normalizeWaveArtist);
   const allowsTitleCredits = !/\bcover\b|кавер/i.test(title);
   const keys = getWaveArtistNames(fields).map(normalizeWaveArtist);
-  const catalog = knownWaveArtists(knownArtists);
   // Test only possible credits from the text against the index. The size of
   // listening history must not multiply title/artist parsing for every track.
   const addCredit = (key: string) => {
@@ -149,7 +152,7 @@ function cleanWaveSongTitle(raw: string): string {
   );
 }
 
-function waveSongFields(track: WaveTrackLike, knownArtists: readonly string[]): WaveTrackLike {
+function waveSongFields(track: WaveTrackLike, catalog: KnownWaveArtists): WaveTrackLike {
   const artist = typeof track.artist === 'string' ? track.artist : track.artist?.name || '';
   const title = cleanWaveSongTitle(track.title || '');
   // Speed-edit uploaders sometimes reverse the musician and song fields.
@@ -157,7 +160,7 @@ function waveSongFields(track: WaveTrackLike, knownArtists: readonly string[]): 
   // song title in the artist field; a song named Nirvana alone is insufficient.
   if (
     title &&
-    knownWaveArtists(knownArtists).lookup.has(title) &&
+    catalog.lookup.has(title) &&
     title !== normalizeWaveArtist(artist) &&
     /\b(?:slowed|sped[\s-]*up|speed[\s-]*up|speedup|nightcore|daycore|remix|bootleg|acoustic|cover|live)\b|кавер|акустик|замедлен/i.test(
       track.title || '',
@@ -174,8 +177,18 @@ export function buildWaveSongIdentity(
   track: WaveTrackLike,
   knownArtists: readonly string[] = [],
 ): WaveSongIdentity {
-  const fields = waveSongFields(track, knownArtists);
-  const artists = getWaveArtistKeys(fields, knownArtists);
+  return songIdentity(track, knownWaveArtists(knownArtists));
+}
+
+/** One artist index for a synchronous batch, without rechecking the input on each row. */
+export function createWaveSongIdentifier(knownArtists: readonly string[]) {
+  const catalog = knownWaveArtists(knownArtists);
+  return (track: WaveTrackLike) => songIdentity(track, catalog);
+}
+
+function songIdentity(track: WaveTrackLike, catalog: KnownWaveArtists): WaveSongIdentity {
+  const fields = waveSongFields(track, catalog);
+  const artists = waveArtistKeys(waveSongFields(fields, catalog), catalog);
   let title = cleanWaveSongTitle(fields.title || '');
   // Never erase the complete title when an uploader uses the song as their name.
   for (const artist of [...artists].sort((a, b) => b.length - a.length)) {

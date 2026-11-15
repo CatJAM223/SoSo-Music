@@ -6,6 +6,7 @@ import type {
   LibraryPage,
   LibraryPageRequest,
   LibraryPlaybackRequest,
+  LibraryPlaybackRow,
   LibraryStats,
 } from '../../../shared/types/libraryPage';
 import type { LikedTrack } from '../../../shared/types';
@@ -88,8 +89,13 @@ function rows<T>(db: Database, sql: string, values: SqlValue[] = []): T[] {
   const stmt = db.prepare(sql);
   try {
     stmt.bind(values);
+    const columns = stmt.getColumnNames();
     const out: T[] = [];
-    while (stmt.step()) out.push(stmt.getAsObject() as unknown as T);
+    while (stmt.step()) {
+      const values = stmt.get();
+      const row = Object.fromEntries(columns.map((name, index) => [name, values[index]]));
+      out.push(row as T);
+    }
     return out;
   } finally {
     stmt.free();
@@ -175,6 +181,27 @@ export function readLibraryPlaybackTracks(
     'SELECT ' + layout.select + ' FROM ' + layout.table + where + order,
     params,
   );
+}
+export function readLibraryPlaybackRows(
+  db: Database | null,
+  input: LibraryPlaybackRequest,
+): LibraryPlaybackRow[] {
+  const r = validateLibraryRequest({ ...input, kind: 'tracks', offset: 0, limit: 100 });
+  if (!db) throw new Error('Database not initialized');
+  prepare(db, (text) => text);
+  const { layout, where, params, order } = queryParts(r);
+  const stmt = db.prepare(
+    'SELECT deezer_id,title,artist,album,album_id,cover_url,preview_url,duration FROM ' +
+      layout.table + where + order,
+  );
+  try {
+    stmt.bind(params);
+    const tracks: LibraryPlaybackRow[] = [];
+    while (stmt.step()) tracks.push(stmt.get() as LibraryPlaybackRow);
+    return tracks;
+  } finally {
+    stmt.free();
+  }
 }
 export function readLibraryStats(db: Database | null): LibraryStats {
   if (!db) throw new Error('Database not initialized');

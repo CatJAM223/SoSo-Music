@@ -7,6 +7,7 @@ import {
   readLibraryPage,
   readLibraryStats,
   readLibraryPlaybackTracks,
+  readLibraryPlaybackRows,
   readSavedAlbumIds,
   readArtistMembership,
   validateLibraryRequest,
@@ -33,6 +34,36 @@ function track(db, id, title = 'ТЕСТ', artist = 'Артист', album = 'А�
     [id, title, artist, album, 60, '2026-01-01'],
   );
 }
+test('Compact library queue preserves the ordered metadata of the object query', () => {
+  const db = fixture();
+  try {
+    track(db, 'a', 'Зета');
+    track(db, 'yt_b', 'Альфа');
+    track(db, 'sc_c', 'Альфа');
+    db.run(
+      "UPDATE liked_tracks SET liked_at='2026-02-01', album_id='album', cover_url='https://fixture.invalid/cover.jpg' WHERE deezer_id='yt_b'",
+    );
+    for (const input of [{}, { sort: 'oldest' }, { query: 'альфа', sort: 'title' }]) {
+      const compact = readLibraryPlaybackRows(db, input);
+      const original = readLibraryPlaybackTracks(db, input, canonical);
+      assert.deepEqual(
+        compact,
+        original.map((row) => [
+          row.deezer_id,
+          row.title,
+          row.artist,
+          row.album,
+          row.album_id,
+          row.cover_url,
+          row.preview_url,
+          row.duration,
+        ]),
+      );
+    }
+  } finally {
+    db.close();
+  }
+});
 test('SQL paging: Cyrillic case-fold, literal wildcards, separate search fields', () => {
   const db = fixture();
   try {

@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import type { MusicSource, WaveMood } from '../../../shared/types';
+import { readWaveNovelty, type WaveNovelty } from '../../../shared/types/wavePolicy.ts';
 import soundcloudSymbol from '../assets/soundcloud-symbol.webp';
 import './WaveControl.css';
 
@@ -24,6 +25,8 @@ type Props = {
   mood: WaveMood;
   source: MusicSource;
   onSelectSource: (source: MusicSource) => void;
+  novelty?: WaveNovelty;
+  onSelectNovelty?: (value: WaveNovelty) => void;
   isActive: boolean;
   isPlaying: boolean;
   isLoading: boolean;
@@ -133,6 +136,8 @@ export function WaveControl({
   mood,
   source,
   onSelectSource,
+  novelty,
+  onSelectNovelty,
   isActive,
   isPlaying,
   isLoading,
@@ -379,6 +384,24 @@ export function WaveControl({
               );
             })}
           </div>
+          {novelty && onSelectNovelty && (
+            <div className="wave-novelty">
+              <label htmlFor={id + '-novelty'}>{t('Доля новой музыки')}</label>
+              <select
+                id={id + '-novelty'}
+                value={novelty}
+                tabIndex={isOpen ? 0 : -1}
+                onChange={(event) => {
+                  const value = readWaveNovelty(event.currentTarget.value);
+                  if (value) onSelectNovelty(value);
+                }}
+              >
+                <option value="familiar">{t('Больше знакомого')}</option>
+                <option value="balanced">{t('Баланс')}</option>
+                <option value="fresh">{t('Больше нового')}</option>
+              </select>
+            </div>
+          )}
         </aside>
       </div>
       <footer className="wave-control-footer">

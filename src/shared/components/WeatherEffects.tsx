@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAnimationsPaused } from '../hooks/useAnimationsPaused';
+import { decorativeCanvasScale } from '../utils/decorativeCanvas';
 
 interface Leaf {
   x: number;
@@ -55,14 +56,18 @@ export const WeatherEffects: React.FC = () => {
     if (!ctx) return;
 
     let animationFrameId: number;
-    let width = (canvas.width = window.innerWidth);
-    let height = (canvas.height = window.innerHeight);
+    let width = 0;
+    let height = 0;
 
     const handleResize = () => {
-      if (!canvas) return;
-      width = canvas.width = window.innerWidth;
-      height = canvas.height = window.innerHeight;
+      width = window.innerWidth;
+      height = window.innerHeight;
+      const scale = decorativeCanvasScale(width, height);
+      canvas.width = Math.max(1, Math.floor(width * scale));
+      canvas.height = Math.max(1, Math.floor(height * scale));
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
     };
+    handleResize();
     window.addEventListener('resize', handleResize);
 
     const isRain = weatherMode === 'rain';

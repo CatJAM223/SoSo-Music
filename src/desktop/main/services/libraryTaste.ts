@@ -31,7 +31,8 @@ export class LibraryTasteService {
   private progress = 0;
   private failed = 0;
   private error?: string;
-  private timer?: ReturnType<typeof setInterval>;
+  private started = false;
+  private refreshTimer?: ReturnType<typeof setTimeout>;
   private pendingRefresh = false;
   private retryAfter = 0;
   private pausedKeys = new Set<string>();
@@ -141,7 +142,7 @@ export class LibraryTasteService {
       .finally(() => {
         if (this.controller !== controller) return;
         this.controller = undefined;
-        if (this.pendingRefresh) {
+        if (this.pendingRefresh || (this.failed && this.retryAfter > Date.now())) {
           this.pendingRefresh = false;
           this.libraryChanged();
         }
@@ -203,34 +204,48 @@ export class LibraryTasteService {
   }
 
   libraryChanged(): void {
-    if (this.store.autoAnalyze && Date.now() >= this.retryAfter) this.analyze(true);
+    if (!this.available()) return;
+    if (!this.started) {
+      if (this.store.autoAnalyze && Date.now() >= this.retryAfter) this.analyze(true);
+      return;
+    }
+    clearTimeout(this.refreshTimer);
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = undefined;
+      if (this.store.autoAnalyze) this.analyze(true);
+    }, Math.max(250, this.retryAfter - Date.now()));
+    this.refreshTimer.unref?.();
   }
 
   start(): void {
-    if (this.timer) return;
+    this.started = true;
     this.libraryChanged();
-    // Also covers imports and library changes outside the ordinary like/playlist handlers.
-    this.timer = setInterval(() => this.libraryChanged(), 30000);
-    this.timer.unref();
   }
 
-  cancel(): LibraryTasteReport {
+  private stopAnalysis(): void {
+    clearTimeout(this.refreshTimer);
+    this.refreshTimer = undefined;
     this.pendingRefresh = false;
-    this.pausedKeys = new Set(this.store.snapshot().tracks.map(libraryTasteKey));
     this.autoChecked = new WeakSet();
     this.controller?.abort();
     this.controller = undefined;
+  }
+
+  cancel(): LibraryTasteReport {
+    this.stopAnalysis();
+    this.pausedKeys = new Set(this.store.snapshot().tracks.map(libraryTasteKey));
     return this.report();
   }
 
   dispose(): void {
-    clearInterval(this.timer);
-    this.timer = undefined;
-    this.cancel();
+    this.started = false;
+    this.stopAnalysis();
+    this.pausedKeys.clear();
     this.store.clearCache();
   }
 
   enrichCached(tracks: readonly Track[]): Track[] {
+    if (!tracks.length) return [];
     const entries = this.store.snapshot().entries;
     return tracks.map((track) => {
       const identity = { title: track.title || '', artist: track.artist?.name || '' };

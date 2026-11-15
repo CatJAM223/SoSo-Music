@@ -53,6 +53,8 @@ let dbInstance: IDBDatabase | null = null;
 const trackObjectUrls = new Map<string, string>();
 const pendingTrackUrls = new Map<string, Promise<string | null>>();
 const coverObjectUrls = new Map<string, string>();
+const MAX_COVER_URLS = 4;
+const MAX_COVER_BYTES = 5 * 1024 * 1024;
 const changeListeners = new Set<() => void>();
 let cacheGeneration = 0;
 const downloads = new Map<string, AbortController>();
@@ -609,7 +611,7 @@ export const offlineCacheService = {
           const coverRes = await fetch(coverUrl, { cache: 'force-cache', signal: coverSignal });
           if (coverRes.ok) {
             coverBlob =
-              (await readBoundedAudioBlob(coverRes, 5 * 1024 * 1024, coverSignal)) ?? undefined;
+              (await readBoundedAudioBlob(coverRes, MAX_COVER_BYTES, coverSignal)) ?? undefined;
           }
         } catch {
           // Gracefully continue if cover image fetch fails
@@ -786,32 +788,53 @@ export const offlineCacheService = {
   /**
    * Retrieve cached Cover Art as an Object URL
    */
-  async getCachedCoverUrl(trackId: string | number): Promise<string | null> {
+  async getCachedCoverUrl(
+    trackId: string | number,
+    isCurrent: () => boolean = () => true,
+  ): Promise<string | null> {
+    if (!isCurrent()) return null;
     const keys = getPossibleKeyVariants(trackId);
     for (const k of keys) {
-      if (coverObjectUrls.has(k)) {
-        return coverObjectUrls.get(k)!;
+      const cached = coverObjectUrls.get(k);
+      if (cached) {
+        coverObjectUrls.delete(k);
+        coverObjectUrls.set(k, cached);
+        return cached;
       }
     }
 
+    const generation = cacheGeneration;
+    const isRelevant = () => generation === cacheGeneration && isCurrent();
     try {
       const db = await getDB();
+      if (!isRelevant()) return null;
       return new Promise((resolve) => {
         const tx = db.transaction(STORE_NAME, 'readonly');
         const store = tx.objectStore(STORE_NAME);
         let index = 0;
 
         const checkNext = () => {
-          if (index >= keys.length) {
+          if (!isRelevant() || index >= keys.length) {
             resolve(null);
             return;
           }
           const key = keys[index++];
           const req = store.get(key);
           req.onsuccess = () => {
-            if (req.result && req.result.coverBlob && req.result.coverBlob.size > 500) {
-              const objUrl = URL.createObjectURL(req.result.coverBlob);
+            if (!isRelevant()) {
+              resolve(null);
+              return;
+            }
+            const cover = req.result?.coverBlob;
+            if (cover && cover.size > 500 && cover.size <= MAX_COVER_BYTES) {
+              const objUrl = coverObjectUrls.get(key) ?? URL.createObjectURL(cover);
+              coverObjectUrls.delete(key);
               coverObjectUrls.set(key, objUrl);
+              if (coverObjectUrls.size > MAX_COVER_URLS) {
+                const oldest = coverObjectUrls.keys().next().value!;
+                URL.revokeObjectURL(coverObjectUrls.get(oldest)!);
+                coverObjectUrls.delete(oldest);
+              }
               resolve(objUrl);
             } else {
               checkNext();

@@ -151,6 +151,69 @@ test('Disabled preference prevents startup window creation; enabling shows it an
   assert.equal(f.windows.length, 2);
   f.overlay.dispose();
 });
+test('Focusing the player suppresses the overlay during startup and during its first load', () => {
+  const f = fixture();
+  f.overlay.setPlayerFocused(true);
+  f.overlay.start();
+  assert.equal(f.windows.length, 0);
+  f.overlay.setPlayerFocused(false);
+  const win = f.windows[0];
+  f.overlay.setPlayerFocused(true);
+  win.emit('ready-to-show');
+  assert.equal(win.shows, 0);
+  f.overlay.setPlayerFocused(false);
+  assert.equal(win.isVisible(), true);
+  assert.equal(win.focuses, 0);
+  f.overlay.dispose();
+});
+
+test('A focus-hidden overlay releases its renderer and restores the latest track on blur', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  f.overlay.start();
+  const first = f.windows[0];
+  first.emit('ready-to-show');
+  f.overlay.setPlayerFocused(true);
+  assert.equal(first.isVisible(), false);
+  f.overlay.sendState({ track: { id: 2, title: 'Newest track' } });
+  assert.equal(first.messages.some(([channel]) => channel === 'widget:stateUpdate'), false);
+  t.mock.timers.tick(15000);
+  assert.equal(first.isDestroyed(), true);
+  f.overlay.setPlayerFocused(false);
+  const restored = f.windows[1];
+  restored.emit('ready-to-show');
+  assert.equal(restored.isVisible(), true);
+  assert.equal(restored.focuses, 0);
+  assert.equal(
+    restored.messages.find(([channel]) => channel === 'widget:stateUpdate')[1].track.title,
+    'Newest track',
+  );
+  f.overlay.setPlayerFocused(true);
+  assert.equal(f.overlay.toggle(), false);
+  f.overlay.setPlayerFocused(false);
+  assert.equal(restored.isVisible(), false);
+  f.overlay.dispose();
+});
+
+test('The position editor can open from the focused player and hides when focus returns', () => {
+  const f = fixture();
+  f.overlay.start();
+  f.overlay.setPlayerFocused(true);
+  f.overlay.edit();
+  const win = f.windows[0];
+  win.emit('ready-to-show');
+  assert.equal(win.isVisible(), true);
+  assert.equal(win.focuses, 1);
+  f.overlay.setPlayerFocused(false);
+  f.overlay.setPlayerFocused(true);
+  assert.equal(f.overlay.isEditing(), false);
+  assert.equal(win.isVisible(), false);
+  assert.equal(win.ignoreMouse, true);
+  f.overlay.setPlayerFocused(false);
+  assert.equal(win.isVisible(), true);
+  assert.equal(win.focuses, 1);
+  f.overlay.dispose();
+});
 test('Hotkey visibility and position editor continue to work after automatic startup', () => {
   const f = fixture();
   f.overlay.start();

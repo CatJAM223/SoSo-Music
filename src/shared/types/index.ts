@@ -7,6 +7,7 @@ import type { PlaybackOrigin, TasteExclusionChange, TastePolicySnapshot } from '
 import type { LibraryTasteReport } from './libraryTaste.ts';
 import type { ChartRegion } from '../utils/chartRegions.ts';
 import type { PlaylistReadResult } from './playlistImport.ts';
+import type { WaveFamiliarity, WaveProvenance, WaveSearchOptions } from './wavePolicy.ts';
 
 export type MusicSource = 'all' | 'soundcloud' | 'youtube';
 
@@ -14,6 +15,8 @@ export interface Track {
   /** Canonical recording identity; independent of provider and queue occurrence. */
   recordingId?: string;
   waveRecommendation?: import('../services/waveQuality.ts').WaveRecommendation;
+  waveProvenance?: WaveProvenance[];
+  waveFamiliarity?: WaveFamiliarity;
   id: number | string;
   /** Queue occurrence provenance, separate from provider recording identity. */
   queueOrigin?: PlaybackOrigin;
@@ -70,9 +73,8 @@ export interface StreamResolveOptions {
 }
 
 /** Small, serializable listening context for recommendation retrieval. */
-export interface WaveBatchContext {
+export interface WaveBatchContext extends WaveSearchOptions {
   tasteTracks?: Track[];
-  tasteRevision?: number;
   /** Providers allowed for this wave, independent of its mood. */
   source?: MusicSource;
   /** Songs with measured listening time, never merely generated candidates. */
@@ -513,6 +515,8 @@ export interface ElectronAPI {
 
   // Theme animation freeze (window minimized / hidden to tray)
   getAnimationsPaused?: () => Promise<boolean>;
+  getWindowVisible?: () => Promise<boolean>;
+  onWindowVisible?: (callback: (visible: boolean) => void) => () => void;
   onAnimationsPaused?: (callback: (paused: boolean) => void) => () => void;
 
   // Music API & Full Stream
@@ -559,7 +563,7 @@ export interface ElectronAPI {
   getRecommendedTracks?: (
     previousIds?: (string | number)[],
     previousTracks?: Track[],
-    options?: { source: MusicSource; retainedTracks: Track[] },
+    options?: WaveSearchOptions & { source: MusicSource; retainedTracks: Track[] },
   ) => Promise<Track[]>;
   getFullStreamUrl: (
     track: {
@@ -610,9 +614,11 @@ export interface ElectronAPI {
   isWidgetOpen: () => Promise<boolean>;
   onWidgetVisibilityChanged?: (callback: (open: boolean) => void) => () => void;
   sendWidgetState: (state: WidgetState) => void;
+  sendWidgetProgress?: (time: number) => void;
   sendWidgetCommand: (command: string, data?: any) => void;
   onWidgetCommand: (callback: (command: string, data?: any) => void) => () => void;
   onWidgetStateUpdate: (callback: (state: WidgetState) => void) => () => void;
+  onWidgetProgress?: (callback: (currentTime: number) => void) => () => void;
 
   getLibraryPage: <K extends import('./libraryPage').LibraryKind>(
     request: import('./libraryPage').LibraryPageRequest<K>,
@@ -621,6 +627,9 @@ export interface ElectronAPI {
   getLibraryPlaybackTracks: (
     request: import('./libraryPage').LibraryPlaybackRequest,
   ) => Promise<LikedTrack[]>;
+  getLibraryPlaybackRows?: (
+    request: import('./libraryPage').LibraryPlaybackRequest,
+  ) => Promise<import('./libraryPage').LibraryPlaybackRow[]>;
   getSavedAlbumIds: () => Promise<string[]>;
   getArtistMembership: () => Promise<import('./libraryPage').ArtistMembership[]>;
 

@@ -40,8 +40,49 @@ export class RecordingCatalog {
         )
       : providerRecordingKey(ref);
   }
+
+  /** Reuse one prepared lookup for a synchronous batch of library rows. */
+  withIds<T extends Pick<Track, 'id' | 'source'>>(
+    length: number,
+    getTrack: (index: number) => T,
+    visit: (index: number, id: string, fallback: string) => void,
+  ): void {
+    if (!length) return;
+    const statement = this.database()?.prepare(
+      `SELECT p.recording_id
+       FROM json_each(?) AS input
+       LEFT JOIN provider_tracks AS p
+         ON p.provider=json_extract(input.value, '$[0]')
+        AND p.provider_id=json_extract(input.value, '$[1]')
+       ORDER BY input.key`,
+    );
+    try {
+      const batchSize = 256;
+      for (let start = 0; start < length; start += batchSize) {
+        const refs = Array.from(
+          { length: Math.min(batchSize, length - start) },
+          (_, offset) => providerTrackRef(getTrack(start + offset)),
+        );
+        statement?.bind([JSON.stringify(refs.map((ref) => [ref.provider, ref.providerId]))]);
+        for (const [offset, ref] of refs.entries()) {
+          const fallback = providerRecordingKey(ref);
+          const id = statement?.step() ? statement.get()[0] : null;
+          visit(start + offset, id ? String(id) : fallback, fallback);
+        }
+      }
+    } finally {
+      statement?.free();
+    }
+  }
+
   identify<T extends Track>(tracks: T[]): T[] {
-    return tracks.map((track) => ({ ...track, recordingId: this.id(track) }));
+    const result: T[] = [];
+    this.withIds(
+      tracks.length,
+      (index) => tracks[index],
+      (index, recordingId) => result.push({ ...tracks[index], recordingId }),
+    );
+    return result;
   }
   register(track: Track): string {
     const db = this.database();

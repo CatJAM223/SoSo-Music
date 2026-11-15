@@ -1,5 +1,18 @@
 import { recordingKey } from '../types/musicDomain.ts';
-import { attributeWaveBatch, markWaveLike } from '../services/waveQuality.ts';
+import {
+  attributeWaveBatch,
+  logWaveQuality,
+  markWaveDislike,
+  markWaveLike,
+  type WaveQualityEvent,
+} from '../services/waveQuality.ts';
+import {
+  createWaveLearning,
+  loadWaveNovelty,
+  saveWaveNovelty,
+  wavePolicyEnabled,
+} from '../services/waveLearning.ts';
+import type { WaveNovelty } from '../types/wavePolicy.ts';
 import {
   matchesWaveSource,
   normalizeWaveSource,
@@ -62,6 +75,44 @@ export function useWaveEngine({
   const [isWaveActive, setIsWaveActive] = useState<boolean>(false);
   const [isWaveStarting, setIsWaveStarting] = useState(false);
   const [waveSource, setWaveSourceState] = useState<MusicSource>(readWaveSource);
+  const [adaptiveWave] = useState(wavePolicyEnabled);
+  const [waveNovelty, setWaveNoveltyState] = useState(loadWaveNovelty);
+  const noveltyRef = useRef(waveNovelty);
+  const [learning] = useState(() => (adaptiveWave ? createWaveLearning() : undefined));
+  useEffect(() => {
+    if (!learning) return;
+    window.addEventListener('pagehide', learning.flush);
+    return () => {
+      window.removeEventListener('pagehide', learning.flush);
+      learning.flush();
+    };
+  }, [learning]);
+  const observeWaveQuality = useCallback(
+    (track: Track, event: WaveQualityEvent) => {
+      if (
+        learning &&
+        (event.event === 'started' ||
+          event.event === 'outcome' ||
+          event.event === 'liked' ||
+          event.event === 'disliked') &&
+        isTasteEligible(track, readTastePolicy())
+      ) {
+        learning.observe(event, readTastePolicy().revision);
+      }
+    },
+    [learning],
+  );
+  const waveSearchOptions = useCallback(
+    (mood: WaveMood, source: MusicSource) => {
+      const tasteRevision = readTastePolicy().revision;
+      return {
+        tasteRevision,
+        novelty: adaptiveWave ? noveltyRef.current : undefined,
+        methodScores: learning?.scores(mood, source, tasteRevision),
+      };
+    },
+    [adaptiveWave, learning],
+  );
   const waveSourceRef = useRef<MusicSource>(waveSource);
   const updateWaveSource = useCallback((source: MusicSource) => {
     waveSourceRef.current = source;
@@ -112,13 +163,14 @@ export function useWaveEngine({
   }, [preferences, waveSessions, refreshPolicy]);
   const musicOptions = useCallback(
     () => ({
+      novelty: adaptiveWave ? noveltyRef.current : undefined,
       tasteTracks: tasteTracksRef.current.filter(eligibleTaste),
       positiveTracks: waveSession().positiveTracks,
       skippedTracks: waveSession().skippedTracks,
       learnedTracks: preferences.learnedTracks(eligibleTaste),
       discoveryAdjustment: preferences.discoveryAdjustment(waveMoodRef.current),
     }),
-    [preferences, waveSession],
+    [preferences, waveSession, adaptiveWave, eligibleTaste],
   );
   const isNovelTrack = useCallback((track: Track): number => {
     const id = recordingKey(track);
@@ -134,8 +186,10 @@ export function useWaveEngine({
   }, []);
 
   const reorderVersionRef = useRef(0);
+  const noveltyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(
     () => () => {
+      clearTimeout(noveltyTimerRef.current);
       reorderVersionRef.current++;
       disposeWaveWorker();
     },
@@ -186,6 +240,24 @@ export function useWaveEngine({
         '[Wave:Compute] ' + (error instanceof Error ? error.message : String(error)),
       );
   }, []);
+  const setWaveNovelty = useCallback(
+    (value: WaveNovelty) => {
+      if (!adaptiveWave || value === noveltyRef.current) return;
+      noveltyRef.current = value;
+      setWaveNoveltyState(value);
+      saveWaveNovelty(value);
+      if (isWaveActiveRef.current && !isWaveStartingRef.current) {
+        reorderVersionRef.current++;
+        clearTimeout(noveltyTimerRef.current);
+        noveltyTimerRef.current = setTimeout(() => {
+          noveltyTimerRef.current = undefined;
+          if (isWaveActiveRef.current && !isWaveStartingRef.current)
+            void reorderPending(true).catch(logReorderError);
+        }, 120);
+      }
+    },
+    [adaptiveWave, reorderPending, logReorderError],
+  );
 
   const observeWavePlayback = useCallback(
     (track: Track, playedSeconds: number) => {
@@ -241,6 +313,7 @@ export function useWaveEngine({
             recentPlayedTracksRef.current = waveMemory.playedTracks();
             const session = waveSession(mood);
             const adjustment = preferences.discoveryAdjustment(mood);
+            const options = waveSearchOptions(mood, source);
             const more = await platformBridge.getWaveBatch(
               mood,
               [...session.positiveTracks, ...preferences.learnedTracks(eligibleTaste).slice(0, 6)],
@@ -249,7 +322,7 @@ export function useWaveEngine({
                 ...recentPlayedTracksRef.current.map((track) => track.id),
               ],
               {
-                tasteRevision: readTastePolicy().revision,
+                ...options,
                 source,
                 tasteTracks: tasteTracksRef.current,
                 recentTracks: recentPlayedTracksRef.current,
@@ -334,6 +407,7 @@ export function useWaveEngine({
                   familiarArtistsRef.current,
                   undefined,
                   accepted.map((track) => combined.indexOf(track) - queueIndexRef.current - 1),
+                  { source, revision: options.tasteRevision, enabled: adaptiveWave },
                 );
                 const byId = new Map(attributed.map((track) => [String(track.id), track]));
                 for (let i = 0; i < combined.length; i++)
@@ -402,6 +476,8 @@ export function useWaveEngine({
       refreshWaveSession,
       musicOptions,
       waveSession,
+      adaptiveWave,
+      waveSearchOptions,
     ],
   );
 
@@ -496,6 +572,10 @@ export function useWaveEngine({
 
   const handleWaveDislike = useCallback(
     (track: Track) => {
+      markWaveDislike(track, (event) => {
+        logWaveQuality(event);
+        observeWaveQuality(track, event);
+      });
       if (!isWaveActiveRef.current || isWaveStartingRef.current) return;
       refreshWaveSession();
       if (!eligibleTaste(track)) {
@@ -542,15 +622,21 @@ export function useWaveEngine({
       musicOptions,
       isNovelTrack,
       waveSession,
+      observeWaveQuality,
     ],
   );
 
   const handleWaveLike = useCallback(
     (track: Track) => {
-      if (!isWaveActiveRef.current || isWaveStartingRef.current) return;
-      refreshWaveSession();
       if (!eligibleTaste(track)) return;
-      markWaveLike(track);
+      const active = isWaveActiveRef.current && !isWaveStartingRef.current;
+      if (active || track.waveRecommendation?.surface === 'daily')
+        markWaveLike(track, (event) => {
+          logWaveQuality(event);
+          observeWaveQuality(track, event);
+        });
+      if (!active || track.waveRecommendation?.surface === 'daily') return;
+      refreshWaveSession();
       preferences.record(track, 1, isNovelTrack(track), 'like', waveMoodRef.current);
       refreshPolicy.accept();
       const feedback = waveSession().artistFeedback;
@@ -576,6 +662,7 @@ export function useWaveEngine({
       isNovelTrack,
       waveSession,
       refreshPolicy,
+      observeWaveQuality,
     ],
   );
 
@@ -678,6 +765,7 @@ export function useWaveEngine({
           data.artists,
           preferences.learnedTracks(eligibleTaste),
         );
+        const options = waveSearchOptions(mood, source);
         const fetched = await platformBridge.getWaveBatch(
           mood,
           seedTrack
@@ -691,7 +779,7 @@ export function useWaveEngine({
             .map((track) => track.id)
             .concat(seedTrack ? [seedTrack.id] : []),
           {
-            tasteRevision: readTastePolicy().revision,
+            ...options,
             source,
             tasteTracks: tasteTracksRef.current,
             recentTracks: recentPlayedTracksRef.current,
@@ -720,24 +808,41 @@ export function useWaveEngine({
                 ),
             )
           : fetched;
-        let batch = await resequenceWaveQueueInWorker(
-          candidates.filter(
-            (track) => matchesWaveSource(track, source) && !isYouTubeItemDisabled(track),
-          ),
-          -1,
-          mood,
-          [
-            ...familiarArtistsRef.current,
-            ...waveSession().positiveTracks.flatMap(getWaveArtistNames),
-          ],
-          waveSession().artistFeedback,
-          recentPlayedTracksRef.current,
-          waveMemory.offeredTracks(),
-          musicOptions(),
+        const playable = candidates.filter(
+          (track) => matchesWaveSource(track, source) && !isYouTubeItemDisabled(track),
         );
+        const rank = () =>
+          resequenceWaveQueueInWorker(
+            playable,
+            -1,
+            mood,
+            [
+              ...familiarArtistsRef.current,
+              ...waveSession().positiveTracks.flatMap(getWaveArtistNames),
+            ],
+            waveSession().artistFeedback,
+            recentPlayedTracksRef.current,
+            waveMemory.offeredTracks(),
+            musicOptions(),
+          );
+        const requestedNovelty = noveltyRef.current;
+        let batch = await rank();
+        if (reqId !== waveRequestIdRef.current) return;
+        if (requestedNovelty !== noveltyRef.current) batch = await rank();
         if (reqId !== waveRequestIdRef.current) return;
         if (batch && batch.length > 0) {
-          batch = attributeWaveBatch(batch, mood, familiarArtistsRef.current);
+          batch = attributeWaveBatch(
+            batch,
+            mood,
+            familiarArtistsRef.current,
+            undefined,
+            undefined,
+            {
+              source,
+              revision: options.tasteRevision,
+              enabled: adaptiveWave,
+            },
+          );
           waveMemory.recordOffered(batch);
           setIsWaveStarting(false);
           isWaveStartingRef.current = false;
@@ -790,6 +895,8 @@ export function useWaveEngine({
       updateWaveSource,
       waveSession,
       refreshPolicy,
+      adaptiveWave,
+      waveSearchOptions,
     ],
   );
 
@@ -824,6 +931,7 @@ export function useWaveEngine({
 
   const previousTasteRevision = useRef(policy.revision);
   useEffect(() => {
+    learning?.sync(policy.revision);
     const previous = previousTasteRevision.current;
     previousTasteRevision.current = policy.revision;
     if (previous === policy.revision || previous < 0 || policy.revision < 0) return;
@@ -864,7 +972,16 @@ export function useWaveEngine({
     return () => {
       disposed = true;
     };
-  }, [policy.revision, eligibleTaste, waveSessions, preferences, refreshPolicy, fetchWaveTracks]);
+  }, [
+    policy.revision,
+    eligibleTaste,
+    waveSessions,
+    preferences,
+    refreshPolicy,
+    fetchWaveTracks,
+    adaptiveWave,
+    learning,
+  ]);
 
   return {
     isWaveActive,
@@ -874,6 +991,9 @@ export function useWaveEngine({
     isWaveActiveRef,
     waveMood,
     waveSource,
+    waveNovelty: adaptiveWave ? waveNovelty : undefined,
+    setWaveNovelty,
+    waveSearchOptions,
     setWaveSource,
     setWaveMood,
     waveMoodRef,
@@ -883,6 +1003,7 @@ export function useWaveEngine({
     fetchMoreWaveTracks,
     recordWavePlayback,
     observeWavePlayback,
+    observeWaveQuality,
     handleWaveDislike,
     handleWaveLike,
   };

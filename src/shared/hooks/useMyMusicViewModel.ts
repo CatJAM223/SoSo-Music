@@ -173,6 +173,11 @@ export function useMyMusicViewModel({
   const [loadingOffline, setLoadingOffline] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const playGeneration = useRef(0);
+  const pendingLibraryQueue = useRef<{ key: string; result: Promise<Track[]> } | null>(null);
+  useEffect(() => {
+    // Membership updates invalidate even a read for the same search and sort.
+    pendingLibraryQueue.current = null;
+  }, [likedTrackIds, trackPage.items]);
 
   const loadListeningHistory = useCallback(async () => {
     const isCurrent = beginRead('history');
@@ -286,9 +291,21 @@ export function useMyMusicViewModel({
     const ownsIntent = beginPlaybackIntent();
     setPlaybackError(null);
     try {
-      const context = mapLikedTracks(
-        await platformBridge.getLibraryPlaybackTracks({ query: searchQuery, sort }),
-      );
+      const key = JSON.stringify([searchQuery, sort]);
+      let pending = pendingLibraryQueue.current;
+      if (pending?.key !== key) {
+        const request = {
+          key,
+          result: platformBridge
+            .getLibraryPlaybackTracks({ query: searchQuery, sort })
+            .then(mapLikedTracks)
+            .finally(() => {
+              if (pendingLibraryQueue.current === request) pendingLibraryQueue.current = null;
+            }),
+        };
+        pending = pendingLibraryQueue.current = request;
+      }
+      const context = await pending.result;
       if (!mounted.current || generation !== playGeneration.current || !ownsIntent()) return;
       const first = selected
         ? context.find((track) => String(track.id) === String(selected.id))

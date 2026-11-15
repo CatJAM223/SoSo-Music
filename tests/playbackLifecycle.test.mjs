@@ -159,9 +159,10 @@ function fixture({
   };
   const bindings = {
     './waveQuality.ts': {
+      logWaveQuality: (event) => qualityEvents.push(event),
       WaveQualityEpisode: class extends WaveQualityEpisode {
-        constructor(track, id) {
-          super(track, id, (event) => qualityEvents.push(event));
+        constructor(track, id, emit) {
+          super(track, id, emit);
         }
       },
     },
@@ -2175,6 +2176,32 @@ test('Engine attributes one measured Wave episode across playback, repeated play
   assert.equal(events.filter((e) => e.event === 'started').length, 1);
   assert.equal(events.filter((e) => e.event === 'outcome').length, 1);
   assert.equal(events.find((e) => e.event === 'outcome').reason, 'skip');
+  f.h.unmount();
+});
+
+test('Automatic crossfade after seeking near the end records a natural ending', async () => {
+  const first = {
+    ...track('wave-crossfade'),
+    waveRecommendation: {
+      id: 'recommendation:crossfade',
+      ranker: 'rust-sequence-v3',
+      mood: 'default',
+      rank: 0,
+      familiar: false,
+      surface: 'daily',
+    },
+  };
+  const f = fixture({ queue: [first, track('next')], realCrossfade: true });
+  f.props.crossfadeDurationRef.current = 4;
+  await f.h.api().playTrack(first);
+  await f.h.flush();
+  f.audio.currentTime = 116;
+  f.audio.dispatchEvent(new Event('timeupdate'));
+  await f.h.flush();
+  const outcomes = f.qualityEvents.filter((event) => event.event === 'outcome');
+  assert.equal(outcomes.length, 1);
+  assert.equal(outcomes[0].reason, 'ended');
+  assert.equal(outcomes[0].surface, 'daily');
   f.h.unmount();
 });
 

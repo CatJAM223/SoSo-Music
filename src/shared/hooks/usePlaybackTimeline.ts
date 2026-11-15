@@ -14,17 +14,18 @@ export function usePlaybackTimeline(
     const element = target.current;
     if (!element) return;
     let frame = 0;
-    let previous = '';
-    const paint = () => {
+    let previous = -1;
+    const paint = (animate = false) => {
       const clock = playing ? getPlaybackTime() : position;
       const seconds = preview ?? (Number.isFinite(clock) ? clock : position);
       const progress = duration > 0 ? Math.max(0, Math.min(1, seconds / duration)) : 0;
-      const value = String(progress);
-      if (value !== previous) element.style.setProperty('--playback-progress', value);
+      // A typical seek bar moves by less than half a pixel per media frame.
+      const value = animate ? Math.round(progress * 2048) / 2048 : progress;
+      if (value !== previous) element.style.setProperty('--playback-progress', String(value));
       previous = value;
     };
     const animate = () => {
-      paint();
+      paint(true);
       frame = requestAnimationFrame(animate);
     };
     const sync = () => {

@@ -1,4 +1,5 @@
 import type { MusicSource, RepeatMode, Track, WaveMood } from '../types';
+import type { WaveNovelty, WaveSearchOptions } from '../types/wavePolicy.ts';
 import type { BufferedAudioRange } from '../utils/audioBuffer';
 
 export const SNIPPET_DURATION = 10; // 10 seconds snippet
@@ -33,6 +34,7 @@ export interface AudioStateContextType {
   isWaveStarting: boolean;
   waveMood: WaveMood;
   waveSource: MusicSource;
+  waveNovelty?: WaveNovelty;
 
   // Snippet preview (10-second clip)
   snippetTrack: Track | null;
@@ -66,6 +68,8 @@ export interface AudioStateContextType {
 export interface AudioControlsContextType {
   // Wave actions
   setWaveSource: (source: MusicSource) => void;
+  setWaveNovelty: (value: WaveNovelty) => void;
+  waveSearchOptions: (mood: WaveMood, source: MusicSource) => WaveSearchOptions;
   startWave: (mood?: WaveMood, seedTrack?: Track) => Promise<void>;
   stopWave: () => void;
 

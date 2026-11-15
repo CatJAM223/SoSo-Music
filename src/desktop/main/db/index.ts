@@ -1,4 +1,3 @@
-import { recordingKey } from '../../../shared/types/musicDomain.ts';
 import { RecordingCatalog } from './recordingCatalog.ts';
 import {
   TastePolicyStore,
@@ -13,6 +12,7 @@ import {
   readLibraryPage,
   readLibraryStats,
   readLibraryPlaybackTracks,
+  readLibraryPlaybackRows,
   readSavedAlbumIds,
   readArtistMembership,
 } from './libraryPages.ts';
@@ -69,6 +69,8 @@ export class DatabaseManager {
     () => this.save(),
   );
   private changeRevision = 0;
+  private libraryTasteRevision = 0;
+  private libraryTasteChanged?: () => void;
   private tastePolicy = new TastePolicyStore(
     () => this.db,
     () => this.save(true),
@@ -104,17 +106,28 @@ export class DatabaseManager {
   public setTasteExcluded(value: unknown) {
     const previousRevision = this.getTastePolicy().revision;
     const policy = this.tastePolicy.set(value);
+    if (policy.revision !== previousRevision) this.publishLibraryTasteChange();
     this.publishTastePolicy(previousRevision);
     return policy;
   }
-  public getTasteLikedTracks() {
+  public getTasteLikedTracks(likes = this.getLikedTracks()) {
     const policy = this.getTastePolicy();
-    return this.getLikedTracks().filter((track) => isTasteEligible(track, policy));
+    return likes.filter((track) => isTasteEligible(track, policy));
   }
 
   /** In-memory mutation generation; independent of SQLite exports/reopened handles. */
   public getChangeRevision(): number {
     return this.changeRevision;
+  }
+  public getLibraryTasteRevision(): number {
+    return this.libraryTasteRevision;
+  }
+  public setLibraryTasteChangedHandler(listener: () => void): void {
+    this.libraryTasteChanged = listener;
+  }
+  private publishLibraryTasteChange(): void {
+    this.libraryTasteRevision++;
+    this.libraryTasteChanged?.();
   }
   private dbFilePath: string;
   public statementsFreedCount: number = 0;
@@ -354,6 +367,7 @@ export class DatabaseManager {
   private isSavingAsync = false;
   private pendingSaveAfterCurrent = false;
   private persistenceGeneration = 0;
+  private persistedRevision = -1;
 
   public save(immediate = false): void {
     this.changeRevision++;
@@ -363,7 +377,7 @@ export class DatabaseManager {
       if (this.saveDebounceTimer) return;
       this.saveDebounceTimer = setTimeout(() => {
         this.saveDebounceTimer = null;
-        this.saveAsync().catch(() => {});
+        this.persistAsync().catch(() => {});
       }, 500);
       return;
     }
@@ -372,7 +386,7 @@ export class DatabaseManager {
       clearTimeout(this.saveDebounceTimer);
       this.saveDebounceTimer = null;
     }
-    this.saveAsync().catch(() => {});
+    this.persistAsync().catch(() => {});
   }
 
   private exportSnapshot(): Buffer {
@@ -381,13 +395,20 @@ export class DatabaseManager {
   }
 
   public async saveAsync(): Promise<void> {
+    // Explicit callers may have written through the raw SQLite handle.
     this.changeRevision++;
+    await this.persistAsync();
+  }
+
+  private async persistAsync(): Promise<void> {
     if (!this.db || this.dbFilePath === ':memory:') return;
+    if (this.persistedRevision === this.changeRevision) return;
     if (this.isSavingAsync) {
       this.pendingSaveAfterCurrent = true;
       return;
     }
     this.isSavingAsync = true;
+    const revision = this.changeRevision;
     const generation = ++this.persistenceGeneration;
     const tempPath = this.dbFilePath + '.tmp.' + process.pid + '.' + Date.now() + '.' + generation;
     const backupTempPath = tempPath + '.backup';
@@ -402,6 +423,7 @@ export class DatabaseManager {
         if (backUp) fs.renameSync(backupTempPath, this.dbFilePath + '.bak');
         fs.renameSync(tempPath, this.dbFilePath);
         this.flushDirectorySync();
+        this.persistedRevision = revision;
         this.savedSnapshot(buffer, backUp);
       }
     } catch (error) {
@@ -421,16 +443,17 @@ export class DatabaseManager {
       this.isSavingAsync = false;
       if (this.pendingSaveAfterCurrent) {
         this.pendingSaveAfterCurrent = false;
-        this.save(true);
+        void this.persistAsync().catch(() => {});
       }
     }
   }
 
-  public saveSync(): void {
-    this.changeRevision++;
+  public saveSync(pendingOnly = false): void {
+    if (!pendingOnly) this.changeRevision++;
     if (!this.db || this.dbFilePath === ':memory:') return;
     if (this.saveDebounceTimer) clearTimeout(this.saveDebounceTimer);
     this.saveDebounceTimer = null;
+    if (this.persistedRevision === this.changeRevision) return;
     const generation = ++this.persistenceGeneration;
     this.pendingSaveAfterCurrent = false;
     const tempPath = this.dbFilePath + '.tmp.' + process.pid + '.' + Date.now() + '.' + generation;
@@ -444,6 +467,7 @@ export class DatabaseManager {
       if (backUp) fs.renameSync(backupTempPath, this.dbFilePath + '.bak');
       fs.renameSync(tempPath, this.dbFilePath);
       this.flushDirectorySync();
+      this.persistedRevision = this.changeRevision;
       this.savedSnapshot(buffer, backUp);
     } catch (error) {
       throw this.persistenceFailure(
@@ -466,11 +490,16 @@ export class DatabaseManager {
   }
 
   private withRecordingIds<T extends object>(rows: T[], readId: (row: T) => string): T[] {
-    return rows.map((row) => {
-      const track = { ...row, id: readId(row) };
-      const canonical = this.recordings.id(track);
-      return canonical === recordingKey(track) ? row : { ...row, recordingId: canonical };
-    });
+    this.recordings.withIds(
+      rows.length,
+      (index) => ({ ...rows[index], id: readId(rows[index]) }),
+      (index, canonical, fallback) => {
+        const row = rows[index];
+        if (canonical !== ((row as { recordingId?: string }).recordingId || fallback))
+          rows[index] = { ...row, recordingId: canonical };
+      },
+    );
+    return rows;
   }
 
   public getLibraryPage<K extends LibraryKind>(request: LibraryPageRequest<K>): LibraryPage<K> {
@@ -493,6 +522,17 @@ export class DatabaseManager {
       ),
       (row) => row.deezer_id,
     );
+  }
+  public getLibraryPlaybackRows(request: LibraryPlaybackRequest) {
+    const rows = readLibraryPlaybackRows(this.db, request);
+    this.recordings.withIds(
+      rows.length,
+      (index) => ({ id: rows[index][0], preview_url: rows[index][6], cover_url: rows[index][5] }),
+      (index, approved, fallback) => {
+        if (approved !== fallback) rows[index][8] = approved;
+      },
+    );
+    return rows;
   }
   public getSavedAlbumIds() {
     return readSavedAlbumIds(this.db);
@@ -580,6 +620,7 @@ export class DatabaseManager {
         aliases,
       );
       this.save();
+      this.publishLibraryTasteChange();
       return { liked: false };
     } else {
       const cleanCover = cleanCanonicalUrl(track.cover_url);
@@ -599,6 +640,7 @@ export class DatabaseManager {
         ],
       );
       this.save();
+      this.publishLibraryTasteChange();
       return { liked: true };
     }
   }
@@ -819,6 +861,7 @@ export class DatabaseManager {
       this.db.run('DELETE FROM playlists WHERE id = ?', [playlistId]);
       this.db.run('COMMIT;');
       this.save();
+      this.publishLibraryTasteChange();
       return true;
     } catch (e) {
       try {
@@ -921,6 +964,7 @@ export class DatabaseManager {
       ],
     );
     this.save();
+    this.publishLibraryTasteChange();
     return true;
   }
 
@@ -931,6 +975,7 @@ export class DatabaseManager {
       String(trackDeezerId),
     ]);
     this.save();
+    this.publishLibraryTasteChange();
     return true;
   }
 
@@ -1337,6 +1382,7 @@ export class DatabaseManager {
 
       this.db.run('COMMIT;');
       this.save();
+      this.publishLibraryTasteChange();
       this.publishTastePolicy(previousTasteRevision);
 
       return {
@@ -1519,6 +1565,7 @@ export class DatabaseManager {
     this.db.run('DELETE FROM liked_tracks WHERE deezer_id = ?', [trackId]);
 
     this.save(true);
+    this.publishLibraryTasteChange();
     return true;
   }
 
@@ -1526,6 +1573,7 @@ export class DatabaseManager {
     if (!this.db || !trackId) return false;
     this.db.run('DELETE FROM disliked_tracks WHERE track_id = ?', [String(trackId)]);
     this.save(true);
+    this.publishLibraryTasteChange();
     return true;
   }
 

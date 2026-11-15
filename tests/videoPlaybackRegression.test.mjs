@@ -88,8 +88,7 @@ for (const platform of ['desktop']) {
     let error = 'unavailable',
       attempt = 0,
       show = false,
-      toast = '',
-      hint;
+      toast = '';
     const context = {
       youtubeDisabled: false,
       videoRecoveryRef: {},
@@ -99,7 +98,6 @@ for (const platform of ['desktop']) {
       clipPlaybackError: error,
       emitToast: (message) => (toast = message),
       currentTrack: { id: 'yt_fixture1234' },
-      emitYouTubeAccessIssue: (value) => (hint = value),
       setClipPlaybackError: (value) => (error = value),
       setVideoResolveAttempt: (update) => (attempt = update(attempt)),
       setShowVideo: (value) => (show = value),
@@ -113,9 +111,7 @@ for (const platform of ['desktop']) {
       ...context,
       clipPlaybackError: 'age-restricted',
     });
-    assert.equal(hint.reason, 'age-restricted');
-    assert.equal(hint.source, 'clip');
-    assert.equal(hint.trackId, 'yt_fixture1234');
+    assert.match(toast, /подтверждения возраста для этого клипа/);
     assert.equal(attempt, 1, 'verified age gate should not repeat an anonymous request');
   });
   test(`${platform} clip UI: iframe error and timeout preserve the found clip for retry`, () => {

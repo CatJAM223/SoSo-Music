@@ -19,6 +19,9 @@ import { registerLibraryHandlers } from './ipc/libraryHandlers';
 import { registerLyricsHandlers } from './ipc/lyricsHandlers';
 import { initializeRustCompute } from '../../shared/compute/waveSongMatrix';
 import { registerWaveHandlers } from './ipc/waveHandlers';
+import { validateWaveContext } from './ipc/waveInput';
+import { readWaveMethodScores, readWaveNovelty } from '../../shared/types/wavePolicy';
+import { attributeWaveBatch, readWaveRecommendation } from '../../shared/services/waveQuality';
 import { electronFetch } from './services/electronFetch.ts';
 import {
   app,
@@ -42,7 +45,6 @@ import { WaveEngine } from './services/waveEngine';
 import { LibraryTasteService } from './services/libraryTaste';
 import { registerLibraryTasteHandlers } from './ipc/libraryTasteHandlers';
 import { registerTastePolicyHandlers } from './ipc/tastePolicyHandlers';
-import { selectDailyRecommendations } from '../../shared/utils/dailyRecommendations';
 import { createDailyDislikePolicy } from '../../shared/utils/dailyDislikes';
 import { MusicAggregatorService } from './services/musicAggregator';
 import { StreamRequestRegistry } from './services/streamRequestRegistry.ts';
@@ -160,8 +162,9 @@ const libraryTaste = new LibraryTasteService(
   undefined,
   undefined,
   () => LastFmService.hasApiKey(),
-  () => dbManager.getChangeRevision(),
+  () => dbManager.getLibraryTasteRevision(),
 );
+dbManager.setLibraryTasteChangedHandler(() => libraryTaste.libraryChanged());
 WaveEngine.setTasteProvider(libraryTaste);
 let databaseReady = false;
 dbManager.setPersistenceStatusHandler((status) => {
@@ -183,6 +186,14 @@ const lanSyncServer = new LanSyncServer(
 
 // Broadcast animation pause state to renderer (theme canvases & wallpaper video)
 let animationsPaused = false;
+let playerWindowVisible = true;
+function syncPlayerWindowVisibility() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const visible = mainWindow.isVisible() && !mainWindow.isMinimized();
+  if (visible === playerWindowVisible) return;
+  playerWindowVisible = visible;
+  mainWindow.webContents.send('ui:windowVisible', visible);
+}
 function setAnimationsPaused(paused: boolean) {
   if (animationsPaused === paused) return;
   animationsPaused = paused;
@@ -331,16 +342,21 @@ async function createWindow() {
     if (isMainFrame && !isInPlace) listenRendererReady = false;
   });
 
-  // Prevent navigation to external sites inside main window
+  const leaveForeground = () => {
+    setAnimationsPaused(true);
+    playerOverlay?.setPlayerFocused(false);
+  };
+  const syncForeground = () => {
+    if (!mainWindow) return;
+    const focused = mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized();
+    setAnimationsPaused(!focused);
+    playerOverlay?.setPlayerFocused(focused);
+  };
   mainWindow.on('blur', () => {
     desktopControls?.capture(false);
-    setAnimationsPaused(true);
+    leaveForeground();
   });
-  const syncAnimationActivity = () =>
-    setAnimationsPaused(
-      !mainWindow || !mainWindow.isFocused() || !mainWindow.isVisible() || mainWindow.isMinimized(),
-    );
-  mainWindow.on('focus', syncAnimationActivity);
+  mainWindow.on('focus', syncForeground);
   mainWindow.webContents.once('destroyed', () => desktopControls?.capture(false));
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
     const devServer = process.env.VITE_DEV_SERVER_URL;
@@ -361,10 +377,16 @@ async function createWindow() {
   });
 
   // Freeze heavy theme animations while the window is minimized or hidden in tray
-  mainWindow.on('minimize', () => setAnimationsPaused(true));
-  mainWindow.on('hide', () => setAnimationsPaused(true));
-  mainWindow.on('restore', syncAnimationActivity);
-  mainWindow.on('show', syncAnimationActivity);
+  mainWindow.on('minimize', syncPlayerWindowVisibility);
+  mainWindow.on('hide', syncPlayerWindowVisibility);
+  mainWindow.on('restore', syncPlayerWindowVisibility);
+  mainWindow.on('show', syncPlayerWindowVisibility);
+  syncPlayerWindowVisibility();
+  mainWindow.on('minimize', leaveForeground);
+  mainWindow.on('hide', leaveForeground);
+  mainWindow.on('restore', syncForeground);
+  mainWindow.on('show', syncForeground);
+  syncForeground();
 
   // Handle mouse side buttons (Mouse 4 = Back, Mouse 5 = Forward) from Windows OS
   mainWindow.on('app-command', (_event, cmd) => {
@@ -488,6 +510,7 @@ const ipcMain = restrictedIpc(
 );
 
 function registerIpcHandlers() {
+  ipcMain.handle('ui:getWindowVisible', () => playerWindowVisible);
   ipcMain.handle(
     'ui:getAnimationsPaused',
     () =>
@@ -559,6 +582,17 @@ function registerIpcHandlers() {
     if (widgetWindow && !widgetWindow.isDestroyed()) {
       widgetWindow.webContents.send('widget:stateUpdate', state);
     }
+  });
+  ipcMain.on('widget:sendProgress', (event, currentTime: unknown) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame ||
+      !widgetWindow || widgetWindow.isDestroyed() || !widgetWindow.isVisible() ||
+      typeof currentTime !== 'number' || !Number.isFinite(currentTime) || currentTime < 0
+    ) return;
+    widgetWindow.webContents.send('widget:progress', currentTime);
   });
 
   ipcMain.on('widget:command', (event, payload: unknown) => {
@@ -698,12 +732,28 @@ function registerIpcHandlers() {
       _event,
       previousIds: unknown,
       previousTracks: unknown,
-      requestOptions?: { source?: unknown; retainedTracks?: unknown },
+      requestOptions?: {
+        source?: unknown;
+        retainedTracks?: unknown;
+        novelty?: unknown;
+        methodScores?: unknown;
+        tasteRevision?: unknown;
+      },
     ) => {
       const source =
         requestOptions?.source === 'youtube' || requestOptions?.source === 'soundcloud'
           ? requestOptions.source
           : 'all';
+      const adaptive =
+        requestOptions?.novelty === undefined
+          ? undefined
+          : {
+              novelty: requestOptions.novelty,
+              methodScores: requestOptions.methodScores,
+            };
+      if (adaptive) validateWaveContext(adaptive);
+      const novelty = readWaveNovelty(adaptive?.novelty);
+      const revision = novelty ? dbManager.getTastePolicy().revision : undefined;
       const dislikedTracks = dbManager.getDislikedWaveTracks();
       const dailyPolicy = createDailyDislikePolicy(dislikedTracks);
       const dislikedIds = dbManager.getDislikedTrackIds();
@@ -714,8 +764,18 @@ function registerIpcHandlers() {
           .filter((track): track is Track =>
             Boolean(track && !disliked.has(String(track.id)) && dailyPolicy.accepts(track)),
           );
-      const allLikes = normalize(dbManager.getLikedTracks());
-      const likes = normalize(dbManager.getTasteLikedTracks());
+      const savedLikes = dbManager.getLikedTracks();
+      const tasteLiked = new Set(dbManager.getTasteLikedTracks(savedLikes).map(
+        (row) => String(row.deezer_id || row.id),
+      ));
+      const allLikes: Track[] = [];
+      const likes: Track[] = [];
+      for (const row of savedLikes) {
+        const track = normalizeWaveSeed(row);
+        if (!track || disliked.has(String(track.id)) || !dailyPolicy.accepts(track)) continue;
+        allLikes.push(track);
+        if (tasteLiked.has(String(track.id))) likes.push(track);
+      }
       const seeds = [
         ...new Map(
           [...likes, ...normalize(dbManager.getWaveTasteTracks(30))].map((track) => [
@@ -750,18 +810,43 @@ function registerIpcHandlers() {
       const previousSongs = normalize(
         Array.isArray(previousTracks) ? previousTracks.slice(0, 5) : [],
       );
+      const selectionExclusions = [...allLikes, ...recent, ...previousSongs];
+      const recentTracks = [...recent, ...previousSongs];
+      const adaptiveOptions = novelty
+        ? {
+            novelty,
+            methodScores:
+              requestOptions?.tasteRevision === revision
+                ? readWaveMethodScores(adaptive?.methodScores)
+                : undefined,
+            tasteTracks: [
+              ...likes.slice(0, 24).map((track) => ({ ...track, waveSeedWeight: 2 })),
+              ...seeds.slice(0, 30),
+            ],
+          }
+        : {};
       const retained = normalize(
         Array.isArray(requestOptions?.retainedTracks)
           ? requestOptions.retainedTracks.slice(0, 5)
           : [],
-      ).filter((track) => source === 'all' || track.source === source);
+      )
+        .filter((track) => source === 'all' || track.source === source)
+        .map((track) => ({
+          ...track,
+          waveRecommendation: track.waveRecommendation
+            ? readWaveRecommendation(track.waveRecommendation)
+            : undefined,
+        }));
       const candidates: Track[] = [...retained];
-      let selected: Track[] = selectDailyRecommendations(
-        candidates,
-        [...allLikes, ...recent, ...previousSongs],
-        dislikedTracks,
-        retained.length,
-      );
+      const select = () =>
+        dailyPolicy.selectAsync(
+          candidates,
+          selectionExclusions,
+          retained.length,
+          () => new Promise<void>((resolve) => setImmediate(resolve)),
+          true, // The same exclusion list is used for all refills in this request.
+        );
+      let selected = await select();
       let added = 1;
       for (let attempt = 0; dailyPolicy.needsMore(selected.length, attempt, added); attempt++) {
         const batch = await WaveEngine.getWaveBatch(
@@ -772,8 +857,9 @@ function registerIpcHandlers() {
           dislikedTracks,
           {
             source,
+            ...adaptiveOptions,
             offeredTracks: candidates,
-            recentTracks: [...recent, ...previousSongs],
+            recentTracks,
             artistFeedback: dailyPolicy.artistFeedback,
           },
           false,
@@ -782,14 +868,24 @@ function registerIpcHandlers() {
         const fresh = batch.filter((track) => !ids.has(String(track.id)));
         added = fresh.length;
         candidates.push(...fresh);
-        selected = selectDailyRecommendations(
-          candidates,
-          [...allLikes, ...recent, ...previousSongs],
-          dislikedTracks,
-          retained.length,
-        );
+        selected = await select();
       }
-      return selected;
+      if (!novelty || revision === undefined) return selected;
+      return attributeWaveBatch(
+        selected,
+        'default',
+        artists.map((artist) => artist.name),
+        (event) => {
+          PlaybackLogger.info('[Wave:Quality]', event);
+        },
+        undefined,
+        {
+          source,
+          revision,
+          enabled: true,
+          surface: 'daily',
+        },
+      );
     },
   );
 
@@ -933,9 +1029,9 @@ function registerIpcHandlers() {
     },
   );
 
-  registerLibraryHandlers(ipcMain, dbManager, () => libraryTaste.libraryChanged());
+  registerLibraryHandlers(ipcMain, dbManager);
 
-  registerPlaylistHandlers(ipcMain, dbManager, () => libraryTaste.libraryChanged());
+  registerPlaylistHandlers(ipcMain, dbManager);
 
   registerHistoryHandlers(ipcMain, dbManager);
 
@@ -1372,7 +1468,6 @@ app.whenReady().then(async () => {
   DiscordRPCService.setListenOrigin(listenOrigin);
   if (!listenOrigin)
     PlaybackLogger.warn('[Discord] Local listen port is occupied; listen button unavailable.');
-  DiscordRPCService.init();
   await createWindow();
   playerOverlay.start();
   createTray();
@@ -1390,7 +1485,7 @@ app.on('before-quit', (event) => {
   // Ask before disposing services: the user can return and export/retry after a disk error.
   if (databaseReady) {
     try {
-      dbManager.saveSync();
+      dbManager.saveSync(true);
     } catch (error) {
       PlaybackLogger.error('[Library:Save] Exit save failed', error);
       const choice = dialog.showMessageBoxSync({

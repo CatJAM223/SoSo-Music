@@ -132,6 +132,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
     fetchMoreWaveTracks: waveEngine.fetchMoreWaveTracks,
     recordWavePlayback: waveEngine.recordWavePlayback,
     observeWavePlayback: waveEngine.observeWavePlayback,
+    observeWaveQuality: waveEngine.observeWaveQuality,
     volumeRef: audioSettings.volumeRef,
     isMutedRef: audioSettings.isMutedRef,
     crossfadeDurationRef: audioSettings.crossfadeDurationRef,
@@ -226,8 +227,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
     currentTrack: playerCore.currentTrack,
     isPlaying: playerCore.isPlaying,
     duration: playerCore.duration,
-    currentTime: playerCore.currentTime,
-    getCurrentTime: () => audioRef.current?.currentTime || playerCore.currentTime,
+    audio: playerCore.audioElement,
   });
 
   const roomControlHandler = useRef<((action: string, position?: number) => void) | null>(null);
@@ -287,6 +287,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // 10. Desktop Mini-Widget Synchronization
   useDesktopWidgetSync({
+    audio: playerCore.audioElement,
     currentTrack: playerCore.currentTrack,
     currentTrackRef: playerCore.currentTrackRef,
     isPlaying: playerCore.isPlaying,
@@ -347,6 +348,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
       isWaveStarting: waveEngine.isWaveStarting,
       waveMood: waveEngine.waveMood,
       waveSource: waveEngine.waveSource,
+      waveNovelty: waveEngine.waveNovelty,
       snippetTrack: snippetController.snippetTrack,
       isSnippetPlaying: snippetController.isSnippetPlaying,
       likedTrackIds: libraryManager.likedTrackIds,
@@ -376,6 +378,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
       waveEngine.isWaveActive,
       waveEngine.waveMood,
       waveEngine.waveSource,
+      waveEngine.waveNovelty,
       snippetController.snippetTrack,
       snippetController.isSnippetPlaying,
       libraryManager.likedTrackIds,
@@ -395,6 +398,8 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
     () => ({
       startWave: waveEngine.startWave,
       setWaveSource: waveEngine.setWaveSource,
+      setWaveNovelty: waveEngine.setWaveNovelty,
+      waveSearchOptions: waveEngine.waveSearchOptions,
       stopWave: waveEngine.stopWave,
       dislikeTrack: libraryManager.dislikeTrack,
       undislikeTrack: libraryManager.undislikeTrack,
@@ -452,6 +457,8 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
     [
       waveEngine.startWave,
       waveEngine.setWaveSource,
+      waveEngine.setWaveNovelty,
+      waveEngine.waveSearchOptions,
       waveEngine.stopWave,
       libraryManager.dislikeTrack,
       libraryManager.undislikeTrack,

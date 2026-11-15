@@ -11,6 +11,9 @@ export function registerLibraryHandlers(
   ipcMain.handle('db:getLibraryPlaybackTracks', (_event, request) =>
     dbManager.getLibraryPlaybackTracks(request),
   );
+  ipcMain.handle('db:getLibraryPlaybackRows', (_event, request) =>
+    dbManager.getLibraryPlaybackRows(request),
+  );
   ipcMain.handle('db:getSavedAlbumIds', () => dbManager.getSavedAlbumIds());
   ipcMain.handle('db:getArtistMembership', () => dbManager.getArtistMembership());
   // Database Local Scrobbling & Dislikes

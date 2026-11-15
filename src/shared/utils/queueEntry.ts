@@ -29,8 +29,15 @@ export function ensureQueueEntries<T extends QueueItem>(
   queue: readonly T[],
   previous: readonly QueueItem[] = [],
 ): T[] {
+  const reserved = new Set<string>();
+  let complete = true;
+  for (const item of queue) {
+    const key = readQueueEntryId(item);
+    if (!key || reserved.has(key)) complete = false;
+    if (key) reserved.add(key);
+  }
+  if (complete) return queue as T[];
   const used = new Set<string>();
-  const reserved = new Set(queue.map(readQueueEntryId).filter((key): key is string => !!key));
   const prior = new Map<string, { keys: string[]; cursor: number }>();
   for (const item of previous) {
     const entryId = readQueueEntryId(item);
@@ -39,8 +46,7 @@ export function ensureQueueEntries<T extends QueueItem>(
     bucket.keys.push(entryId);
     prior.set(String(item.id), bucket);
   }
-  let changed = false;
-  const result = queue.map((item) => {
+  return queue.map((item) => {
     const explicit = readQueueEntryId(item);
     if (explicit && !used.has(explicit)) {
       used.add(explicit);
@@ -53,8 +59,6 @@ export function ensureQueueEntries<T extends QueueItem>(
     let entry = reusable ? { ...item, queueEntryId: reusable } : createQueueEntry(item);
     while (used.has(entry.queueEntryId)) entry = createQueueEntry(item);
     used.add(entry.queueEntryId);
-    changed = true;
     return entry;
   });
-  return changed ? result : (queue as T[]);
 }

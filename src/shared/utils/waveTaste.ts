@@ -78,6 +78,7 @@ export function mergeWaveTasteSeeds(
   primary: readonly any[],
   playlists: readonly any[],
   dislikedIds: readonly (string | number)[],
+  liked = false,
 ): Track[] {
   const excluded = new Set(dislikedIds.map(String)),
     artistCounts = new Map<string, number>();
@@ -99,7 +100,7 @@ export function mergeWaveTasteSeeds(
       duration: track.duration,
       source: track.source,
       ...waveMusicMetadata(track),
-      waveSeedWeight: track.waveSeedWeight === 2 ? 2 : 1,
+      waveSeedWeight: liked || track.waveSeedWeight === 2 ? 2 : 1,
     });
     if (strong.length >= 48) break;
   }
@@ -115,11 +116,7 @@ export function buildWaveTasteSeeds(
   playlists: readonly any[],
   dislikedIds: readonly (string | number)[],
 ): Track[] {
-  const liked = mergeWaveTasteSeeds(
-    likes.map((row) => ({ ...row, waveSeedWeight: 2 })),
-    [],
-    dislikedIds,
-  );
+  const liked = mergeWaveTasteSeeds(likes, [], dislikedIds, true);
   return mergeWaveTasteSeeds(
     [...liked.slice(0, 32), ...session.slice(0, 8), ...history.slice(0, 8), ...liked.slice(32)],
     playlists,

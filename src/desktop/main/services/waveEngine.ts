@@ -88,7 +88,13 @@ export class WaveEngine {
     for (const track of shuffled(options.seeds.filter((seed) => seed.waveSeedWeight === 2))) {
       const artists = getWaveArtistKeys(track, options.artists);
       if (artists.some((artist) => selectedArtists.has(artist))) continue;
-      if (options.pool.add({ ...track, artist: { ...track.artist }, album: { ...track.album } })) {
+      if (
+        options.pool.add(
+          { ...track, artist: { ...track.artist }, album: { ...track.album } },
+          'liked',
+          String(track.id),
+        )
+      ) {
         artists.forEach((artist) => selectedArtists.add(artist));
         included++;
       }
@@ -115,7 +121,7 @@ export class WaveEngine {
           discover || context.recentTracks?.length || context.offeredTracks?.length ? 20 : 5,
         recentAnchorIds: remember ? this.relatedAnchorIds : [],
         related: options.catalog.related,
-        accept: (track) => options.pool.add(track),
+        accept: (track, anchor) => options.pool.add(track, 'radio', String(anchor.id)),
       },
     );
     signal?.throwIfAborted();
@@ -159,11 +165,18 @@ export class WaveEngine {
       positiveTracks: context.positiveTracks,
       skippedTracks: context.skippedTracks,
     };
-    const result = sequenceWaveTracks(candidates, options.mood, options.artists, BATCH_SIZE, {
-      ...waveQueueContext(rankingContext),
-      tasteTracks: context.tasteTracks || seeds,
-      libraryGenres: genres,
-    });
+    const result = sequenceWaveTracks(
+      candidates,
+      options.mood,
+      options.artists,
+      BATCH_SIZE,
+      {
+        ...waveQueueContext(rankingContext),
+        tasteTracks: context.tasteTracks || seeds,
+        libraryGenres: genres,
+      },
+      true,
+    );
     if (remember) {
       for (const track of result) {
         const metadata = waveMemoryTrack(track);
@@ -238,6 +251,7 @@ export class WaveEngine {
         pool,
         exposedTracks,
         hasTaste: artists.length > 0 || seedTracks.length > 0,
+        methodScores: context.novelty ? context.methodScores : undefined,
         catalog: createWaveCatalog(request, context.source),
         rotate: (names) =>
           spreadWaveSeedArtists(
@@ -261,7 +275,8 @@ export class WaveEngine {
       ]);
       for (
         let attempt = 0;
-        options.searchHasMore && requireRustCompute().wave_search_retry(pool.size, attempt);
+        options.searchHasMore &&
+        requireRustCompute().wave_search_retry(pool.size, attempt);
         attempt++
       ) {
         signal?.throwIfAborted();
@@ -270,9 +285,13 @@ export class WaveEngine {
         await this.fillCandidates(options, rememberSession, signal);
       }
       signal?.throwIfAborted();
-      const candidates = this.tasteProvider
-        ? await this.tasteProvider.enrichCandidates(pool.values(), signal)
-        : pool.values();
+      let candidates = pool.values();
+      if (this.tasteProvider) {
+        // A slot swap may surface uncached artists; keep it within the original network budget.
+        candidates = options.movedSearchSlot
+          ? this.tasteProvider.enrichCached(candidates)
+          : await this.tasteProvider.enrichCandidates(candidates, signal);
+      }
       signal?.throwIfAborted();
       return this.rankBatch(options, context, offered, rememberSession, candidates);
     } finally {

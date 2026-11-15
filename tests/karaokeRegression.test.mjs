@@ -207,6 +207,7 @@ test('Karaoke clock: buffering and pauses freeze lyrics; playback, seeks and tra
     {
       exports,
       require: () => ({
+        useWindowVisible: () => true,
         useState(initial) {
           state = initial();
           return [

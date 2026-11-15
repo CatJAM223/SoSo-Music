@@ -287,7 +287,9 @@ export function useLibraryManager({
           return next;
         });
 
-        onDislike?.(track);
+        const current = currentTrackRef?.current;
+        const selected = current && String(current.id) === idStr ? current : undefined;
+        onDislike?.(selected?.waveRecommendation ? selected : track);
 
         // If this track is currently playing, immediately skip to next track
         if (currentTrackRef?.current && String(currentTrackRef.current.id) === idStr) {

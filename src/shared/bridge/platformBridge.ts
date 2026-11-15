@@ -290,7 +290,9 @@ export const platformBridge = {
   },
   getLibraryPlaybackTracks: async (
     request: import('../types/libraryPage').LibraryPlaybackRequest,
-  ): Promise<LikedTrack[]> => {
+  ): Promise<LikedTrack[] | import('../types/libraryPage').LibraryPlaybackRow[]> => {
+    if (nativeElectron?.getLibraryPlaybackRows)
+      return nativeElectron.getLibraryPlaybackRows(request);
     if (nativeElectron?.getLibraryPlaybackTracks)
       return nativeElectron.getLibraryPlaybackTracks(request);
     throw new Error('Desktop preload API is unavailable');

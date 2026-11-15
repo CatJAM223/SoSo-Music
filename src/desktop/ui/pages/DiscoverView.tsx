@@ -49,15 +49,28 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
     isWaveStarting,
     waveMood,
     waveSource,
+    waveNovelty,
     isLoadingTrack,
     likedTrackIds,
     dislikedTrackIds,
   } = useAudioState();
-  const { playTrack, togglePlay, stopWave, startWave, setWaveSource, toggleLike } =
-    useAudioControls();
+  const {
+    playTrack,
+    togglePlay,
+    stopWave,
+    startWave,
+    setWaveSource,
+    setWaveNovelty,
+    toggleLike,
+    waveSearchOptions,
+  } = useAudioControls();
 
   const youtubeDisabled = useYouTubeAvailability();
-  const daily = useDailyRecommendations(dislikedTrackIds, youtubeDisabled ? 'soundcloud' : 'all');
+  const daily = useDailyRecommendations(
+    dislikedTrackIds,
+    youtubeDisabled ? 'soundcloud' : 'all',
+    waveSearchOptions,
+  );
   const recommendedTracks = daily.tracks.filter(
     (track) =>
       !dislikedTrackIds.has(String(track.id)) &&
@@ -182,6 +195,8 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
           mood={isWaveActive ? waveMood : selectedMood}
           source={waveSource}
           onSelectSource={setWaveSource}
+          novelty={waveNovelty}
+          onSelectNovelty={setWaveNovelty}
           isActive={isWaveActive}
           isPlaying={isWavePlayingNow}
           isLoading={isWaveLoading}

@@ -58,6 +58,7 @@ export function filterTasteContext<
     learnedTracks?: TasteTrack[];
     artistFeedback?: Record<string, number>;
     discoveryAdjustment?: number;
+    methodScores?: unknown;
   },
 >(context: T, policy: TastePolicySnapshot): T {
   const fresh = context.tasteRevision === policy.revision;
@@ -74,5 +75,6 @@ export function filterTasteContext<
     ),
     artistFeedback: fresh ? context.artistFeedback : {},
     discoveryAdjustment: fresh ? context.discoveryAdjustment : 0,
+    ...(fresh ? {} : { methodScores: undefined }),
   };
 }

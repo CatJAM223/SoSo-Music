@@ -1,4 +1,9 @@
 import { WAVE_HISTORY_LIMIT } from '../../../shared/utils/waveHistoryLimits.ts';
+import {
+  WAVE_METHODS,
+  readWaveMethodScores,
+  readWaveNovelty,
+} from '../../../shared/types/wavePolicy.ts';
 
 /** Check sizes before normalization, database reads or recommendation work. */
 export function validateWaveContext(value: unknown): void {
@@ -6,6 +11,14 @@ export function validateWaveContext(value: unknown): void {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new TypeError('Invalid wave context');
   const context = value as Record<string, unknown>;
+  if (context.novelty !== undefined && !readWaveNovelty(context.novelty))
+    throw new TypeError('Invalid wave novelty');
+  if (context.methodScores !== undefined) {
+    const scores = readWaveMethodScores(context.methodScores);
+    const keys = Object.keys(scores ? (context.methodScores as object) : {});
+    if (!scores || keys.length > WAVE_METHODS.length || keys.length !== Object.keys(scores).length)
+      throw new TypeError('Invalid wave method scores');
+  }
   const limits: Record<string, number> = {
     recentTracks: WAVE_HISTORY_LIMIT,
     offeredTracks: 80,

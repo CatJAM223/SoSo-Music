@@ -1,5 +1,12 @@
 # Changelog
 
+### [4.2.0] — 2026-11-15
+
+- Hide the desktop overlay while the main player has focus. Restore it on focus loss if it was enabled and had not been dismissed.
+- Share local listening feedback and discovery preferences between My Wave and the daily five. Add controls for familiar tracks and discovery.
+- Send smaller library queues between processes and skip rewriting an already saved database on exit.
+- Reduce background interface updates, bound decorative canvas sizes, and refresh library taste analysis when library data changes.
+
 ### [4.1.1] — 2026-11-13
 
 #### Playback and recommendations

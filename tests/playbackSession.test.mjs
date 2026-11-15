@@ -328,6 +328,33 @@ test('Repeated checkpoints revalidate nested metadata when the same queue and tr
   assert.ok(!store.getItem(PLAYBACK_SESSION_KEY).includes('secret'));
 });
 
+test('Player checkpoints reuse an immutable queue and rebuild after edits and cursor changes', () => {
+  const store = memory();
+  const writer = new PlaybackSessionWriter(store);
+  const state = input();
+  let metadataReads = 0;
+  const title = state.queue[0].title;
+  Object.defineProperty(state.queue[0], 'title', {
+    enumerable: true,
+    get() {
+      metadataReads++;
+      return title;
+    },
+  });
+  assert.equal(writer.save(state, true, true), true);
+  state.position = 80;
+  assert.equal(writer.save(state, true, true), true);
+  assert.equal(metadataReads, 1);
+  assert.equal(readPlaybackSession(store).position, 80);
+  state.queue = [{ ...state.queue[0], title: 'Edited' }, ...state.queue.slice(1)];
+  assert.equal(writer.save(state, true, true), true);
+  assert.equal(readPlaybackSession(store).queue[0].title, 'Edited');
+  state.track = state.queue[2];
+  state.queueIndex = 2;
+  assert.equal(writer.save(state, true, true), true);
+  assert.equal(readPlaybackSession(store).queueIndex, 2);
+});
+
 test('Artwork validation is shared within a snapshot and discarded before the next checkpoint', () => {
   const OriginalURL = globalThis.URL,
     parsed = [];

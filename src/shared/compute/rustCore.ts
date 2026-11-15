@@ -60,7 +60,7 @@ export function initializeRustCompute(bytes: BufferSource): Promise<boolean> {
       const result = await WebAssembly.instantiate(copy, {});
       const exports = result.instance.exports as unknown as ComputeExports;
       if (
-        exports.abi_version?.() !== 7 ||
+        exports.abi_version?.() !== 8 ||
         !(exports.memory instanceof WebAssembly.Memory) ||
         [
           'wave_session_affinity',
@@ -106,7 +106,7 @@ export function initializeRustCompute(bytes: BufferSource): Promise<boolean> {
         throw Error('Unsupported Rust compute ABI');
       core = exports;
       localBytes = copy;
-      logger.info('[Compute:Rust] Required local compute core ready (ABI 7)');
+      logger.info('[Compute:Rust] Required local compute core ready (ABI 8)');
       return true;
     } catch (error) {
       core = null;

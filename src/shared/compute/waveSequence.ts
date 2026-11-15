@@ -17,6 +17,7 @@ import { waveMusicProfile } from '../utils/waveMusicProfile.ts';
 import { withWaveTextCache } from './waveTextCache.ts';
 import { encodeSongs, encodeNumbers, numericNames } from './songPacket.ts';
 import { MAX_COMPUTE_INPUT, runRustCompute, waveMoodId } from './rustCore.ts';
+import { WAVE_FAMILIARITY, readWaveNovelty, type WaveFamiliarity } from '../types/wavePolicy.ts';
 /** This layer encodes metadata and maps Rust indices. It contains no alternative scorer. */
 export function sequenceWaveIndices(
   tracks: Track[],
@@ -24,6 +25,7 @@ export function sequenceWaveIndices(
   familiarArtists: string[],
   limit = 25,
   options: WaveQueueOptions = {},
+  familiarity?: Map<number, WaveFamiliarity>,
 ): number[] {
   return withWaveTextCache(() => {
     if (tracks.length > 4096) throw Error('Очередь превышает лимит 4096 кандидатов');
@@ -61,6 +63,7 @@ export function sequenceWaveIndices(
       .slice(-40)
       .map((name) => getWaveArtistKeys({ artist: name }).map(artists.id));
     const genres = (options.libraryGenres || []).map((g) => [styles.id(g.name), g.share]);
+    const novelty = readWaveNovelty(options.novelty);
     const aux: number[] = [];
     for (const track of all) {
       const keys = getWaveArtistKeys(track, known).map(artists.id),
@@ -73,6 +76,7 @@ export function sequenceWaveIndices(
         ...[...profile.styles].map(styles.id),
         ids.id(recordingKey(track)),
         Number(track.waveSeedWeight === 2),
+        ...(novelty ? [Number(track.waveSeedWeight !== 0.25)] : []),
       );
     }
     const songs = encodeSongs(
@@ -83,13 +87,14 @@ export function sequenceWaveIndices(
     );
     const numeric = [
       0x46574f53,
-      3,
+      novelty ? 4 : 3,
       waveMoodId(mood),
       Number.isNaN(limit) ? 0 : Math.max(0, Math.min(tracks.length, Math.ceil(limit))),
       Number.isFinite(options.sequenceOffset)
         ? Math.max(0, Math.floor(options.sequenceOffset!))
         : 0,
       options.discoveryAdjustment ?? 0,
+      ...(novelty ? [['familiar', 'balanced', 'fresh'].indexOf(novelty)] : []),
       ...groups.map((g) => g.length),
       Number(options.libraryGenres !== undefined),
       familiar.length,
@@ -130,7 +135,16 @@ export function sequenceWaveIndices(
     )
       throw Error('Invalid Rust queue result');
     const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
-    const order = Array.from({ length: result.length / 4 }, (_, i) => view.getUint32(i * 4, true));
+    const order = Array.from({ length: result.length / 4 }, (_, i) => {
+      const packed = view.getUint32(i * 4, true);
+      if (!novelty) return packed;
+      // V4 uses the low 12 bits for the candidate index and the high bits for familiarity.
+      const index = packed & 0xfff;
+      const category = WAVE_FAMILIARITY[packed >>> 12];
+      if (!category) throw Error('Invalid Rust wave familiarity');
+      familiarity?.set(index, category);
+      return index;
+    });
     if (order.some((i) => i >= tracks.length) || new Set(order).size !== order.length)
       throw Error('Invalid Rust queue indices');
     return order;

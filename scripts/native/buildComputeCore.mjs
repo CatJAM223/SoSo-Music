@@ -80,7 +80,7 @@ fs.writeFileSync(
   path.join(output, 'soso-core.json'),
   JSON.stringify(
     {
-      abi: 7,
+      abi: 8,
       workletSha256: crypto
         .createHash('sha256')
         .update(fs.readFileSync(path.join(output, 'soso-normalization.js')))

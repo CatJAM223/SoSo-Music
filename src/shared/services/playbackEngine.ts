@@ -3,7 +3,7 @@ import {
   inheritStartupBudget,
   remainingStartupBudget,
 } from '../utils/playbackStartupBudget';
-import { WaveQualityEpisode } from './waveQuality.ts';
+import { logWaveQuality, WaveQualityEpisode, type WaveQualityEvent } from './waveQuality.ts';
 import { PreparedAudio } from './preparedAudio.ts';
 import {
   recordingFromTrack,
@@ -43,7 +43,7 @@ import {
   releasePlayerAudio,
 } from '../services/createPlayerAudio';
 import { RepeatMode, Track, WaveMood, type StreamResolveOptions } from '../types';
-import { detectTrackSource, resolveTrackCover } from '../utils/formatters';
+import { detectTrackSource } from '../utils/formatters';
 import { emitYouTubeAccessIssue } from '../utils/youtubeAccessHint';
 import {
   getYouTubeAudioAccessError,
@@ -119,6 +119,7 @@ export interface PlaybackEngineDependencies {
     reason?: WavePlaybackReason,
   ) => void;
   observeWavePlayback: (track: Track, playedSeconds: number) => void;
+  observeWaveQuality?: (track: Track, event: WaveQualityEvent) => void;
   volumeRef: ValueRef<number>;
   isMutedRef: ValueRef<boolean>;
   crossfadeDurationRef: ValueRef<number>;
@@ -186,6 +187,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     fetchMoreWaveTracks,
     recordWavePlayback,
     observeWavePlayback,
+    observeWaveQuality,
     volumeRef,
     isMutedRef,
     crossfadeDurationRef,
@@ -219,6 +221,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       fetchMoreWaveTracks,
       recordWavePlayback,
       observeWavePlayback,
+      observeWaveQuality,
       volumeRef,
       isMutedRef,
       crossfadeDurationRef,
@@ -516,7 +519,10 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       lastWallTime: performance.now(),
       finalized: false,
     };
-    qualityEpisode = new WaveQualityEpisode(track, playbackSessionRef.current.id);
+    qualityEpisode = new WaveQualityEpisode(track, playbackSessionRef.current.id, (event) => {
+      logWaveQuality(event);
+      observeWaveQuality?.(track, event);
+    });
   };
   const samplePlayback = (audio: HTMLAudioElement, allowPaused = false) => {
     const session = playbackSessionRef.current;
@@ -2334,9 +2340,10 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       loadStreamIntoAudio(audio, mainHlsRef, cachedSource.url, startPosition, false, track.id);
       // Start audio before touching artwork storage. A late reply belongs only to this request.
       if (cachedSource.kind === 'offline' || offlineCacheService.ownsBlobUrl(cachedSource.url)) {
+        const isCurrent = () => currentRequestId === streamRequestIdRef.current;
         void readCachedPlayerCover(track.id, {
-          offlineCover: (id) => offlineCacheService.getCachedCoverUrl(id),
-          isCurrent: () => currentRequestId === streamRequestIdRef.current,
+          offlineCover: (id) => offlineCacheService.getCachedCoverUrl(id, isCurrent),
+          isCurrent,
         }).then((cover) => {
           if (!cover || currentRequestId !== streamRequestIdRef.current) return;
           setCurrentTrack((current) => {
@@ -2681,29 +2688,6 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     lastPositionRef.current = clamped;
     if (pendingPositionRef.current !== null) pendingPositionRef.current = clamped;
     setCurrentTime(clamped);
-    // Sync seek position immediately with Discord RPC
-    if (window.electronAPI?.updateDiscordRpc && currentTrack) {
-      const artistName =
-        currentTrack.artist?.name ||
-        (typeof currentTrack.artist === 'string' ? currentTrack.artist : '') ||
-        'Исполнитель';
-      const albumTitle =
-        currentTrack.album?.title ||
-        (typeof currentTrack.album === 'string' ? currentTrack.album : '') ||
-        'SoSo Music';
-      const coverUrl = resolveTrackCover(currentTrack, '');
-      window.electronAPI.updateDiscordRpc({
-        trackId: currentTrack.id,
-        source: detectTrackSource(currentTrack),
-        title: currentTrack.title || 'Трек',
-        artist: artistName,
-        album: albumTitle,
-        duration: targetDuration,
-        currentTime: clamped,
-        isPlaying: isPlaying,
-        coverUrl: coverUrl,
-      });
-    }
   };
   const stopQueuePlayback = () => {
     const audio = audioRef.current;
@@ -2731,9 +2715,10 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
   // Next track, including infinite wave queue handling
   const nextTrack = async () => {
     invalidatePlaybackIntent();
-    if (audioRef.current) finishPlaybackSession(audioRef.current, false, false, 'skip');
     const currentTrk = currentTrackRef.current;
     const audio = audioRef.current;
+    const reachedEnd = !!audio?.ended || automaticCrossfadeRef.current;
+    if (audio) finishPlaybackSession(audio, false, reachedEnd, 'skip');
     if (currentTrk && audio && isWaveActiveRef.current && !isWaveStartingRef.current) {
       samplePlayback(audio, true);
       const session = playbackSessionRef.current;
@@ -2745,7 +2730,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
           currentTrk,
           listened,
           Number.isFinite(audio.duration) ? audio.duration : currentTrk.duration,
-          audio.ended ? 'ended' : 'skip',
+          reachedEnd ? 'ended' : 'skip',
         );
       }
     }

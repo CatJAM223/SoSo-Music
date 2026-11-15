@@ -1,7 +1,21 @@
 import type { LikedTrack, Track } from '../types';
+import type { LibraryPlaybackRow } from '../types/libraryPage';
 import { detectTrackSource } from './formatters';
-export function mapLikedTracks(likedList: LikedTrack[]): Track[] {
-  return (likedList || []).map((item) => {
+export function mapLikedTracks(likedList: readonly (LikedTrack | LibraryPlaybackRow)[]): Track[] {
+  return (likedList || []).map((row) => {
+    const item = Array.isArray(row)
+      ? {
+          deezer_id: row[0],
+          title: row[1],
+          artist: row[2],
+          album: row[3],
+          album_id: row[4],
+          cover_url: row[5],
+          preview_url: row[6] ?? '',
+          duration: row[7],
+          recordingId: row[8],
+        }
+      : row;
     let cover = item.cover_url || '';
     if (cover.includes('sndcdn.com') && cover.includes('-large.')) {
       cover = cover.replace('-large.', '-t500x500.');

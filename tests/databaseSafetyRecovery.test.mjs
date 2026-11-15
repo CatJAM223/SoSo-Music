@@ -55,6 +55,23 @@ test('A valid saved database restarts with likes, playlists and measured listeni
   assertLibrary(reopened);
   assert.equal(reopened.getPersistenceStatus().state, 'ready');
 });
+test('Quit skips a clean library and flushes the last pending change without a new revision', async (t) => {
+  const { file } = directory(t);
+  const db = new DatabaseManager(file);
+  await db.init();
+  t.after(() => db.db?.close());
+  const exportDb = t.mock.method(db.db, 'export');
+  const before = db.getChangeRevision();
+  db.saveSync(true);
+  assert.equal(exportDb.mock.callCount(), 0);
+  assert.equal(db.getChangeRevision(), before);
+  db.toggleLikeTrack({ ...track, deezer_id: track.id, artist: track.artist.name, album: '' });
+  const dirty = db.getChangeRevision();
+  db.saveSync(true);
+  assert.equal(exportDb.mock.callCount(), 1);
+  assert.equal(db.getChangeRevision(), dirty);
+  assert.equal((await database(t, file)).getLikedTracks()[0].deezer_id, track.id);
+});
 
 test('Corrupt primary recovers a validated backup and preserves the exact damaged original', async (t) => {
   const { root, file } = directory(t);

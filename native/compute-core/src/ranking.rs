@@ -9,6 +9,7 @@ pub(super) struct Candidate {
     pub(super) artists: Vec<usize>,
     pub(super) profile: Profile,
     pub(super) known: bool,
+    pub(super) familiarity: usize,
     pub(super) liked: bool,
     pub(super) source: usize,
     pub(super) music: f64,
@@ -29,11 +30,29 @@ pub(super) struct Job {
     pub(super) mood: usize,
     pub(super) previous_liked: bool,
     pub(super) novelty: f64,
+    pub(super) familiarity_targets: Option<[f64; 3]>,
     pub(super) phase: f64,
     pub(super) offset: f64,
     pub(super) counts: Vec<f64>,
     pub(super) recent: Vec<Vec<usize>>,
     pub(super) previous: Option<Profile>,
+}
+pub(super) fn familiarity_targets(mood: usize, setting: usize, adjustment: f64) -> [f64; 3] {
+    let (heard, new_artist): (f64, f64) = match mood {
+        3 => (0.10, 0.66),
+        4 => (0.30, 0.38),
+        _ => (0.40, 0.23),
+    };
+    let shift = [0.18, 0.0, -0.18][setting];
+    let learning = if adjustment.is_finite() {
+        adjustment.clamp(-0.04, 0.04)
+    } else {
+        0.0
+    };
+    let heard = (heard + shift - learning).clamp(0.03, if mood == 3 { 0.23 } else { 0.65 });
+    let new_artist =
+        (new_artist - shift + learning).clamp(if mood == 3 { 0.50 } else { 0.05 }, 0.86);
+    [heard, 1.0 - heard - new_artist, new_artist]
 }
 fn overlap(left: &[usize], right: &[usize]) -> bool {
     left.iter().any(|artist| right.contains(artist))
@@ -59,6 +78,7 @@ pub(super) fn calculate(mut job: Job) -> Vec<u8> {
     let mut selected: Vec<usize> = Vec::with_capacity(job.limit);
     let mut previous_source = 0;
     let mut previous_music = job.previous.as_ref();
+    let mut familiarity_counts = [0.0; 3];
     while !remaining.is_empty() && selected.len() < job.limit {
         let space_likes = job.mood != 5
             && job.previous_liked
@@ -73,7 +93,11 @@ pub(super) fn calculate(mut job: Job) -> Vec<u8> {
             if space_likes && c.liked {
                 continue;
             }
-            let mut score = if c.known == wants_familiar {
+            let mut score = if let Some(targets) = job.familiarity_targets {
+                let deficit = (selected.len() as f64 + 1.0) * targets[c.familiarity]
+                    - familiarity_counts[c.familiarity];
+                deficit.clamp(-2.0, 2.0) * if job.mood == 3 { 7.0 } else { 4.0 }
+            } else if c.known == wants_familiar {
                 if job.mood == 3 {
                     12.0
                 } else if job.mood == 4 {
@@ -135,6 +159,7 @@ pub(super) fn calculate(mut job: Job) -> Vec<u8> {
         }
         let id = remaining.remove(best_index);
         let chosen = &job.candidates[id];
+        familiarity_counts[chosen.familiarity] += 1.0;
         selected.push(id);
         job.previous_liked = chosen.liked;
         previous_source = chosen.source;

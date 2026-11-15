@@ -160,6 +160,31 @@ test('whole My Music hook discards pending complete context after a foreign play
   assert.equal(f.plays.length, 0);
   f.h.unmount();
 });
+
+test('rapid clicks in the same library reuse the pending queue and play the latest track', async () => {
+  const f = fixture();
+  await f.h.flush();
+  const { tracks, handlePlayLibraryTrack } = f.h.api();
+  const read = f.platform.getLibraryPlaybackTracks;
+  let finish;
+  let reads = 0;
+  f.platform.getLibraryPlaybackTracks = (request) => {
+    reads++;
+    return new Promise((resolve) => {
+      finish = () => resolve(read(request));
+    });
+  };
+  const first = handlePlayLibraryTrack(tracks[0]);
+  const second = handlePlayLibraryTrack(tracks[1]);
+  const calls = reads;
+  finish();
+  await Promise.all([first, second]);
+  assert.equal(calls, 1);
+  assert.equal(f.plays.length, 1);
+  assert.equal(f.plays[0][0].id, tracks[1].id);
+  assert.equal(f.plays[0][1].length, 205);
+  f.h.unmount();
+});
 test('whole My Music hook discards pending playlist-card play after a foreign playback intent', async () => {
   const f = fixture();
   await f.h.flush();

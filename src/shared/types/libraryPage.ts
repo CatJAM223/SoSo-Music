@@ -29,6 +29,17 @@ export interface LibraryStats {
   durationSeconds: number;
 }
 export type LibraryPlaybackRequest = Pick<LibraryPageRequest<'tracks'>, 'query' | 'sort'>;
+export type LibraryPlaybackRow = [
+  id: string,
+  title: string,
+  artist: string,
+  album: string | null,
+  albumId: string | null,
+  cover: string | null,
+  preview: string | null,
+  duration: number | null,
+  recordingId?: string,
+];
 export interface ArtistMembership {
   id: string;
   name: string;

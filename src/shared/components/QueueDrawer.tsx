@@ -223,9 +223,11 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
             {currentTrack ? (
               <div className="flex items-center gap-3 p-2.5 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700/40 shadow-xs">
                 <img
-                  src={resolveTrackCover(currentTrack)}
+                  src={resolveTrackCover(currentTrack, undefined, 'thumbnail')}
                   alt={currentTrack.title}
-                  onError={(event) => advanceTrackArtwork(event.currentTarget, currentTrack)}
+                  onError={(event) =>
+                    advanceTrackArtwork(event.currentTarget, currentTrack, 'thumbnail')
+                  }
                   className="w-12 h-12 rounded-lg object-cover shrink-0"
                 />
                 <div className="min-w-0 flex-1">
@@ -375,9 +377,11 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                       >
                         <div className="relative shrink-0">
                           <img
-                            src={resolveTrackCover(track)}
+                            src={resolveTrackCover(track, undefined, 'thumbnail')}
                             alt={track.title}
-                            onError={(event) => advanceTrackArtwork(event.currentTarget, track)}
+                            onError={(event) =>
+                              advanceTrackArtwork(event.currentTarget, track, 'thumbnail')
+                            }
                             className="w-12 h-12 rounded-lg object-cover"
                             draggable={false}
                             loading="lazy"

@@ -109,3 +109,28 @@ test('Crossfade retains both streams until the outgoing one finishes; concurrent
   assert.equal(h.urls.size, 0);
   assert.equal(h.records.size, 2);
 });
+
+test('Offline covers release old object URLs and skip abandoned requests', async () => {
+  const h = harness();
+  const coverBlob = new Blob([new Uint8Array(2000)]);
+  for (let i = 0; i < 30; i++) h.records.set(String(i), { coverBlob });
+  const first = await h.service.getCachedCoverUrl('0');
+  for (let i = 1; i < 12; i++) {
+    const current = await h.service.getCachedCoverUrl(String(i));
+    assert.ok(h.urls.has(current));
+    assert.ok(h.urls.size <= 4);
+  }
+  assert.ok(!h.urls.has(first));
+  const [a, b] = await Promise.all([
+    h.service.getCachedCoverUrl('12'),
+    h.service.getCachedCoverUrl('12'),
+  ]);
+  assert.equal(a, b);
+  assert.equal(h.urls.size, 4);
+  let current = true;
+  const stale = h.service.getCachedCoverUrl('13', () => current);
+  current = false;
+  assert.equal(await stale, null);
+  assert.equal(h.urls.size, 4);
+  assert.equal(h.records.size, 30);
+});

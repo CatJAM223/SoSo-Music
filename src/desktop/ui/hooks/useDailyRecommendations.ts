@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { readTastePolicy, refreshTastePolicy } from '../../../shared/hooks/useTastePolicy';
+import { useWindowVisible } from '../../../shared/hooks/useWindowVisible';
 import type { Track, MusicSource } from '../../../shared/types';
+import type { AudioControlsContextType } from '../../../shared/context/audioTypes';
 import { dailyDislikeKey } from '../../../shared/utils/dailyDislikes';
 import {
   createDailyRecommendationLoader,
@@ -29,11 +31,16 @@ function loader() {
 export function useDailyRecommendations(
   dislikedTrackIds: ReadonlySet<string>,
   source: MusicSource = 'all',
+  waveSearchOptions?: AudioControlsContextType['waveSearchOptions'],
 ) {
-  const dislikeKey = dailyDislikeKey(dislikedTrackIds);
+  const dislikeKey = useMemo(() => dailyDislikeKey(dislikedTrackIds), [dislikedTrackIds]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const visible = useWindowVisible();
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const refreshOnShow = useRef(false);
   const generation = useRef(0);
   const day = useRef('');
   const publishedKey = useRef('');
@@ -49,7 +56,7 @@ export function useDailyRecommendations(
     try {
       await refreshTastePolicy();
       if (request !== generation.current) return;
-      const result = await loader()(dislikeKey, source);
+      const result = await loader()(dislikeKey, source, waveSearchOptions?.('default', source));
       if (request !== generation.current) return;
       if (
         result.day !== localRecommendationDay() ||
@@ -67,43 +74,52 @@ export function useDailyRecommendations(
     } finally {
       if (request === generation.current) setLoading(false);
     }
-  }, [dislikeKey, source]);
+  }, [dislikeKey, source, waveSearchOptions]);
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
   useEffect(() => {
-    if (loading || failed || tracks.length >= 5) return;
+    if (!visible || loading || failed || tracks.length >= 5) return;
     const retry = setTimeout(() => void refresh(), 5 * 60 * 1000);
     return () => clearTimeout(retry);
-  }, [loading, failed, tracks, refresh]);
+  }, [visible, loading, failed, tracks, refresh]);
   useEffect(() => {
-    void refresh();
+    const refreshWhenVisible = () => {
+      if (visibleRef.current) {
+        refreshOnShow.current = false;
+        void refresh();
+      } else refreshOnShow.current = true;
+    };
+    refreshWhenVisible();
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => {
       const now = new Date();
       const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
       timer = setTimeout(
         () => {
-          void refresh();
+          refreshWhenVisible();
           schedule();
         },
         tomorrow.getTime() - now.getTime() + 100,
       );
     };
-    const resumed = () => {
-      if (day.current !== localRecommendationDay()) void refresh();
-    };
     schedule();
-    const policyChanged = () => {
-      void refresh();
+    const resumed = () => {
+      if (day.current && day.current !== localRecommendationDay()) refreshWhenVisible();
     };
-    window.addEventListener('soso:taste-policy-changed', policyChanged);
+    window.addEventListener('soso:taste-policy-changed', refreshWhenVisible);
     window.addEventListener('focus', resumed);
-    document.addEventListener('visibilitychange', resumed);
     return () => {
       generation.current++;
       clearTimeout(timer);
-      window.removeEventListener('soso:taste-policy-changed', policyChanged);
+      window.removeEventListener('soso:taste-policy-changed', refreshWhenVisible);
       window.removeEventListener('focus', resumed);
-      document.removeEventListener('visibilitychange', resumed);
     };
   }, [refresh]);
+  useEffect(() => {
+    if (!visible || (!refreshOnShow.current && day.current === localRecommendationDay())) return;
+    if (!refreshOnShow.current && !day.current) return; // Initial refresh is already in flight.
+    refreshOnShow.current = false;
+    void refreshRef.current();
+  }, [visible]);
   return { tracks, loading, failed, retry: refresh };
 }

@@ -5,6 +5,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Heart, X, Volume2, VolumeX, Disc } from 'lucide-react';
 import { WidgetState } from '../../../shared/types';
 import { DEFAULT_COVER_SVG_DATA_URI } from '../../../shared/utils/placeholder';
+import { advanceTrackArtwork, trackArtworkCandidates } from '../../../shared/utils/trackArtwork';
 
 const WidgetContents: React.FC = () => {
   useLocale();
@@ -31,18 +32,26 @@ const WidgetContents: React.FC = () => {
     document.body.style.overflow = 'hidden';
 
     if (window.electronAPI?.onWidgetStateUpdate) {
+      const syncProgress = (time: number) => {
+        baseTimeRef.current = { time, timestamp: Date.now() };
+        setInterpolatedTime(time);
+      };
       const cleanup = window.electronAPI.onWidgetStateUpdate((newState) => {
         setState((prev) => ({ ...prev, ...newState }));
-        if (typeof newState.currentTime === 'number') {
-          baseTimeRef.current = { time: newState.currentTime, timestamp: Date.now() };
-          setInterpolatedTime(newState.currentTime);
-        }
+        if (typeof newState.currentTime === 'number') syncProgress(newState.currentTime);
+      });
+      const stopProgress = window.electronAPI.onWidgetProgress?.((time) => {
+        syncProgress(time);
+        setState((prev) => (prev.isPlaying ? prev : { ...prev, currentTime: time }));
       });
       // Immediately request state from main player window
       if (window.electronAPI?.sendWidgetCommand) {
         window.electronAPI.sendWidgetCommand('requestState');
       }
-      return cleanup;
+      return () => {
+        cleanup();
+        stopProgress?.();
+      };
     }
   }, []);
 
@@ -80,11 +89,7 @@ const WidgetContents: React.FC = () => {
   };
 
   const track = state.track;
-  const coverUrl =
-    track?.album?.cover_medium ||
-    track?.album?.cover_small ||
-    track?.album?.cover ||
-    DEFAULT_COVER_SVG_DATA_URI;
+  const coverUrl = trackArtworkCandidates(track, 'thumbnail')[0] || DEFAULT_COVER_SVG_DATA_URI;
 
   const artistName =
     track?.artist?.name || (typeof track?.artist === 'string' ? track.artist : 'SoSo Music');
@@ -110,10 +115,7 @@ const WidgetContents: React.FC = () => {
             <img
               src={coverUrl}
               alt={track?.title || 'Cover'}
-              onError={(e) => {
-                e.currentTarget.onerror = null;
-                e.currentTarget.src = DEFAULT_COVER_SVG_DATA_URI;
-              }}
+              onError={(e) => advanceTrackArtwork(e.currentTarget, track, 'thumbnail')}
               className="w-full h-full object-cover"
             />
             {state.isPlaying && (

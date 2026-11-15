@@ -7,6 +7,7 @@ import { detectTrackSource } from './formatters.ts';
 import { getWaveArtistKeys, getWaveArtistNames, normalizeWaveArtist } from './waveIdentity.ts';
 import type { WaveQueueOptions } from './waveQueue.ts';
 import { WAVE_HISTORY_LIMIT } from './waveHistoryLimits.ts';
+import { readWaveMethodScores, readWaveNovelty } from '../types/wavePolicy.ts';
 
 /** Taste storage exposes both provider tracks and database rows. Keep the provider identity. */
 export function normalizeWaveSeed(seed: any): Track | null {
@@ -67,6 +68,8 @@ export function normalizeWaveBatchContext(value: unknown): WaveBatchContext {
   return {
     tasteRevision: Number.isSafeInteger(input.tasteRevision) ? input.tasteRevision : undefined,
     source: normalizeWaveSource(input.source),
+    novelty: readWaveNovelty(input.novelty),
+    methodScores: readWaveMethodScores(input.methodScores),
     recentTracks,
     offeredTracks,
     tasteTracks: Array.isArray(input.tasteTracks)
@@ -98,6 +101,7 @@ export function waveQueueContext(context: WaveBatchContext = {}): WaveQueueOptio
   }
   return {
     recentTracks: (context.recentTracks || []).slice(-WAVE_HISTORY_LIMIT),
+    novelty: context.novelty,
     offeredTracks: (context.offeredTracks || []).slice(-80),
     artistFeedback: feedback,
     positiveTracks: (context.positiveTracks || []).slice(0, 12),

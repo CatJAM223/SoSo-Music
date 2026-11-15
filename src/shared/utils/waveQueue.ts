@@ -1,6 +1,7 @@
 import { sequenceWaveIndices } from '../compute/waveSequence.ts';
 import type { LibraryTasteGenre } from '../types/libraryTaste.ts';
 import type { Track, WaveMood } from '../types/index.ts';
+import type { WaveFamiliarity, WaveNovelty } from '../types/wavePolicy.ts';
 import { WAVE_HISTORY_LIMIT } from './waveHistoryLimits.ts';
 import { areTracksDuplicates, buildTrackPrintFromTrack } from './trackFingerprint.ts';
 import { normalizeWaveArtist } from './waveIdentity.ts';
@@ -122,6 +123,7 @@ export function matchesDislikedWaveTrack(track: Track, disliked: DislikedWaveTra
 }
 
 export interface WaveQueueOptions {
+  novelty?: WaveNovelty;
   tasteTracks?: readonly Track[];
   libraryGenres?: readonly LibraryTasteGenre[];
   learnedTracks?: readonly Track[];
@@ -166,9 +168,15 @@ export function sequenceWaveTracks(
   familiarArtists: string[],
   limit = 25,
   options: WaveQueueOptions = {},
+  includeFamiliarity = false,
 ): Track[] {
-  return sequenceWaveIndices(tracks, mood, familiarArtists, limit, options).map(
-    (index) => tracks[index],
+  const familiarity =
+    includeFamiliarity && options.novelty ? new Map<number, WaveFamiliarity>() : undefined;
+  return sequenceWaveIndices(tracks, mood, familiarArtists, limit, options, familiarity).map(
+    (index) => {
+      const category = familiarity?.get(index);
+      return category ? { ...tracks[index], waveFamiliarity: category } : tracks[index];
+    },
   );
 }
 
@@ -183,7 +191,12 @@ export function resequenceWaveQueue(
   offeredTracks: readonly Track[] = [],
   musicOptions: Pick<
     WaveQueueOptions,
-    'tasteTracks' | 'positiveTracks' | 'skippedTracks' | 'learnedTracks' | 'discoveryAdjustment'
+    | 'tasteTracks'
+    | 'positiveTracks'
+    | 'skippedTracks'
+    | 'learnedTracks'
+    | 'discoveryAdjustment'
+    | 'novelty'
   > = {},
 ): Track[] {
   const played = queue.slice(0, currentIndex + 1);

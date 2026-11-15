@@ -42,5 +42,5 @@ test('A rejected required Rust initialization can retry valid bytes and deduplic
   assert.throws(() => requireRustCompute(), /Rust/);
   const bytes = fs.readFileSync(new URL('../public/compute/soso-core.wasm', import.meta.url));
   assert.equal(await initializeRustCompute(bytes), true);
-  assert.equal(requireRustCompute().abi_version(), 7);
+  assert.equal(requireRustCompute().abi_version(), 8);
 });

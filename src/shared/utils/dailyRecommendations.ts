@@ -1,6 +1,8 @@
 import { matchesWaveSource } from '../services/waveSource.ts';
 import { requireRustCompute } from '../compute/rustCore.ts';
 import type { Track, MusicSource } from '../types/index.ts';
+import type { WaveSearchOptions } from '../types/wavePolicy.ts';
+import { readWaveRecommendation } from '../services/waveQuality.ts';
 import { createDailyDislikePolicy, type DailyDislikedTrack } from './dailyDislikes.ts';
 
 export const DAILY_RECOMMENDATIONS_KEY = 'soso:daily-recommendations:v1';
@@ -46,7 +48,13 @@ export function readDailyRecommendations(raw: string | null): DailyRecommendatio
           typeof track.title === 'string' &&
           track.artist &&
           typeof track.artist.name === 'string',
-      );
+      )
+      .map((track: Track) => {
+        if (track.waveRecommendation === undefined) return track;
+        const { waveRecommendation, ...rest } = track;
+        const attribution = readWaveRecommendation(waveRecommendation);
+        return attribution ? { ...rest, waveRecommendation: attribution } : rest;
+      });
     return tracks.length
       ? {
           day: value.day,
@@ -70,7 +78,7 @@ export function createDailyRecommendationLoader(
   fetchTracks: (
     previousIds: (string | number)[],
     previousTracks?: Track[],
-    options?: { source: MusicSource; retainedTracks: Track[] },
+    options?: WaveSearchOptions & { source: MusicSource; retainedTracks: Track[] },
   ) => Promise<Track[]>,
   now: () => Date = () => new Date(),
   tasteRevision: () => number = () => 0,
@@ -78,7 +86,7 @@ export function createDailyRecommendationLoader(
   const pending = new Map<string, Promise<DailyRecommendations>>();
   let memory: DailyRecommendations | null = null;
   let latestKey = '';
-  return (dislikeKey = '', source: MusicSource = 'all') => {
+  return (dislikeKey = '', source: MusicSource = 'all', options?: WaveSearchOptions) => {
     const day = localRecommendationDay(now()),
       revision = tasteRevision(),
       key = JSON.stringify([day, revision, dislikeKey, source]);
@@ -125,7 +133,7 @@ export function createDailyRecommendationLoader(
         fetchTracks(
           previous.map((track) => track.id),
           previous,
-          { source, retainedTracks: retained },
+          { ...options, source, retainedTracks: retained },
         ),
       )
       .catch((error) => {

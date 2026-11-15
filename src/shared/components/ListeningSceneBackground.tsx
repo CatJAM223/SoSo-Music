@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAudioState } from '../context/AudioContext';
 import { useAnimationsPaused } from '../hooks/useAnimationsPaused';
+import { decorativeCanvasScale } from '../utils/decorativeCanvas';
 import './ListeningScenes.css';
 
 const seed = (i: number) => {
@@ -217,7 +218,7 @@ export function ListeningSceneBackground() {
     const resize = () => {
       w = window.innerWidth;
       h = window.innerHeight;
-      dpr = Math.min(window.devicePixelRatio || 1, 1.25);
+      dpr = decorativeCanvasScale(w, h, sceneIntensity === 'quiet' ? 1 : 1.25);
       canvas.width = base.width = Math.round(w * dpr);
       canvas.height = base.height = Math.round(h * dpr);
       baseCtx.setTransform(dpr, 0, 0, dpr, 0, 0);

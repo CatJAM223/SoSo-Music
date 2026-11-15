@@ -10,7 +10,7 @@ import { isWaveTempoEdit } from '../utils/waveQueue.ts';
 
 interface DiscoveryOptions {
   related: (seed: Track) => Promise<Track[]>;
-  accept: (track: Track) => boolean;
+  accept: (track: Track, anchor: Track) => boolean;
   familiarArtists: readonly string[];
   recentAnchorIds?: readonly string[];
   allowExpansion?: boolean;
@@ -89,7 +89,7 @@ export async function gatherWaveDiscovery(
               ((selected[i].waveSeedWeight === 0.25 ? 0.5 : 1) / (1 + position * 0.15)) *
               (expanded ? 0.5 : 1),
           };
-          if (!options.accept(rankedTrack)) continue;
+          if (!options.accept(rankedTrack, selected[i])) continue;
           tracks.push(rankedTrack);
           accepted[i]++;
           for (const key of artists) {

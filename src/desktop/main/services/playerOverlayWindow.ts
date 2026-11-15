@@ -14,7 +14,8 @@ export function createPlayerOverlayWindow(
   readLayout: () => OverlayLayout = () => DEFAULT_OVERLAY_LAYOUT,
 ) {
   let window: BrowserWindow | null = null;
-  let visible = false;
+  let requested = false;
+  let playerFocused = false;
   let ready = false;
   let started = false;
   let editing = false;
@@ -28,6 +29,23 @@ export function createPlayerOverlayWindow(
     clearTimeout(releaseTimer);
     releaseTimer = undefined;
   };
+  const shouldShow = () => started && enabled && requested && (editing || !playerFocused);
+  function forgetWindow() {
+    cancelRelease();
+    window = null;
+    ready = false;
+    lastTrackKey = null;
+  }
+  function releaseWhenHidden(win: BrowserWindow) {
+    if (releaseTimer !== undefined) return;
+    releaseTimer = setTimeout(() => {
+      releaseTimer = undefined;
+      if (window !== win || shouldShow() || win.isDestroyed()) return;
+      forgetWindow();
+      win.destroy();
+    }, 15000);
+    releaseTimer.unref?.();
+  }
   function fitWindow() {
     if (!window || window.isDestroyed()) return;
     const display = screen.getDisplayMatching(window.getBounds());
@@ -37,7 +55,7 @@ export function createPlayerOverlayWindow(
   function sendTrack(force = false) {
     if (
       lastState === null ||
-      !visible ||
+      !shouldShow() ||
       !window ||
       window.isDestroyed() ||
       window.webContents.isLoading()
@@ -62,12 +80,11 @@ export function createPlayerOverlayWindow(
     window.webContents.send('overlay:editingChanged', editing);
   }
   function show() {
-    if (!window || window.isDestroyed() || !ready) return;
+    if (!window || window.isDestroyed() || !ready || !shouldShow()) return;
     cancelRelease();
     if (window.isMinimized()) window.restore();
     fitWindow();
     window.setAlwaysOnTop(true, 'screen-saver');
-    visible = true;
     sendTrack(true);
     if (editing) {
       window.show();
@@ -80,26 +97,7 @@ export function createPlayerOverlayWindow(
       visible: window.isVisible(),
     });
   }
-  function toggle() {
-    if (!enabled || !started) return false;
-    const existing = window && !window.isDestroyed();
-    const actualVisible = existing
-      ? ready
-        ? window!.isVisible() && !window!.isMinimized()
-        : visible
-      : false;
-    visible = !actualVisible;
-    editing = false;
-    if (window && !window.isDestroyed()) {
-      applyMode();
-      if (!visible) {
-        window.hide();
-        PlaybackLogger.debug('[Overlay:Visibility] Hidden by toggle');
-        return false;
-      }
-      show();
-      return true;
-    }
+  function createWindow() {
     const display = previousBounds
       ? screen.getDisplayMatching(previousBounds)
       : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
@@ -137,33 +135,26 @@ export function createPlayerOverlayWindow(
     win.once('ready-to-show', () => {
       if (window !== win || win.isDestroyed()) return;
       ready = true;
-      if (visible) {
+      if (shouldShow()) {
         applyMode();
         show();
       }
     });
     win.on('closed', () => {
-      if (window === win) {
-        cancelRelease();
-        window = null;
-        visible = false;
-        ready = false;
-        editing = false;
-        lastTrackKey = null;
-      }
+      if (window !== win) return;
+      forgetWindow();
+      requested = false;
+      editing = false;
     });
     const nativeHidden = () => {
       if (window !== win || win.isDestroyed() || (win.isVisible() && !win.isMinimized())) return;
-      visible = false;
-      editing = false;
-      applyMode();
-      fitWindow();
-      cancelRelease();
-      releaseTimer = setTimeout(() => {
-        releaseTimer = undefined;
-        if (window === win && !visible && !win.isDestroyed()) win.destroy();
-      }, 15000);
-      releaseTimer.unref?.();
+      if (shouldShow()) {
+        requested = false;
+        editing = false;
+        applyMode();
+        fitWindow();
+      }
+      releaseWhenHidden(win);
     };
     win.on('hide', nativeHidden);
     win.on('minimize', nativeHidden);
@@ -189,7 +180,26 @@ export function createPlayerOverlayWindow(
       PlaybackLogger.warn('[Overlay:Renderer] Window loading failed', error);
       if (!win.isDestroyed()) win.destroy();
     });
-    return true;
+  }
+  function syncVisibility() {
+    const win = window && !window.isDestroyed() ? window : null;
+    if (shouldShow()) {
+      cancelRelease();
+      if (!win) createWindow();
+      else if (!win.isVisible() || win.isMinimized()) show();
+    } else if (win) {
+      if (win.isVisible()) win.hide();
+      releaseWhenHidden(win);
+    }
+  }
+  function toggle() {
+    if (!enabled || !started) return false;
+    requested = !requested;
+    editing = false;
+    applyMode();
+    fitWindow();
+    syncVisibility();
+    return requested;
   }
   function owns(event: IpcMainInvokeEvent) {
     return (
@@ -203,9 +213,20 @@ export function createPlayerOverlayWindow(
     start: () => {
       if (started) return;
       started = true;
-      if (enabled && !visible) toggle();
+      requested = enabled;
+      syncVisibility();
     },
     toggle,
+    setPlayerFocused: (focused: boolean) => {
+      if (playerFocused === focused) return;
+      playerFocused = focused;
+      if (focused && editing) {
+        editing = false;
+        applyMode();
+        fitWindow();
+      }
+      syncVisibility();
+    },
     owns,
     getLanguage: () => language,
     setLanguage: (value: 'ru' | 'en') => {
@@ -217,23 +238,26 @@ export function createPlayerOverlayWindow(
     edit: () => {
       if (!enabled) throw Error('OVERLAY_DISABLED');
       if (!started) throw Error('OVERLAY_NOT_READY');
-      if (!visible || !window || window.isDestroyed()) toggle();
+      requested = true;
       editing = true;
+      if (!window || window.isDestroyed()) createWindow();
       applyMode();
-      if (!window?.webContents.isLoading()) show();
+      show();
       return true;
     },
     finishEditing: () => {
       editing = false;
       fitWindow();
       applyMode();
+      syncVisibility();
       return false;
     },
     hide: () => {
-      visible = false;
+      requested = false;
       editing = false;
       applyMode();
-      window?.hide();
+      fitWindow();
+      syncVisibility();
       return false;
     },
     sendState: (state: unknown) => {
@@ -243,21 +267,23 @@ export function createPlayerOverlayWindow(
     setEnabled: (value: boolean) => {
       enabled = value;
       if (!enabled) {
-        cancelRelease();
-        window?.destroy();
-        window = null;
-        visible = false;
+        const previous = window;
+        forgetWindow();
+        previous?.destroy();
+        requested = false;
         editing = false;
-        lastTrackKey = null;
         lastState = null;
-      } else if (started && !visible) toggle();
+      } else if (started) {
+        requested = true;
+        syncVisibility();
+      }
     },
     dispose: () => {
       started = false;
-      cancelRelease();
-      window?.destroy();
-      window = null;
-      visible = false;
+      const previous = window;
+      forgetWindow();
+      previous?.destroy();
+      requested = false;
       editing = false;
     },
   };

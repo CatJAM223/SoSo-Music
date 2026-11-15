@@ -40,6 +40,64 @@ interface LyricsModalProps {
 import { transposeChordsInText } from '../utils/chordTransposer';
 import { resolveTrackCover, formatTime } from '../utils/formatters';
 
+function KaraokeWait({
+  active,
+  getPlaybackTime,
+  nextLineTime,
+  playing,
+  position,
+  color,
+}: {
+  active: boolean;
+  getPlaybackTime: () => number;
+  nextLineTime: number;
+  playing: boolean;
+  position: number;
+  color: string;
+}) {
+  const time = useKaraokeTime(active, getPlaybackTime, playing, playing ? undefined : position);
+  const wait = getKaraokeWaitFrame(time, nextLineTime, active);
+  return (
+    <div
+      className="karaoke-wait"
+      data-active={active}
+      data-phase={wait.phase}
+      data-countdown={wait.digit ?? undefined}
+      style={{ color }}
+      role="img"
+      aria-label={
+        wait.digit ? t('До следующей строки: {0}', wait.digit) : t('Инструментальный фрагмент')
+      }
+    >
+      <svg
+        className="karaoke-wait-motion"
+        width="64"
+        height="40"
+        viewBox="0 0 76 52"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={wait.strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {wait.paths.map((path, index) => (
+          <path
+            key={index}
+            d={path}
+            pathLength={1}
+            strokeDasharray={wait.strokeDasharray}
+            strokeDashoffset={wait.strokeDashoffset}
+          />
+        ))}
+      </svg>
+      <span className="karaoke-wait-still" aria-hidden="true">
+        {wait.digit ?? '• • •'}
+      </span>
+    </div>
+  );
+}
+
 export const LyricsModal: React.FC<LyricsModalProps> = ({
   isOpen,
   onClose,
@@ -62,9 +120,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   // Lyrics State
   const [rawLyrics, setRawLyrics] = useState<LyricsLine[] | null>(null);
   const [loadingLyrics, setLoadingLyrics] = useState<boolean>(true);
-  const [activeIndex, setActiveIndex] = useState<number>(-1);
   const [isAutoScroll, setIsAutoScroll] = useState<boolean>(true);
-  const smoothTime = useKaraokeTime(isOpen && viewMode === 'lyrics', getPlaybackTime);
 
   // Settings
   const [isKaraokeChordsEnabled, setIsKaraokeChordsEnabled] = useState<boolean>(() => {
@@ -298,24 +354,22 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
 
   const isSynced = useMemo(() => items.length > 0 && items.some((i) => i.time >= 0), [items]);
 
-  // Determine current active karaoke line
-  useEffect(() => {
-    if (!items || items.length === 0 || !isSynced || viewMode !== 'lyrics') {
-      setActiveIndex(-1);
-      return;
-    }
-
+  const readActiveIndex = useCallback(() => {
+    if (!isSynced || viewMode !== 'lyrics') return -1;
+    const time = getPlaybackTime();
     let foundIdx = -1;
     for (let i = 0; i < items.length; i++) {
-      if (items[i].time >= 0 && smoothTime >= items[i].time) {
-        foundIdx = i;
-      } else if (items[i].time > smoothTime) {
-        break;
-      }
+      if (items[i].time > time) break;
+      if (items[i].time >= 0 && items[i].time <= time) foundIdx = i;
     }
-
-    setActiveIndex(foundIdx);
-  }, [smoothTime, items, isSynced, viewMode]);
+    return foundIdx;
+  }, [getPlaybackTime, items, isSynced, viewMode]);
+  const activeIndex = useKaraokeTime(
+    isOpen && isSynced && viewMode === 'lyrics',
+    readActiveIndex,
+    isPlaying,
+    isPlaying ? undefined : currentTime,
+  );
 
   // Smooth centered container scrolling without jitter
   // Uses RAF-pending flag to coalesce rapid calls (60fps) into one browser scroll call per frame.
@@ -922,8 +976,6 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                       const distance = Math.abs(activeIndex - idx);
 
                       if (item.isInstrumentalBreak) {
-                        const nextLineTime = items[idx + 1]?.time ?? item.time;
-                        const wait = getKaraokeWaitFrame(smoothTime, nextLineTime, isActive);
                         return (
                           <div
                             key={item.id}
@@ -933,45 +985,14 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                               isActive ? 'opacity-100' : 'opacity-25'
                             }`}
                           >
-                            <div
-                              className="karaoke-wait"
-                              data-active={isActive}
-                              data-phase={wait.phase}
-                              data-countdown={wait.digit ?? undefined}
-                              style={{ color: isActive ? themeHex : 'rgba(255,255,255,0.4)' }}
-                              role="img"
-                              aria-label={
-                                wait.digit
-                                  ? t('До следующей строки: {0}', wait.digit)
-                                  : t('Инструментальный фрагмент')
-                              }
-                            >
-                              <svg
-                                className="karaoke-wait-motion"
-                                width="64"
-                                height="40"
-                                viewBox="0 0 76 52"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth={wait.strokeWidth}
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                {wait.paths.map((path, index) => (
-                                  <path
-                                    key={index}
-                                    d={path}
-                                    pathLength={1}
-                                    strokeDasharray={wait.strokeDasharray}
-                                    strokeDashoffset={wait.strokeDashoffset}
-                                  />
-                                ))}
-                              </svg>
-                              <span className="karaoke-wait-still" aria-hidden="true">
-                                {wait.digit ?? '• • •'}
-                              </span>
-                            </div>
+                            <KaraokeWait
+                              active={isActive}
+                              getPlaybackTime={getPlaybackTime}
+                              nextLineTime={items[idx + 1]?.time ?? item.time}
+                              playing={isPlaying}
+                              position={currentTime}
+                              color={isActive ? themeHex : 'rgba(255,255,255,0.4)'}
+                            />
                           </div>
                         );
                       }
@@ -1019,7 +1040,6 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                               setIsAutoScroll(true);
                             }
                           }}
-                          style={{ willChange: 'transform, opacity' }}
                           className={`transition-all duration-300 ease-out py-1 rounded-xl ${
                             isSynced ? 'cursor-pointer' : 'cursor-text'
                           } ${lineStyle}`}

@@ -3,10 +3,16 @@ import { matchesWaveSource } from '../../../shared/services/waveSource.ts';
 import { isSoundCloudPreviewUrl } from '../../../shared/utils/soundcloudPlayback.ts';
 import { resolveTrackCover } from '../../../shared/utils/formatters.ts';
 import type { MusicSource, Track, WaveMood } from '../../../shared/types/index.ts';
+import {
+  mergeWaveProvenance,
+  readWaveProvenance,
+  type WaveMethod,
+  type WaveProvenance,
+} from '../../../shared/types/wavePolicy.ts';
 import { buildTrackPrintFromTrack } from '../../../shared/utils/trackFingerprint.ts';
 import {
   areSameWaveSong,
-  buildWaveSongIdentity,
+  createWaveSongIdentifier,
   isWaveNonMusic,
   matchesWaveArtist,
   type WaveSongIdentity,
@@ -38,67 +44,95 @@ function withFallbackArtwork(track: Track): Track {
 /** Candidate validation is shared by likes, artist searches, radios and empty-profile fallback. */
 export class WaveCandidatePool {
   private tracks = new Map<string, Track>();
-  private uniqueSongs: WaveSongIdentity[] = [];
-  private uniqueRecordingIds = new Set<string>();
+  private uniqueSongs: { identity: WaveSongIdentity; paths: WaveProvenance[] }[] = [];
+  private recordingGroups = new Map<string, number>();
+  private trackGroups = new Map<string, number>();
   private excluded: Set<string>;
   private playedSongs: WaveSongIdentity[];
   private options: CandidateOptions;
+  private identify: ReturnType<typeof createWaveSongIdentifier>;
   constructor(options: CandidateOptions) {
     this.options = options;
     this.excluded = new Set(options.excluded.map(String));
-    this.playedSongs = options.heard.map((track) =>
-      buildWaveSongIdentity(track, options.familiarArtists),
-    );
+    this.identify = createWaveSongIdentifier(options.familiarArtists);
+    this.playedSongs = options.heard.map(this.identify);
   }
   get size(): number {
     return this.uniqueSongs.length;
   }
   values(): Track[] {
-    return [...this.tracks.values()];
+    return [...this.tracks.values()].map((track) => {
+      const paths = this.uniqueSongs[this.trackGroups.get(String(track.id))!].paths;
+      return paths.length ? { ...track, waveProvenance: paths } : track;
+    });
   }
 
-  add(track: Track): boolean {
-    if (!this.accepts(track)) return false;
-    const song = buildWaveSongIdentity(track, this.options.familiarArtists);
-    if (
-      !(track.recordingId && this.uniqueRecordingIds.has(track.recordingId)) &&
-      !this.uniqueSongs.some((previous) => areSameWaveSong(previous, song))
-    )
-      this.uniqueSongs.push(song);
-    if (track.recordingId) this.uniqueRecordingIds.add(track.recordingId);
-    this.tracks.set(String(track.id), withFallbackArtwork(track));
+  add(track: Track, method?: WaveMethod, anchor?: string, identity?: WaveSongIdentity): boolean {
+    const path =
+      method &&
+      readWaveProvenance({ method, provider: track?.source, anchor: anchor?.slice(0, 128) });
+    const id = String(track?.id);
+    const existing = this.trackGroups.get(id);
+    if (existing !== undefined) {
+      if (path) {
+        const group = this.uniqueSongs[existing];
+        group.paths = mergeWaveProvenance(group.paths, [path]);
+      }
+      return false;
+    }
+    const song = this.acceptedIdentity(track, identity);
+    if (!song) return false;
+    let index =
+      this.recordingGroups.get(track.recordingId || '') ??
+      this.uniqueSongs.findIndex((previous) => areSameWaveSong(previous.identity, song));
+    if (index < 0) {
+      index = this.uniqueSongs.length;
+      this.uniqueSongs.push({ identity: song, paths: [] });
+    }
+    if (path) {
+      const group = this.uniqueSongs[index];
+      group.paths = mergeWaveProvenance(group.paths, [path]);
+    }
+    if (track.recordingId) this.recordingGroups.set(track.recordingId, index);
+    this.trackGroups.set(id, index);
+    this.tracks.set(id, withFallbackArtwork(track));
     return true;
   }
 
-  private accepts(track: Track): boolean {
+  private acceptedIdentity(track: Track, identity?: WaveSongIdentity): WaveSongIdentity | undefined {
     if (
       !track ||
       !track.id ||
       track.playbackUnavailable ||
       isWaveMoodMismatch(track, this.options.mood)
     )
-      return false;
+      return;
     if (!matchesWaveSource(track, this.options.source) || isSoundCloudPreviewUrl(track.preview))
-      return false;
-    if (this.excluded.has(String(track.id)) || this.tracks.has(String(track.id))) return false;
+      return;
+    if (this.excluded.has(String(track.id))) return;
     if (this.options.disliked.some((disliked) => matchesDislikedWaveTrack(track, disliked)))
-      return false;
-    if (!buildTrackPrintFromTrack(track).tokens.length) return false;
-    const song = buildWaveSongIdentity(track, this.options.familiarArtists);
-    if (this.playedSongs.some((played) => areSameWaveSong(played, song))) return false;
+      return;
+    if (!buildTrackPrintFromTrack(track).tokens.length) return;
+    const song = identity ?? this.identify(track);
+    if (this.playedSongs.some((played) => areSameWaveSong(played, song))) return;
     const duration = Number(track.duration) || 0;
-    if (!requireRustCompute().wave_duration_allowed(duration)) return false;
-    return !isWaveMixOrPodcast(track) && !isWaveGarbageRemix(track) && !isWaveNonMusic(track);
+    if (!requireRustCompute().wave_duration_allowed(duration)) return;
+    if (!isWaveMixOrPodcast(track) && !isWaveGarbageRemix(track) && !isWaveNonMusic(track)) return song;
   }
 
-  addRanked(tracks: readonly Track[], limit: number, expectedArtist?: string): void {
+  addRanked(
+    tracks: readonly Track[],
+    limit: number,
+    expectedArtist?: string,
+    method?: WaveMethod,
+  ): void {
     const accepted: WaveSongIdentity[] = [];
     for (const track of tracks) {
       if (expectedArtist && !matchesWaveArtist(track, expectedArtist)) continue;
-      const song = buildWaveSongIdentity(track, this.options.familiarArtists);
+      const song = this.identify(track);
       const alreadyAccepted = accepted.some((previous) => areSameWaveSong(previous, song));
       if (!alreadyAccepted && accepted.length >= limit) continue;
-      if (this.add(track) && !alreadyAccepted) accepted.push(song);
+      if (this.add(track, method, expectedArtist, song) && !alreadyAccepted) accepted.push(song);
     }
   }
 }
