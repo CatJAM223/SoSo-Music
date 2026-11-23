@@ -9,6 +9,9 @@ export type PlaybackDiagnostic = {
   source: string;
   trackId: string | number;
   elapsedMs?: number;
+  queuePreparationMs?: number;
+  sourceReadyMs?: number;
+  startupPath?: 'prepared' | 'local-cache' | 'memory-cache' | 'cached-url' | 'resolved';
   outcome?: 'started' | 'failed' | 'cancelled';
   reason?: string;
   delivery?: string;
@@ -24,6 +27,9 @@ export class PlaybackDiagnostics {
     source: string;
     trackId: string | number;
     startedAt: number;
+    queuePreparationMs?: number;
+    sourceReadyMs?: number;
+    startupPath?: PlaybackDiagnostic['startupPath'];
     outcome?: PlaybackDiagnostic['outcome'];
     delivery?: string;
     waitingAt?: number;
@@ -48,9 +54,10 @@ export class PlaybackDiagnostics {
     source: string,
     startedAt = this.now(),
     automaticRetry = false,
+    queuePreparationMs?: number,
   ): void {
     this.cancel('superseded');
-    this.attempt = { requestId, trackId, source, startedAt };
+    this.attempt = { requestId, trackId, source, startedAt, queuePreparationMs };
     this.send({ event: 'playback-attempt', automaticRetry });
   }
 
@@ -78,7 +85,16 @@ export class PlaybackDiagnostics {
       outcome,
       reason,
       elapsedMs: Math.max(0, this.now() - this.attempt.startedAt),
+      queuePreparationMs: this.attempt.queuePreparationMs,
+      sourceReadyMs: this.attempt.sourceReadyMs,
+      startupPath: this.attempt.startupPath,
     });
+  }
+
+  sourceReady(path: NonNullable<PlaybackDiagnostic['startupPath']>): void {
+    if (!this.attempt || this.attempt.outcome) return;
+    this.attempt.startupPath = path;
+    this.attempt.sourceReadyMs = Math.max(0, this.now() - this.attempt.startedAt);
   }
 
   playing(delivery: string): void {

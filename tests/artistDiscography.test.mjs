@@ -342,6 +342,48 @@ test('Artist Discography: YouTube Music flexColumns extracts real album and brow
   assert.equal(albumBrowseId, 'MPREb_7wrYD8LxZ09');
 });
 
+test('SoundCloud resolves a numeric artist name by exact name', async (t) => {
+  const requestedPaths = [];
+  t.mock.method(SoundCloudService, 'getSoundCloudKey', async () => 'mock_client_id');
+  t.mock.method(SoundCloudService, 'fetchWithRelay', async (url) => {
+    const { pathname, searchParams } = new URL(url);
+    requestedPaths.push(pathname);
+    if (pathname === '/search/users' && searchParams.get('q') === '104') {
+      return {
+        collection: [
+          { id: 781, username: '104 Tribute' },
+          { id: 782, username: '104' },
+        ],
+      };
+    }
+    return { collection: [] };
+  });
+
+  const details = await SoundCloudService.getArtist('104', '104');
+  assert.equal(details?.artist.id, 'sc_art_782');
+  assert.equal(requestedPaths[0], '/search/users');
+  assert.ok(!requestedPaths.includes('/users/104'));
+});
+
+test('YouTube Music accepts a numeric artist name with an exact profile match', async (t) => {
+  const channel = 'UCabcdefghijklmnopqrstuv';
+  t.mock.method(YouTubeMusicService, 'getClientContext', () => ({}));
+  const search = t.mock.method(YouTubeMusicService, 'searchArtists', async () => ({
+    data: [
+      { id: 'yt_art_UCunrelated', name: '104 Tribute' },
+      { id: 'yt_art_' + channel, name: '104' },
+    ],
+  }));
+  const browse = t.mock.method(YouTubeMusicService, 'postInnertube', async () => ({}));
+
+  assert.equal(await YouTubeMusicService.getArtist('104'), null);
+  const details = await YouTubeMusicService.getArtist('104', '104');
+  assert.equal(details?.artist.id, 'yt_art_' + channel);
+  assert.equal(search.mock.callCount(), 1);
+  assert.equal(search.mock.calls[0].arguments[0], '104');
+  assert.equal(browse.mock.calls[0].arguments[1].browseId, channel);
+});
+
 test('Artist Discography: SoundCloudService.getArtistAllTracks resolves non-numeric slug into numeric ID to fetch official tracks and albums', async (t) => {
   let getArtistCalled = false;
   const requestedUrls = [];

@@ -177,11 +177,13 @@ test('Autocomplete coalesces equivalent queries, caches briefly, and keeps Sound
     data: [{ id: 'yt_artist', name: 'Гражданская оборона' }],
   }));
   t.mock.method(SoundCloudService, 'searchArtists', async () => []);
+  t.mock.method(YouTubeMusicService, 'search', async () => ({ data: [], total: 0 }));
   t.mock.method(YouTubeMusicService, 'searchAlbums', async () => []);
   t.mock.method(SoundCloudService, 'searchPlaylists', async () => [
     { id: 123, title: 'Зоопарк', is_album: true, user: { username: 'Гражданская оборона' } },
   ]);
   try {
+    t.mock.method(SoundCloudService, 'search', async () => ({ data: [], total: 0 }));
     const a = MusicAggregatorService.getAutocomplete(' Зоопарк '),
       b = MusicAggregatorService.getAutocomplete('зоопарк');
     await flush();
@@ -202,8 +204,10 @@ test('Autocomplete coalesces equivalent queries, caches briefly, and keeps Sound
 test('Autocomplete returns healthy suggestions after the timeout even if one provider never settles', async (t) => {
   MusicAggregatorService.autocompleteCache.clear();
   t.mock.method(SoundCloudService, 'getAutocomplete', async () => new Promise(() => {}));
+  t.mock.method(SoundCloudService, 'search', async () => ({ data: [], total: 0 }));
   t.mock.method(SoundCloudService, 'searchArtists', async () => []);
   t.mock.method(SoundCloudService, 'searchPlaylists', async () => []);
+  t.mock.method(YouTubeMusicService, 'search', async () => ({ data: [], total: 0 }));
   t.mock.method(YouTubeMusicService, 'searchAlbums', async () => []);
   t.mock.method(YouTubeMusicService, 'searchArtists', async () => ({
     data: [{ id: 'yt_artist', name: 'Healthy artist' }],
@@ -220,6 +224,35 @@ test('Autocomplete returns healthy suggestions after the timeout even if one pro
   } finally {
     MusicAggregatorService.autocompleteCache.clear();
     t.mock.timers.reset();
+  }
+});
+
+test('Autocomplete searches the selected provider and returns playable hits with exact IDs', async (t) => {
+  MusicAggregatorService.autocompleteCache.clear();
+  const hit = { ...track('yt_hit', 'youtube', 'Группа крови'), artist: { name: 'Кино' } };
+  const filler = { ...hit, title: 'Гость', id: 'yt_filler' };
+  const soundcloud = t.mock.method(SoundCloudService, 'getAutocomplete', async () => []);
+  t.mock.method(SoundCloudService, 'searchArtists', async () => []);
+  t.mock.method(SoundCloudService, 'searchPlaylists', async () => []);
+  t.mock.method(YouTubeMusicService, 'search', async () => ({ data: [filler], total: 1 }));
+  t.mock.method(YouTubeMusicService, 'searchArtists', async () => ({
+    data: [{ id: 'yt_art_kino', name: 'Кино', source: 'youtube' }],
+  }));
+  t.mock.method(YouTubeMusicService, 'searchAlbums', async () => []);
+  t.mock.method(YouTubeMusicService, 'getSearchTopTracks', async () => [hit]);
+  try {
+    const results = await MusicAggregatorService.getAutocomplete('Кино', 'youtube');
+    assert.equal(soundcloud.mock.callCount(), 0);
+    assert.equal(results[0].type, 'artist');
+    assert.equal(results[1].id, 'yt_hit');
+    assert.equal(results[1].track.id, 'yt_hit');
+    const exact = await MusicAggregatorService.getAutocomplete('Кино Гость', 'youtube');
+    assert.equal(exact[0].id, 'yt_filler');
+    t.mock.method(SoundCloudService, 'search', async () => ({ data: [], total: 0 }));
+    await MusicAggregatorService.getAutocomplete('Кино', 'soundcloud');
+    assert.equal(soundcloud.mock.callCount(), 1);
+  } finally {
+    MusicAggregatorService.autocompleteCache.clear();
   }
 });
 

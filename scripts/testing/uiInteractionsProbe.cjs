@@ -70,8 +70,105 @@ app.whenReady().then(async () => {
   win.webContents.on('console-message', (_, level, message) => {
     if (level === 3) errors.push(message);
   });
+  const checkSearch = async () => {
+    await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+      enabled: true,
+    });
+    await win.webContents.executeJavaScript(`(async()=>{
+      function check(condition,message) {if(!condition)throw Error(message);}
+      async function wait(predicate) {
+        for(let i=0;i<100;i++){if(predicate())return;await new Promise(resolve=>setTimeout(resolve,15));}
+        throw Error('Search fixture timed out');
+      }
+      const field=()=>document.querySelector('[role="combobox"]');
+      const key=(key,options={})=>field().dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...options}));
+      const option=()=>document.getElementById(field().getAttribute('aria-activedescendant'));
+      window.showSearchFixture('Fixture');
+      await wait(field);
+      field().focus();
+      await wait(()=>field().getAttribute('aria-expanded')==='true');
+      const list=document.getElementById(field().getAttribute('aria-controls'));
+      check(list?.querySelectorAll('[role="option"]').length===4,'Search alternatives are missing');
+      key('ArrowDown');
+      await wait(()=>option()?.textContent.includes('Fixture Artist'));
+      check(document.activeElement===field()&&option().getAttribute('aria-selected')==='true','Search left the editable input');
+      key('Enter',{isComposing:true});
+      check(window.searchActions.length===0,'IME confirmation selected a result');
+      key('ArrowDown');
+      await wait(()=>option()?.textContent.includes('Fixture Album'));
+      key('Enter');
+      await wait(()=>window.searchActions[0]?.join(':')==='album:record');
+      check(field().getAttribute('aria-expanded')==='false','Selecting a result left the popup open');
+      key('ArrowUp');
+      await wait(()=>option()?.getAttribute('aria-label')?.includes('Example Artist'));
+      key('Escape');
+      await wait(()=>!option()&&field().getAttribute('aria-expanded')==='false');
+      check(document.activeElement===field(),'Escape did not retain input focus');
+      key('ArrowDown');
+      await wait(()=>option());
+      document.getElementById('after-search').focus();
+      await wait(()=>field().getAttribute('aria-expanded')==='false');
+      field().focus();
+      key('ArrowUp');
+      await wait(()=>option()?.getAttribute('aria-label')?.includes('Example Artist'));
+      key('ArrowUp');
+      await wait(()=>option()?.textContent.includes('Fixture Song'));
+      key('Enter');
+      await wait(()=>window.searchActions[1]?.join(':')==='play:sc_song');
+      check(field().value==='Fixture'&&field().getAttribute('aria-expanded')==='false','Playback modified the query or left the popup open');
+      key('ArrowDown');
+      await wait(()=>field().getAttribute('aria-expanded')==='true');
+      Array.from(document.querySelectorAll('[role="option"]')).find(row=>row.textContent.includes('Fixture Song')).click();
+      await wait(()=>window.searchActions[2]?.join(':')==='play:sc_song');
+      check(window.searchActions.length===3,'Track suggestion also submitted a search');
+      field().form.requestSubmit();
+      await wait(()=>window.searchActions[3]?.join(':')==='search:Fixture');
+      window.showSearchFixture('');
+      await wait(()=>field()?.value==='');
+      field().focus();
+      await wait(()=>Array.from(document.querySelectorAll('button')).some(button=>button.textContent.trim()==='Previous search'));
+      const history=Array.from(document.querySelectorAll('button')).find(button=>button.textContent.trim()==='Previous search');
+      history.focus();
+      check(document.activeElement===history,'History is not keyboard-focusable');
+      history.click();
+      check(window.searchActions[0]?.join(':')==='search:Previous search'&&document.activeElement===field(),'History activation failed');
+      window.showSearchFixture('Fixture',true);
+      await wait(()=>field()?.value==='Fixture');
+      field().focus();
+      await wait(()=>document.querySelector('[role="listbox"]')?.textContent.includes('Fixture Local'));
+      await wait(()=>document.querySelector('[role="listbox"]')?.textContent.includes('Fixture Recent'));
+      key('ArrowDown');
+      await wait(()=>option()?.textContent.includes('Fixture Local'));
+      key('ArrowDown');
+      await wait(()=>option()?.getAttribute('aria-label')?.includes('Fixture Local'));
+      const activeId=option().id;
+      await wait(()=>window.finishAutocomplete);
+      window.finishAutocomplete();
+      await wait(()=>document.querySelector('[role="listbox"]')?.textContent.includes('Fixture Song'));
+      check(option().id===activeId,'Network suggestions changed the selected local option');
+      key('Enter');
+      await wait(()=>window.searchActions[0]?.join(':')==='next:sc_local');
+      const songAction=Array.from(document.querySelectorAll('[role="option"]')).find(row=>row.getAttribute('aria-label')?.includes('Играть следующим')&&row.getAttribute('aria-label').includes('Fixture Song'));
+      check(songAction,'The network result is missing its Play next action');
+      songAction.click();
+      await wait(()=>window.searchActions[1]?.join(':')==='next:sc_song');
+      check(field().value==='Fixture'&&field().getAttribute('aria-expanded')==='true','Queueing closed or changed the search');
+    })()`);
+    console.log('UI_SEARCH_KEYBOARD_OK');
+  };
   try {
     await win.loadFile(path.join(output, 'index.html'));
+    if (process.argv.includes('--search-only')) {
+      win.webContents.debugger.attach('1.3');
+      await checkSearch();
+      win.webContents.debugger.detach();
+      assert.deepEqual(errors, []);
+      assert.deepEqual(external, []);
+      win.destroy();
+      clearTimeout(deadline);
+      app.exit(0);
+      return;
+    }
     const roomLayout = await win.webContents.executeJavaScript(`(async()=>{
       for(let i=0;i<100&&!window.setRoomSession;i++) await new Promise(r=>setTimeout(r,10));
       window.setRoomSession({status:'connected',role:'host',selfId:'layout-test',playback:{track:null,playing:false,position:0,queue:[window.tracks[0]]}});
@@ -262,9 +359,21 @@ app.whenReady().then(async () => {
               ...document.querySelectorAll('button[aria-label="Отменить загрузку"]'),
             ].find((el) => el.getBoundingClientRect().height > 0);
             if (!cancel || cancel.disabled) throw Error('Player loading control is inert');
+            const loadingTextVisible = () =>
+              [...document.querySelectorAll('[role="status"]')].some(
+                (el) => el.textContent === 'Загружаем…' && el.getBoundingClientRect().height > 0,
+              );
+            if (loadingTextVisible()) throw Error('Short waits flash a loading label');
+            await until(loadingTextVisible);
             cancel.click();
             await tick();
             if (window.actions.at(-1) !== 'toggle') throw Error('Player did not dispatch cancel');
+            if (loadingTextVisible()) throw Error('Cancelled start retained its loading label');
+            if (layout === 'desktop') {
+              const next = document.querySelector('button[aria-label="Следующий трек (N)"]');
+              if (next?.getAttribute('aria-description') !== window.tracks[1].title)
+                throw Error('Next track title is missing from the transport');
+            }
             return {
               layout,
               singleTitleAction: true,
@@ -281,6 +390,25 @@ app.whenReady().then(async () => {
           ')',
       );
       console.log('UI_INTERACTIONS_OK ' + JSON.stringify(result));
+      await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+        enabled: true,
+      });
+      await win.webContents.executeJavaScript(
+        'document.querySelector(".soso-transport-play").focus()',
+      );
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+      assert.ok(
+        await win.webContents.executeJavaScript(`
+        new Promise(resolve=>requestAnimationFrame(()=>resolve(
+          !!document.querySelector('.soso-transport-forward:focus-visible .soso-transport-hint')?.getBoundingClientRect().height
+        )))
+      `),
+        'Keyboard focus does not reveal the next track title',
+      );
+      await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+        enabled: false,
+      });
       await win.webContents.executeJavaScript(
         'window.updateFixture({currentTrack:window.tracks[1],isLoadingTrack:true});new Promise(done=>setTimeout(done,200));',
       );
@@ -840,6 +968,7 @@ app.whenReady().then(async () => {
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
     });
+    await checkSearch();
     win.webContents.debugger.detach();
     assert.deepEqual(errors, []);
     assert.deepEqual(external, []);

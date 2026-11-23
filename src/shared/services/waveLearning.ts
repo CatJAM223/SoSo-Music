@@ -79,7 +79,8 @@ export function createWaveLearning(storage = localStorageOrUndefined(), now = Da
       raw && raw.length <= MAX_BYTES && new TextEncoder().encode(raw).length <= MAX_BYTES
         ? JSON.parse(raw)
         : null;
-    if (saved?.version === 1 && Number.isSafeInteger(saved.revision) && saved.revision >= 0) {
+    // Legacy aggregates credited overlap to the first method and cannot be corrected in place.
+    if (saved?.version === 2 && Number.isSafeInteger(saved.revision) && saved.revision >= 0) {
       revision = saved.revision;
       for (const row of (Array.isArray(saved.groups) ? saved.groups : []).slice(-MAX_GROUPS)) {
         if (!Array.isArray(row)) continue;
@@ -121,7 +122,7 @@ export function createWaveLearning(storage = localStorageOrUndefined(), now = Da
     if (!storage || !dirty) return;
     try {
       const raw = JSON.stringify({
-        version: 1,
+        version: 2,
         revision,
         groups: [...groups].map(([id, { at, count, sum }]) => [id, at, count, sum]),
         episodes: [...episodes].flatMap(([id, e]) =>
@@ -183,6 +184,7 @@ export function createWaveLearning(storage = localStorageOrUndefined(), now = Da
       if (policyRevision < 0) return;
       sync(policyRevision);
       if (event.tasteRevision !== revision || !validId(event.recommendationId)) return;
+      if (event.methods && event.methods.length > 1) return;
       const id = event.recommendationId;
       const episode = episodes.get(id);
       if (event.event === 'disliked') {

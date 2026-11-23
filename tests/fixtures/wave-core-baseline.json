@@ -62,9 +62,9 @@
       "sc_512374628"
     ],
     "counters": {
-      "soundcloud": 3,
-      "youtube": 3,
-      "similar": 0,
+      "soundcloud": 8,
+      "youtube": 8,
+      "similar": 3,
       "radio": 3
     }
   },
@@ -82,9 +82,9 @@
       "sc_512374628"
     ],
     "counters": {
-      "soundcloud": 3,
-      "youtube": 3,
-      "similar": 0,
+      "soundcloud": 8,
+      "youtube": 8,
+      "similar": 3,
       "radio": 3
     }
   },
@@ -203,7 +203,7 @@
     "counters": {
       "soundcloud": 6,
       "youtube": 6,
-      "similar": 0,
+      "similar": 3,
       "radio": 3
     }
   },
@@ -212,15 +212,15 @@
     "counters": {
       "soundcloud": 6,
       "youtube": 6,
-      "similar": 0,
+      "similar": 3,
       "radio": 3
     }
   },
   "unavailable:discover": {
     "ids": [],
     "counters": {
-      "soundcloud": 3,
-      "youtube": 3,
+      "soundcloud": 6,
+      "youtube": 6,
       "similar": 3,
       "radio": 3
     }

@@ -10,11 +10,14 @@ import {
 } from '../services/offlineDownloadProgress';
 import { emitToast } from '../context/ToastContext';
 import { useLibraryCaches } from './useLibraryCaches';
+import { matchesDislikedWaveTrack } from '../utils/waveQueue';
+import { recordingKey } from '../types/musicDomain';
 
 interface UseLibraryManagerParams {
   currentTrackRef?: React.MutableRefObject<Track | null>;
   nextTrack?: () => void;
   onDislike?: (track: Track) => void;
+  onUndislike?: (id: string | number) => void;
   onLike?: (track: Track) => void;
 }
 
@@ -22,6 +25,7 @@ export function useLibraryManager({
   currentTrackRef,
   nextTrack,
   onDislike,
+  onUndislike,
   onLike,
 }: UseLibraryManagerParams = {}) {
   const {
@@ -122,7 +126,12 @@ export function useLibraryManager({
             return next;
           });
           if (platformBridge?.undislikeTrack) {
-            platformBridge.undislikeTrack(track.id).catch(() => {});
+            platformBridge
+              .undislikeTrack(track.id)
+              .then((committed) => {
+                if (committed !== false) onUndislike?.(track.id);
+              })
+              .catch(() => {});
           }
         }
 
@@ -133,7 +142,7 @@ export function useLibraryManager({
         return false;
       }
     },
-    [likedTrackIds, onLike, setLikedTrackIds, setDislikedTrackIds, refreshLikedTracks],
+    [likedTrackIds, onLike, onUndislike, setLikedTrackIds, setDislikedTrackIds, refreshLikedTracks],
   );
 
   // Toggle Save Album
@@ -288,11 +297,27 @@ export function useLibraryManager({
         });
 
         const current = currentTrackRef?.current;
-        const selected = current && String(current.id) === idStr ? current : undefined;
-        onDislike?.(selected?.waveRecommendation ? selected : track);
+        const selected =
+          current &&
+          matchesDislikedWaveTrack(current, {
+            id: idStr,
+            title: track.title,
+            artist: track.artist?.name || '',
+            recordingId: recordingKey(track),
+          })
+            ? current
+            : undefined;
+        onDislike?.(
+          selected?.waveRecommendation
+            ? {
+                ...track,
+                waveRecommendation: selected.waveRecommendation,
+              }
+            : track,
+        );
 
         // If this track is currently playing, immediately skip to next track
-        if (currentTrackRef?.current && String(currentTrackRef.current.id) === idStr) {
+        if (selected) {
           nextTrack?.();
         }
 
@@ -316,6 +341,7 @@ export function useLibraryManager({
           if (committed === false) return false;
         }
 
+        onUndislike?.(trackId);
         setDislikedTrackIds((prev) => {
           const next = new Set(prev);
           next.delete(idStr);
@@ -330,7 +356,7 @@ export function useLibraryManager({
         return false;
       }
     },
-    [setDislikedTrackIds],
+    [onUndislike, setDislikedTrackIds],
   );
 
   const isTrackDisliked = useCallback(

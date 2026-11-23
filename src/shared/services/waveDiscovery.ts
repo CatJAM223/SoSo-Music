@@ -7,6 +7,7 @@ import {
   normalizeWaveArtist,
 } from '../utils/waveIdentity.ts';
 import { isWaveTempoEdit } from '../utils/waveQueue.ts';
+import { matchesWaveSource } from './waveSource.ts';
 
 interface DiscoveryOptions {
   related: (seed: Track) => Promise<Track[]>;
@@ -24,7 +25,13 @@ export async function gatherWaveDiscovery(
   context: WaveBatchContext,
   options: DiscoveryOptions,
 ) {
-  const anchors = selectWaveRelatedSeeds(seeds, context, 3, Math.random, options.recentAnchorIds);
+  const anchors = selectWaveRelatedSeeds(
+    seeds.filter((track) => matchesWaveSource(track, context.source)),
+    context,
+    3,
+    Math.random,
+    options.recentAnchorIds,
+  );
   const familiar = new Set(options.familiarArtists.map(normalizeWaveArtist));
   const offeredSongs = (context.offeredTracks || []).map((track) =>
     buildWaveSongIdentity(track, options.familiarArtists),
@@ -107,6 +114,7 @@ export async function gatherWaveDiscovery(
     const nearby = tracks.filter(
       (track) =>
         !originalIds.has(String(track.id)) &&
+        matchesWaveSource(track, context.source) &&
         !isWaveTempoEdit(track) &&
         getWaveArtistKeys(track, options.familiarArtists).every(
           (key) => (context.artistFeedback?.[key] || 0) > -0.8,

@@ -332,7 +332,7 @@ export function extractArtistsFromRuns(runs: any[]): {
 export function parseInnerTubeShelfItem(
   r: any,
   seenIds?: Set<string>,
-  options: { requireDuration?: boolean } = {},
+  options: { requireDuration?: boolean; fallbackDuration?: number } = {},
 ): Track | null {
   if (!r) return null;
   const renderer = r.musicResponsiveListItemRenderer || r;
@@ -413,7 +413,7 @@ export function parseInnerTubeShelfItem(
     id: `yt_${videoId}`,
     title,
     title_short: title,
-    duration: durationSec ?? 180,
+    duration: durationSec ?? options.fallbackDuration ?? 180,
     preview: `https://www.youtube.com/watch?v=${videoId}`,
     artist: {
       id: `yt_art_${artistBrowseId || artistName.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '_')}`,

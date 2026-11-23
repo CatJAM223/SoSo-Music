@@ -1,9 +1,9 @@
 <div align="center">
   <img src="src/renderer/assets/icon.png" width="96" height="96" alt="SoSo Music icon">
   <h1>SoSo Music</h1>
-  <p>Your favorites, new discoveries and lyrics. Together in a Windows music player.</p>
+  <p>Your favorites, new discoveries and lyrics in a music player for Windows and Linux.</p>
   <p><a href="https://github.com/CatJAM223/SoSo-Music/releases">Download</a> · <a href="README.ru.md">Русский</a> · <a href="https://github.com/CatJAM223/SoSo-Music/issues">Report an issue</a></p>
-  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/version-4.0.0-eab308" alt="Version 4.0.0"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
+  <p><img src="https://img.shields.io/badge/Windows-x64-0078D4" alt="Windows x64"> <img src="https://img.shields.io/badge/Linux-x64-444" alt="Linux x64"> <img src="https://img.shields.io/badge/version-4.2.6-eab308" alt="Version 4.2.6"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a></p>
 </div>
 
 Search SoundCloud and YouTube Music, build a personal library, and let **My Wave** find your next track. Switch between listening, karaoke and guitar practice without leaving the player.
@@ -24,11 +24,20 @@ Search SoundCloud and YouTube Music, build a personal library, and let **My Wave
 
 ## Install
 
+### Windows x64
+
 1. Open [GitHub Releases](https://github.com/CatJAM223/SoSo-Music/releases) and choose a Windows x64 ZIP or 7z archive.
 2. Extract the **entire archive** into a writable folder.
 3. Run **SoSo Music.exe** directly inside the extracted folder. Keep its resources and DLLs alongside it.
 
-The current distribution is a portable Windows build. Moving only the executable will break it. Downloadable builds are distributed through Releases, separately from the source repository.
+### Linux x64
+
+Download the `.deb` or `.AppImage` file from [GitHub Releases](https://github.com/CatJAM223/SoSo-Music/releases). Run the commands below in the download folder.
+
+- **Ubuntu and Debian.** Run `sudo apt install ./SoSo-Music-4.2.6-linux-amd64.deb`, then open **SoSo Music** from the application menu.
+- **Portable AppImage.** Run `chmod +x SoSo-Music-4.2.6-linux-x86_64.AppImage` and open the file.
+
+Closing the main window on Linux exits the player. Tray behavior and global shortcuts depend on your desktop environment. Wayland may limit overlay positioning. The `.deb` installs a launcher and registers support for `sosomusic://` links with the desktop environment.
 
 ## Quick start
 
@@ -64,7 +73,7 @@ Current source integrations include cancellable stream requests, bounded Retry-A
 
 ### Requirements
 
-- Windows for developing and packaging the desktop app.
+- Windows or x64 Linux. On Linux, install a C toolchain such as `build-essential` for the Rust executable.
 - **Node.js 24+** and npm.
 - Stable Rust with the **wasm32-unknown-unknown** target for the local compute module.
 
@@ -84,6 +93,8 @@ npm run package:zip
 ```
 
 The unpacked app is written to `release/win-unpacked/`. ZIP packaging checks the packaged version, creates a SHA-256 checksum and refuses to overwrite an existing archive.
+
+On x64 Linux, run `npm run build:linux` to build the `.deb`, `.AppImage` and SHA-256 checksums in `release/`. Under WSL, build from a copy in the Linux filesystem to preserve executable permissions and use Linux npm dependencies.
 
 ### Checks
 
@@ -110,13 +121,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Some checks la
 
 GitHub Actions runs `test:all`, including formatting, types, architecture, Node, Electron UI and deliberate regression sensitivity checks. Built main/preload and the production YouTube adapter are checked after building. Per-step logs are written to `scratch/check-logs` and uploaded on CI failures. Documentation-only and empty pushes do not start CI; newer runs cancel outdated ones.
 
-Use the **Windows release** workflow manually to download a build artifact, or push a tag matching the package version (for example, v4.0.0) to build and publish a GitHub Release with ZIP and 7z archives and their SHA-256 checksums. Desktop builds are not produced for every commit.
+CI also builds the Linux packages and checks the production Electron bundle on Ubuntu. Run **Desktop release** manually to download the Windows and Linux build artifacts. A tag matching the package version, such as `v4.2.6`, publishes both platforms with SHA-256 checksums and the corresponding release notes.
 
 ### Project layout
 
 ```text
 src/desktop/main/   Electron services, SQLite storage and IPC handlers
-src/desktop/ui/     Windows screens and components
+src/desktop/ui/     Desktop screens and components
 src/renderer/      Renderer entry point and global styles
 src/shared/        Player logic, components, contracts and localization
 native/            Rust/WASM compute sources
@@ -142,7 +153,7 @@ Wave outcome report: `npm run report:wave -- "path/playback.log" "path/playback.
 | The packaged app will not open | Extract the entire ZIP and keep all application resources together.                                                                                         |
 | A build fails with EPERM       | Close processes using build output files, then retry.                                                                                                       |
 
-[Report a bug](https://github.com/CatJAM223/SoSo-Music/issues) with the app version, Windows version, reproduction steps, expected behavior and relevant log lines from **Settings → Data → Open logs**. Remove cookies, tokens and pairing codes before sharing diagnostics.
+[Report a bug](https://github.com/CatJAM223/SoSo-Music/issues) with the app version, operating system version, reproduction steps, expected behavior and relevant log lines from **Settings → Data → Open logs**. Remove cookies, tokens and pairing codes before sharing diagnostics.
 
 ## Contact
 

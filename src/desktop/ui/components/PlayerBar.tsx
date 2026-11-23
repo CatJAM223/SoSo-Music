@@ -2,7 +2,7 @@ import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
 import { useYouTubeAvailability } from '../../../shared/hooks/useYouTubeAvailability';
 import { youtubeDisabledProps } from '../../../shared/services/youtubeAvailability';
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Play,
   Pause,
@@ -20,6 +20,7 @@ import {
   Loader2,
   MessageSquareText,
   Disc,
+  X,
   Guitar,
   Plus,
 } from 'lucide-react';
@@ -30,7 +31,8 @@ import {
 } from '../../../shared/context/AudioContext';
 import { advanceTrackArtwork } from '../../../shared/utils/trackArtwork';
 import { formatTime, detectTrackSource, resolveTrackCover } from '../../../shared/utils/formatters';
-import { parseArtists } from '../../../shared/utils/artistParser';
+import { TrackArtistButton } from '../../../shared/components/TrackArtistButton';
+import type { NavigateToArtist } from '../../../shared/types/artistNavigation';
 import { bufferedPercentRanges } from '../../../shared/utils/audioBuffer';
 import { useLyricsAvailability } from '../../../shared/hooks/useLyricsAvailability';
 import { usePlaybackTimeline } from '../../../shared/hooks/usePlaybackTimeline';
@@ -40,14 +42,28 @@ import { AnimatedLikeButton } from '../../../shared/components/BrokenHeartEffect
 import appLogo from '../../../renderer/assets/icon.png';
 
 import { isPlayButtonDisabled } from '../../../shared/utils/playerGuards';
+import { prefetchQueueIndices } from '../../../shared/utils/playbackQueueOrder';
 export { isPlayButtonDisabled };
+
+function TrackLoadingLabel() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), 500);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <span role="status" className="shrink-0 text-[10px] text-slate-600 dark:text-zinc-400">
+      {visible ? t('Загружаем…') : ''}
+    </span>
+  );
+}
 
 interface PlayerBarProps {
   onToggleQueue: () => void;
   isQueueOpen: boolean;
   onToggleLyrics?: () => void;
   isLyricsOpen?: boolean;
-  onNavigateToArtist?: (artist: { id?: string | number; name: string }) => void;
+  onNavigateToArtist?: NavigateToArtist;
   onOpenMobilePlayer?: () => void;
   onOpenAddToPlaylist?: (track: import('../../../shared/types').Track) => void;
 }
@@ -274,6 +290,8 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
     repeatMode,
     isShuffle,
     queue,
+    queueIndex,
+    shuffledUpcomingIndices,
     snippetTrack,
     isSnippetPlaying,
     likedTrackIds,
@@ -304,6 +322,15 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   const volumeBarRef = useRef<HTMLDivElement>(null);
 
   const activeTrack = isSnippetPlaying ? snippetTrack : currentTrack;
+  const canCancelLoading = isLoadingTrack && !isSnippetPlaying;
+  const [nextIndex] = prefetchQueueIndices(
+    queue.length,
+    queueIndex,
+    isShuffle && !isWaveActive ? shuffledUpcomingIndices : undefined,
+    repeatMode === 'all' && !isWaveActive,
+    (index) => !youtubeDisabledProps(queue[index], youtubeDisabled)['aria-disabled'],
+  );
+  const nextTitle = queue[nextIndex]?.title;
   const isLiked = activeTrack ? likedTrackIds.has(String(activeTrack.id)) : false;
   const isDisliked = activeTrack ? isTrackDisliked(activeTrack.id) : false;
 
@@ -393,6 +420,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                   >
                     {activeTrack.title}
                   </p>
+                  {canCancelLoading && <TrackLoadingLabel />}
                   {isSnippetPlaying && (
                     <span className="bg-purple-600/90 text-[10px] text-white font-bold px-2 py-0.5 rounded-full tracking-wider shrink-0 shadow-xs">
                       {t('СНИППЕТ')}
@@ -402,80 +430,11 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                 <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
                   <SourceBadge source={detectTrackSource(activeTrack)} size="sm" />
                   <div className="text-xs font-medium text-slate-600 dark:text-zinc-400 truncate flex items-center gap-1">
-                    {(() => {
-                      const rawArtist =
-                        activeTrack.artist?.name ||
-                        (typeof activeTrack.artist === 'string'
-                          ? activeTrack.artist
-                          : 'Unknown Artist');
-                      const parsed = parseArtists(rawArtist, activeTrack.title);
-                      if (parsed.length <= 1) {
-                        return (
-                          <span
-                            onClick={() => {
-                              if (
-                                onNavigateToArtist &&
-                                rawArtist &&
-                                rawArtist !== 'Unknown Artist'
-                              ) {
-                                const source =
-                                  activeTrack.artist?.source ||
-                                  activeTrack.source ||
-                                  detectTrackSource(activeTrack);
-                                const rawTrackId = String(activeTrack.id || '');
-                                const isNumericScId =
-                                  activeTrack.artist?.id &&
-                                  String(activeTrack.artist.id).match(/^sc_art_\d+$/);
-                                const artistId =
-                                  activeTrack.artist?.id && !isNumericScId
-                                    ? activeTrack.artist.id
-                                    : rawTrackId.startsWith('sc_') || source === 'soundcloud'
-                                      ? `sc_art_${rawArtist.toLowerCase().replace(/\s+/g, '_')}`
-                                      : rawTrackId.startsWith('yt_') || source === 'youtube'
-                                        ? `yt_art_${rawArtist.toLowerCase().replace(/\s+/g, '_')}`
-                                        : activeTrack.artist?.id;
-                                onNavigateToArtist({ id: artistId, name: rawArtist });
-                              }
-                            }}
-                            className={
-                              onNavigateToArtist
-                                ? 'hover:underline cursor-pointer hover:text-slate-900 dark:hover:text-white'
-                                : ''
-                            }
-                          >
-                            {rawArtist}
-                          </span>
-                        );
-                      }
-                      return parsed.map((art, idx) => (
-                        <React.Fragment key={art.name + idx}>
-                          <span
-                            onClick={() => {
-                              if (onNavigateToArtist) {
-                                const source =
-                                  activeTrack.artist?.source ||
-                                  activeTrack.source ||
-                                  detectTrackSource(activeTrack);
-                                const rawTrackId = String(activeTrack.id || '');
-                                const artistId =
-                                  rawTrackId.startsWith('sc_') || source === 'soundcloud'
-                                    ? `sc_art_${art.name.toLowerCase().replace(/\s+/g, '_')}`
-                                    : rawTrackId.startsWith('yt_') || source === 'youtube'
-                                      ? `yt_art_${art.name.toLowerCase().replace(/\s+/g, '_')}`
-                                      : undefined;
-                                onNavigateToArtist({ id: artistId, name: art.name });
-                              }
-                            }}
-                            className="hover:underline cursor-pointer hover:text-slate-900 dark:hover:text-white"
-                          >
-                            {art.name}
-                          </span>
-                          {idx < parsed.length - 1 && (
-                            <span className="text-slate-400 dark:text-zinc-500">, </span>
-                          )}
-                        </React.Fragment>
-                      ));
-                    })()}
+                    <TrackArtistButton
+                      track={activeTrack}
+                      onNavigateToArtist={onNavigateToArtist}
+                      className="hover:text-slate-900 dark:hover:text-white"
+                    />
                     {activeTrack.album?.title &&
                       activeTrack.album.title !== 'Single' &&
                       activeTrack.album.title !== activeTrack.title && (
@@ -587,7 +546,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                     ? t('Пауза (Пробел)')
                     : t('Воспроизвести (Пробел)')
               }
-              className={`soso-transport-play w-11 h-11 rounded-full flex items-center justify-center shadow-md ${
+              className={`soso-transport-play group relative w-11 h-11 rounded-full flex items-center justify-center shadow-md ${
                 isPlaying || isSnippetPlaying
                   ? 'bg-soso-brand text-black hover:bg-soso-brand-light shadow-soso-brand/30'
                   : 'bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-slate-800 dark:hover:bg-zinc-200'
@@ -597,22 +556,42 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                 key={isLoadingTrack ? 'loading' : isPlaying || isSnippetPlaying ? 'pause' : 'play'}
                 className="soso-control-icon"
               >
-                {isLoadingTrack ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                {canCancelLoading ? (
+                  <>
+                    <Loader2
+                      aria-hidden="true"
+                      className="w-5 h-5 animate-spin group-hover:hidden group-focus-visible:hidden"
+                    />
+                    <X
+                      aria-hidden="true"
+                      className="hidden w-5 h-5 group-hover:block group-focus-visible:block"
+                    />
+                  </>
                 ) : isPlaying || isSnippetPlaying ? (
                   <Pause className="w-5 h-5 fill-current" />
                 ) : (
                   <Play className="w-5 h-5 fill-current ml-0.5" />
                 )}
               </span>
+              {canCancelLoading && (
+                <span aria-hidden="true" className="soso-transport-hint">
+                  {t('Отменить загрузку')}
+                </span>
+              )}
             </button>
             <button
               onClick={nextTrack}
               disabled={queue.length === 0}
               aria-label={t('Следующий трек (N)')}
-              className="soso-transport-skip soso-transport-forward text-slate-700 dark:text-zinc-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-description={nextTitle}
+              className="soso-transport-skip soso-transport-forward relative text-slate-700 dark:text-zinc-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipForward className="w-5 h-5 fill-current" />
+              {nextTitle && (
+                <span aria-hidden="true" className="soso-transport-hint">
+                  {nextTitle}
+                </span>
+              )}
             </button>
             {!isWaveActive && (
               <button
@@ -822,6 +801,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                 <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate">
                   {activeTrack.title}
                 </p>
+                {canCancelLoading && <TrackLoadingLabel />}
                 {isSnippetPlaying && (
                   <span className="bg-purple-600/90 text-[9px] text-white font-bold px-1.5 py-0.5 rounded-full tracking-wide shrink-0">
                     {t('СНИППЕТ')}
@@ -857,6 +837,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
             {/* Play/Pause/Spinner Button */}
             <button
               type="button"
+              title={canCancelLoading ? t('Отменить загрузку') : undefined}
               aria-busy={isLoadingTrack && !isSnippetPlaying}
               onClick={(e) => {
                 e.stopPropagation();

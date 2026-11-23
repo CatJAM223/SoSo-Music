@@ -65,6 +65,32 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
     [setQueue],
   );
   const toggleShuffle = useCallback(() => setIsShuffle((previous) => !previous), [setIsShuffle]);
+  const editWithUndo = useCallback(
+    (edit: () => void) => {
+      const previous = queueRef.current;
+      const index = queueIndexRef.current;
+      const shuffle = shuffleCycleRef.current.copy();
+      const isShuffled = isShuffleRef.current;
+      const repeat = repeatModeRef.current;
+      edit();
+      const edited = queueRef.current;
+      const editedIndex = queueIndexRef.current;
+      return () => {
+        if (
+          queueRef.current !== edited ||
+          queueIndexRef.current !== editedIndex ||
+          isShuffleRef.current !== isShuffled ||
+          repeatModeRef.current !== repeat
+        )
+          return false;
+        shuffleCycleRef.current = shuffle;
+        setQueue(previous);
+        setQueueIndex(index);
+        return true;
+      };
+    },
+    [setQueue, setQueueIndex],
+  );
   const addToQueue = useCallback(
     (track: Track) => setQueue((previous) => [...previous, createQueueEntry(track)]),
     [setQueue],
@@ -98,40 +124,43 @@ export function useQueueManager(initial: PlaybackSession | null = null) {
   );
 
   const playNext = useCallback(
-    (track: Track) => {
-      const entry = createQueueEntry(track);
-      if (isShuffleRef.current) shuffleCycleRef.current.prioritize(queueEntryKey(entry)!);
-      const copy = [...queueRef.current];
-      const insertAt = queueIndexRef.current >= 0 ? queueIndexRef.current + 1 : copy.length;
-      copy.splice(insertAt, 0, entry);
-      setQueue(copy);
-    },
-    [setQueue],
+    (track: Track) =>
+      editWithUndo(() => {
+        const entry = createQueueEntry(track);
+        if (isShuffleRef.current) shuffleCycleRef.current.prioritize(queueEntryKey(entry)!);
+        const copy = [...queueRef.current];
+        const insertAt = queueIndexRef.current + 1;
+        copy.splice(insertAt, 0, entry);
+        setQueue(copy);
+      }),
+    [editWithUndo, setQueue],
   );
 
   const removeFromQueue = useCallback(
     (index: number) => {
       const previous = queueRef.current;
       if (!Number.isInteger(index) || index < 0 || index >= previous.length) return;
-      const updated = previous.filter((_, position) => position !== index);
-      // If the playing item is removed, the next command must still select its
-      // original successor. The current audio continues until that command.
-      if (index <= queueIndexRef.current) setQueueIndex((position) => position - 1);
-      setQueue(updated);
+      return editWithUndo(() => {
+        const updated = previous.filter((_, position) => position !== index);
+        // The current audio continues even when its queue entry is removed.
+        if (index <= queueIndexRef.current) setQueueIndex((position) => position - 1);
+        setQueue(updated);
+      });
     },
-    [setQueue, setQueueIndex],
+    [editWithUndo, setQueue, setQueueIndex],
   );
 
   const clearQueue = useCallback(
-    (fallbackTrack?: Track | null) => {
-      shuffleCycleRef.current.reset();
-      const retained = queueRef.current.find(
-        (item) => queueEntryKey(item) === queueEntryKey(fallbackTrack ?? undefined),
-      );
-      setQueue(fallbackTrack ? [retained ?? fallbackTrack] : []);
-      setQueueIndex(fallbackTrack ? 0 : -1);
-    },
-    [setQueue, setQueueIndex],
+    (fallbackTrack?: Track | null) =>
+      editWithUndo(() => {
+        shuffleCycleRef.current.reset();
+        const retained = queueRef.current.find(
+          (item) => queueEntryKey(item) === queueEntryKey(fallbackTrack ?? undefined),
+        );
+        setQueue(fallbackTrack ? [retained ?? fallbackTrack] : []);
+        setQueueIndex(fallbackTrack ? 0 : -1);
+      }),
+    [editWithUndo, setQueue, setQueueIndex],
   );
 
   const reorderQueue = useCallback(

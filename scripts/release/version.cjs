@@ -14,6 +14,8 @@ function versionInfo(version) {
     version,
     windowsZip: 'SoSo-Music-' + version + '-windows-x64.zip',
     windows7z: 'SoSo-Music-' + version + '-windows-x64.7z',
+    linuxDeb: 'SoSo-Music-' + version + '-linux-amd64.deb',
+    linuxAppImage: 'SoSo-Music-' + version + '-linux-x86_64.AppImage',
   };
 }
 function readVersion(root) {

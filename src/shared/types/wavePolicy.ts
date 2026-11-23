@@ -48,8 +48,12 @@ export function mergeWaveProvenance(
   const key = (path: WaveProvenance) =>
     WAVE_METHODS.indexOf(path.method) + ':' + (path.provider || '') + ':' + (path.anchor || '');
   const paths = new Map([...left, ...right].map((path) => [key(path), path]));
-  return [...paths.keys()]
-    .sort()
-    .slice(0, 3)
-    .map((id) => paths.get(id)!);
+  const sorted = [...paths.keys()].sort().map((id) => paths.get(id)!);
+  // Keep evidence of overlapping methods even if one method supplies many anchors.
+  const first = new Map<WaveMethod, WaveProvenance>();
+  for (const path of sorted) if (!first.has(path.method)) first.set(path.method, path);
+  return [...first.values(), ...sorted.filter((path) => first.get(path.method) !== path)].slice(
+    0,
+    3,
+  );
 }

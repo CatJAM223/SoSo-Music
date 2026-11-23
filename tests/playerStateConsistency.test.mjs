@@ -4,6 +4,8 @@ import { hookRuntime } from './helpers/hookRuntime.mjs';
 import { ShuffleCycle } from '../src/shared/utils/shuffleCycle.ts';
 import * as queueEntries from '../src/shared/utils/queueEntry.ts';
 import { DatabaseManager } from '../src/desktop/main/db/index.ts';
+import { matchesDislikedWaveTrack } from '../src/shared/utils/waveQueue.ts';
+import { recordingKey } from '../src/shared/types/musicDomain.ts';
 
 const deferred = () => {
   let resolve;
@@ -84,6 +86,54 @@ test('Queue commands expose the latest collection and modes within one event', (
   assert.equal(api.queueIndexRef.current, 3);
   assert.equal(api.repeatModeRef.current, 'one');
   assert.equal(h.render().repeatMode, 'one');
+});
+
+test('Play next inserts an occurrence after the current track and can undo only that edit', () => {
+  const h = queueHarness();
+  let api = h.api();
+  const current = api.queue[api.queueIndex];
+  const undo = api.playNext(track('d'));
+  api = h.render();
+  assert.equal(api.queue[api.queueIndex], current);
+  assert.deepEqual(
+    Array.from(api.queue, (item) => item.id),
+    ['a', 'b', 'c', 'd', 'd'],
+  );
+  assert.notEqual(api.queue[3].queueEntryId, api.queue[4].queueEntryId);
+  assert.equal(undo(), true);
+  assert.deepEqual(
+    Array.from(h.render().queue, (item) => item.id),
+    ['a', 'b', 'c', 'd'],
+  );
+});
+
+test('Undo restores the shuffled order, duplicate occurrences and current cursor', () => {
+  const h = queueHarness();
+  h.api().setIsShuffle(true);
+  h.api().setRepeatMode('all');
+  let api = h.render();
+  const originalQueue = api.queue;
+  const current = originalQueue[api.queueIndex];
+  const originalOrder = api.shuffleCycleRef.current.upcoming(
+    originalQueue,
+    current.queueEntryId,
+    true,
+  );
+  const undoRemove = api.removeFromQueue(3);
+  api = h.render();
+  const undoClear = api.clearQueue(current);
+  assert.equal(undoClear(), true);
+  assert.equal(undoRemove(), true);
+  api = h.render();
+  assert.equal(api.queue, originalQueue);
+  assert.equal(api.queue[api.queueIndex], current);
+  assert.deepEqual(
+    api.shuffleCycleRef.current.upcoming(api.queue, current.queueEntryId, true),
+    originalOrder,
+  );
+  const staleUndo = api.playNext(track('new'));
+  api.removeFromQueue(0);
+  assert.equal(staleUndo(), false);
 });
 
 const cacheSource = new URL('../src/shared/hooks/useLibraryCaches.ts', import.meta.url);
@@ -184,6 +234,8 @@ function managerHarness(bridge) {
     './useLibraryCaches': { source: cacheSource },
     '../services/youtubeAvailability.ts': { isYouTubeItemDisabled: () => false },
     '../utils/formatters': { detectTrackSource: () => 'youtube' },
+    '../utils/waveQueue': { matchesDislikedWaveTrack },
+    '../types/musicDomain': { recordingKey },
     '../services/offlineDownloadProgress': {
       getOfflineDownloadProgress: () => null,
       setOfflineDownloadProgress() {},
@@ -191,6 +243,30 @@ function managerHarness(bridge) {
     '../context/ToastContext': { emitToast() {} },
   });
 }
+
+test('A committed dislike skips a linked upload already playing and undo uses the original ID', async () => {
+  const original = track('yt_song');
+  const currentTrackRef = {
+    current: { ...track('sc_other'), recordingId: recordingKey(original) },
+  };
+  const actions = [];
+  const h = managerHarness({
+    ...readers(),
+    dislikeTrack: async () => true,
+    undislikeTrack: async () => true,
+  });
+  h.render({
+    currentTrackRef,
+    nextTrack: () => actions.push('skip'),
+    onDislike: (track) => actions.push(track.id),
+    onUndislike: (id) => actions.push(id),
+  });
+  await h.flush();
+  assert.equal(await h.api().dislikeTrack(original), true);
+  assert.equal(await h.api().undislikeTrack(original.id), true);
+  assert.deepEqual(actions, ['yt_song', 'skip', 'yt_song']);
+  h.unmount();
+});
 
 test('Disliking a favorite through the real library hook never re-likes it in SQLite', async (t) => {
   const db = new DatabaseManager(':memory:');

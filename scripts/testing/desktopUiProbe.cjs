@@ -432,7 +432,7 @@ app
         '(async()=>{for(let i=0;i<100&&!window.fixtureListenersReady();i++)await new Promise(r=>setTimeout(r,20));if(!window.fixtureListenersReady())throw Error("Dialog listeners did not mount");document.documentElement.classList.add("dark");document.documentElement.style.setProperty("--theme-accent","#eab308");document.documentElement.style.setProperty("--theme-accent-rgb","234,179,8");window.fixturePush({id:"one",address:"192.168.1.4",tracks:29,playlists:2,albums:1,artists:2});await new Promise(r=>setTimeout(r,350));})()',
       );
       const measure = await window.webContents.executeJavaScript(
-        '(()=>{document.querySelector(".soso-connection-backdrop").getAnimations().forEach(a=>a.finish());const dialog=document.querySelector(".soso-connection-dialog"),r=dialog.getBoundingClientRect();return {viewportWidth:innerWidth,viewportHeight:innerHeight,title:dialog.querySelector("h2").textContent,left:r.left,top:r.top,width:r.width,height:r.height,focus:document.activeElement.textContent,accent:getComputedStyle(dialog.querySelector(".soso-connection-primary")).backgroundColor};})()',
+        '(()=>{const dialog=document.querySelector(".soso-connection-dialog:modal");dialog.getAnimations().forEach(a=>a.finish());const r=dialog.getBoundingClientRect();return {viewportWidth:innerWidth,viewportHeight:innerHeight,title:dialog.querySelector("h2").textContent,left:r.left,top:r.top,width:r.width,height:r.height,focus:document.activeElement.textContent,accent:getComputedStyle(dialog.querySelector(".soso-connection-primary")).backgroundColor};})()',
       );
       assert.equal(measure.title, 'Принять медиатеку?');
       assert.equal(measure.focus, 'Отмена');
@@ -451,7 +451,7 @@ app
         ).toPNG(),
       );
       await window.webContents.executeJavaScript(
-        'window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));',
+        'document.querySelector(".soso-connection-dialog").requestClose();',
       );
       await new Promise((r) => setTimeout(r, 30));
       assert.deepEqual(await window.webContents.executeJavaScript('window.fixtureResponses'), [
@@ -890,7 +890,7 @@ app
         [...document.querySelectorAll('[role="tab"]')].find(e=>e.textContent==='Внешний вид').click();await wait(()=>document.querySelector('.settings-language'));
         const originalTrack=window.fixtureAudioState.currentTrack;
         document.querySelector('.settings-language button[lang="en"]').click();
-        await wait(()=>document.querySelector('#desktop-settings-title').textContent==='Settings');
+        await wait(()=>document.querySelector('.settings-modal-header h2')?.textContent==='Settings');
         if(localStorage.getItem('soso_language')!=='en'||document.documentElement.lang!=='en')throw Error('Language was not saved');
         if(window.fixtureAudioState.currentTrack!==originalTrack)throw Error('Language reset the player');
         const tabs=[...document.querySelectorAll('[role="tab"]')].map(e=>e.textContent);
@@ -955,15 +955,29 @@ app
         binding().click();await wait(()=>!!finishCapture);window.dispatchEvent(new Event('blur'));finishCapture({shortcuts:{},unavailable:[],overlayEnabled:true});await new Promise(r=>setTimeout(r,40));
         if(window.fixtureShortcutCapture||binding().disabled||binding().textContent.includes('Нажмите'))throw Error('Late capture handshake resumed recording after blur');window.electronAPI.captureDesktopShortcut=captureOriginal;
         const menuButton=()=>binding().closest('.shortcut-row').querySelector('.shortcut-more');
+        menuButton().focus();menuButton().click();await wait(()=>document.querySelector('.shortcut-menu'));
+        const menuAction=document.querySelector('.shortcut-menu button');menuAction.focus();
+        menuAction.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+        await wait(()=>!document.querySelector('.shortcut-menu'));
+        if(document.activeElement!==menuButton()||!document.querySelector('dialog.settings-modal:modal'))throw Error('Escape on shortcut actions did not return focus inside settings');
         menuButton().click();await wait(()=>document.querySelector('.shortcut-menu'));document.querySelectorAll('.shortcut-menu button')[1].click();await wait(()=>binding().textContent==='Не назначено');
         if(window.fixtureShortcutCalls.at(-1).key!=='')throw Error('Disable menu failed');
         menuButton().click();await wait(()=>document.querySelector('.shortcut-menu'));document.querySelector('.shortcut-menu button').click();await wait(()=>binding().textContent==='CtrlShiftПробел');
         if(window.fixtureShortcutCalls.at(-1).key!=='Control+Shift+Space')throw Error('Reset menu failed');
         for (const sample of [{code:'F8',key:'F8',expected:'F8'},{code:'F8',key:'F8',shiftKey:true,expected:'Shift+F8'},{code:'Space',key:' ',ctrlKey:true,expected:'Control+Space'}]) {
-          binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));await afterPaint();
+          binding().focus();binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));await afterPaint();
           window.dispatchEvent(new KeyboardEvent('keydown',{...sample,bubbles:true}));await wait(()=>window.fixtureShortcutCalls.at(-1)?.key===sample.expected&&!window.fixtureShortcutCapture);
           await wait(()=>!binding().disabled);
         }
+        const saved=window.fixtureShortcutCalls.length;
+        binding().focus();binding().click();await wait(()=>window.fixtureShortcutCapture&&binding().textContent.includes('Нажмите'));await afterPaint();
+        const above=document.createElement('dialog'),aboveButton=document.createElement('button');
+        above.append(aboveButton);document.body.append(above);above.showModal();
+        const upperKey=new KeyboardEvent('keydown',{key:'F8',code:'F8',bubbles:true,cancelable:true});
+        aboveButton.dispatchEvent(upperKey);
+        await wait(()=>!window.fixtureShortcutCapture);
+        if(upperKey.defaultPrevented||window.fixtureShortcutCalls.length!==saved)throw Error('Shortcut recording intercepted the upper dialog');
+        above.close();above.remove();
       })()`);
       fs.writeFileSync(
         path.join(path.dirname(output), 'shortcuts-dark.png'),
@@ -1094,29 +1108,42 @@ app
         const wait=async(fn)=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Update notification timed out');};
         const audio=new Audio();const bytes=new Uint8Array(44+44100*2*2),view=new DataView(bytes.buffer);const text=(offset,value)=>{for(let i=0;i<value.length;i++)bytes[offset+i]=value.charCodeAt(i);};text(0,'RIFF');view.setUint32(4,bytes.length-8,true);text(8,'WAVEfmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,44100,true);view.setUint32(28,88200,true);view.setUint16(32,2,true);view.setUint16(34,16,true);text(36,'data');view.setUint32(40,bytes.length-44,true);audio.src=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));audio.volume=0;audio.muted=true;audio.loop=true;await audio.play();
         const originalTrack=window.fixtureAudioState.currentTrack;window.renderUpdateFixture();await wait(()=>window.fixtureUpdateListener);const before=audio.currentTime;
-        window.fixtureUpdateListener({status:'available',currentVersion:'3.1.0',latestVersion:'3.2.0',message:'Available'});await wait(()=>document.querySelector('.app-update-notice'));
-        if(document.querySelector('.app-update-notice').textContent.includes('Музыка продолжает играть')||document.querySelector('.app-update-notes')||!document.querySelector('.app-update-wave'))throw Error('Update notice ignores minimal design');
-        const shade=document.querySelector('.app-update-shade').getBoundingClientRect();if(Math.abs(shade.top)>.5||Math.abs(shade.left)>.5||Math.abs(shade.right-innerWidth)>.5||Math.abs(shade.bottom-innerHeight)>.5)throw Error('Update backdrop does not cover the full window');
-        const panel=document.querySelector('.app-update-notice').getBoundingClientRect();if(panel.top<44||panel.bottom>innerHeight-92)throw Error('Update notice covers title or player bar');if(panel.width>721||panel.height>481)throw Error('Update notice is not compact');
+        window.fixtureUpdateListener({status:'available',currentVersion:'3.1.0',latestVersion:'3.2.0',message:'Available',releaseHighlights:{summary:'Меньше повторов',changes:['Дневная пятёрка помнит показы.']}});await wait(()=>document.querySelector('.app-update-notice'));
+        const notice=document.querySelector('.app-update-notice');const panel=notice.getBoundingClientRect();const bar=document.querySelector('.fixture-playing-bar');
+        if(notice.getAttribute('aria-modal')||document.querySelector('.app-update-shade')||panel.bottom>bar.getBoundingClientRect().top||panel.width>461||panel.height>100)throw Error('Update notice should be compact and leave playback accessible');
+        const pause=bar.querySelector('button');pause.focus();if(document.activeElement!==pause)throw Error('Update steals player focus');
+        const expand=notice.querySelector('.app-update-expand');const details=notice.querySelector('.app-update-details');
+        const height=()=>details.getBoundingClientRect().height;
+        if(notice.querySelector('.app-update-copy').textContent.trim()!=='Доступна версия 3.2.0'||notice.querySelector('.app-update-icon')||!details.inert||height()!==0)throw Error('Collapsed notice must show only the version and its actions');
+        const transitions=[];details.addEventListener('transitionend',event=>{if(event.propertyName==='grid-template-rows')transitions.push(height());});
+        const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+        expand.click();await wait(()=>!details.inert&&height()>0&&(reducedMotion||transitions.length===1));
+        if(expand.getAttribute('aria-expanded')!=='true'||!details.textContent.includes('Меньше повторов')||!details.textContent.includes('Дневная пятёрка помнит показы.'))throw Error('Release highlights did not expand');
+        expand.click();await wait(()=>details.inert&&height()===0&&(reducedMotion||transitions.length===2));
+        expand.click();await wait(()=>!details.inert&&height()>0&&(reducedMotion||transitions.length===3));
         await new Promise(r=>setTimeout(r,200));if(audio.paused||audio.currentTime<=before||window.fixtureAudioState.currentTrack!==originalTrack)throw Error('Update notice interrupted playback');
-        const oldOpen=window.open;window.open=url=>{window.fixtureUpdateURL=url;return null;};document.querySelector('.app-update-download').click();await wait(()=>!document.querySelector('.app-update-notice'));window.open=oldOpen;
+        const download=document.querySelector('.app-update-download');window.fixtureUpdateURL=download.href;download.addEventListener('click',event=>event.preventDefault(),{once:true});download.click();await wait(()=>!document.querySelector('.app-update-notice'));
         if(window.fixtureUpdateURL!=='https://github.com/CatJAM223/SoSo-Music/releases/tag/v3.2.0')throw Error('Wrong update download target');
         window.fixtureUpdateListener({status:'available',currentVersion:'3.1.0',latestVersion:'3.2.0'});await new Promise(r=>setTimeout(r,30));if(document.querySelector('.app-update-notice'))throw Error('Dismissed version nags again');
-        window.fixtureUpdateListener({status:'available',currentVersion:'3.1.0',latestVersion:'3.2.1'});await wait(()=>document.querySelector('.app-update-notice'));audio.pause();URL.revokeObjectURL(audio.src);
+        window.fixtureUpdateListener({status:'available',currentVersion:'3.1.0',latestVersion:'3.2.1'});await wait(()=>document.querySelector('.app-update-release'));if(document.querySelector('.app-update-details'))throw Error('Legacy releases should open GitHub directly');audio.pause();URL.revokeObjectURL(audio.src);
       })()`);
       fs.writeFileSync(
         path.join(path.dirname(output), 'update-notification.png'),
         (await window.webContents.capturePage()).toPNG(),
       );
       console.log(
-        'LIVE_UPDATE_NOTICE_OK: arrives during playback, audio advances, minimal copy, stable dismissal and safe download link',
+        'LIVE_UPDATE_NOTICE_OK: playback and focus continue, release details expand, stable dismissal and safe release links',
       );
       await window.webContents.executeJavaScript(`(async()=>{
         const wait=async(fn)=>{for(let i=0;i<100;i++){if(fn())return;await new Promise(r=>setTimeout(r,20));}throw Error('Queue redesign timed out');};
         window.renderRichQueueFixture();await wait(()=>document.querySelector('[data-queue-next]'));
         const row=document.querySelector('[data-queue-next]');row.querySelector('[role="button"]').click();if(window.fixtureQueuePlayCalls[0].wave!==true)throw Error('Queue selection exits My Wave');
-        row.querySelector('.queue-more').click();await wait(()=>!row.querySelector('[role="menu"]').hidden);if(!row.querySelector('[role="menuitem"]')||row.querySelector('.queue-track-info').getBoundingClientRect().width<160)throw Error('Queue actions squeeze track metadata');
-        row.querySelector('.queue-more').click();await wait(()=>row.querySelector('[role="menu"]').hidden);
+        const trigger=row.querySelector('.queue-more'), actions=document.getElementById(trigger.getAttribute('aria-controls'));
+        trigger.focus();trigger.click();await wait(()=>!actions.hidden);
+        const command=actions.querySelector('button');
+        if(actions.getAttribute('role')!=='group'||!command||row.querySelector('.queue-track-info').getBoundingClientRect().width<160)throw Error('Queue actions squeeze track metadata');
+        command.focus();command.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));await wait(()=>actions.hidden);
+        if(document.activeElement!==trigger||trigger.getAttribute('aria-expanded')!=='false')throw Error('Queue actions did not restore trigger focus');
         await wait(()=>Math.abs(document.querySelector('[data-queue-drawer]').getBoundingClientRect().top-44)<.5);const rect=document.querySelector('[data-queue-drawer]').getBoundingClientRect();if(Math.abs(rect.top-44)>.5||rect.bottom>innerHeight-95.5)throw Error('Queue geometry differs from window bars');
       })()`);
       fs.writeFileSync(

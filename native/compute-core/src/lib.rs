@@ -1,6 +1,7 @@
 //! Batched song-family matching. No host imports, network, storage or account data.
 //! UTF-16 units intentionally preserve the reference JavaScript typo semantics.
 use std::cell::RefCell;
+mod app_release;
 mod demux;
 mod import_match;
 mod loudness;
@@ -332,7 +333,7 @@ fn calculate_job(mut job: Job) -> Option<Vec<u8>> {
 }
 #[no_mangle]
 pub extern "C" fn abi_version() -> u32 {
-    8
+    9
 }
 #[no_mangle]
 pub extern "C" fn reserve(length: usize) -> usize {

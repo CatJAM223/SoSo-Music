@@ -1,19 +1,12 @@
-.soso-connection-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+.soso-connection-dialog::backdrop {
   background: rgba(0, 0, 0, 0.62);
   backdrop-filter: blur(14px);
-  animation: sosoFadeScale 0.24s ease-out;
 }
 .soso-connection-dialog {
-  position: relative;
-  width: 440px;
-  max-width: 100%;
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(440px, calc(100vw - 48px));
   max-height: calc(100dvh - 48px);
   overflow: auto;
   border: 1px solid var(--border-color);
@@ -25,6 +18,7 @@
     radial-gradient(ellipse at 50% 0, rgba(var(--theme-accent-rgb), 0.09), transparent 65%),
     var(--bg-card);
   box-shadow: 0 24px 100px rgba(0, 0, 0, 0.35);
+  animation: sosoFadeScale 0.24s ease-out;
 }
 .soso-connection-brand {
   display: block;
@@ -181,6 +175,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .soso-connection-dialog,
   .soso-connection-check path {
     animation: none;
   }

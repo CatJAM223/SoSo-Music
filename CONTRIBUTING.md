@@ -14,6 +14,8 @@ Changes to main go through a pull request with at least one approving review fro
 - Keep generated builds, logs, caches, database exports, credentials and temporary diagnostics out of the repository. Install dependencies from the lockfile.
 - Update both READMEs when setup changes. Put release notes in CHANGELOG.md. Change versions using npm run release:version -- X.Y.Z, then run npm run release:check.
 
+To show changes in the player, add a `## Главное` (or `## Highlights`) section to `docs/releases/vX.Y.Z.md`. Start it with one short plain-text line, followed by up to three bullet points that describe user-visible changes. The release workflow publishes this file to GitHub. The player reads the section from the release description.
+
 ## Structure
 
 Electron main owns native services. Preload exposes typed contracts; the renderer uses the shared bridge. Shared modules cannot depend on desktop implementations. npm run architecture:check verifies these boundaries.
@@ -28,7 +30,7 @@ Historical reference implementations belong only in isolated test fixtures or be
 
 ## Reporting bugs
 
-Include the app version, Windows version, exact steps and relevant log lines. Do not attach cookies, tokens, pairing codes or a full personal database. Mocked tests cannot establish external service availability or successful real account sign-in.
+Include the app version, operating system version, exact steps and relevant log lines. Do not attach cookies, tokens, pairing codes or a full personal database. Mocked tests cannot establish external service availability or successful real account sign-in.
 
 ## TypeScript compiler and tooling API
 

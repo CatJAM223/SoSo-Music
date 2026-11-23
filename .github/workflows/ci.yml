@@ -72,3 +72,5 @@ jobs:
             scratch/check-logs/**
           if-no-files-found: ignore
           retention-days: 7
+  linux:
+    uses: ./.github/workflows/linux.yml

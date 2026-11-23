@@ -1,1 +1,5 @@
 @import '../../../../shared/components/settings/settings.css';
+
+.settings-qr-dialog[open] {
+  display: flex;
+}

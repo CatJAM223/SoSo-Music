@@ -1,5 +1,10 @@
 import type { Artist, MusicSource, Track } from '../types/index.ts';
-import { rankSearchTracks } from './searchRanking.ts';
+import {
+  assessSearchArtists,
+  assessSearchTracks,
+  mergeSearchTopTracks,
+  searchQueryVariants,
+} from './searchRanking.ts';
 
 export function settleWithin<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   return new Promise((resolve) => {
@@ -17,6 +22,10 @@ export function settleWithin<T>(promise: Promise<T>, timeoutMs: number, fallback
   });
 }
 
+type Provider = Exclude<MusicSource, 'all'>;
+type Part = 'tracks' | 'artists';
+type Status = 'pending' | 'ok' | 'failed';
+
 interface SearchApi {
   search: (
     query: string,
@@ -30,16 +39,28 @@ interface SearchApi {
     source: MusicSource,
     requestId?: string,
   ) => Promise<{ data: Artist[] }>;
+  searchArtistTracks?: (artist: Artist, source: Provider, requestId: string) => Promise<Track[]>;
   cancelSearch?: (requestId: string) => Promise<void>;
 }
-interface SearchSnapshot {
+
+interface SourceResult {
+  source: Provider;
+  tracks: Track[];
+  artists: Artist[];
+  popular: Track[];
+  status: Record<Part, Status>;
+}
+
+export interface SearchSnapshot {
   tracks: Track[];
   artists: Artist[];
   pending: boolean;
-  failedSources: MusicSource[];
+  tracksFirst: boolean;
+  failedSources: Provider[];
+  failures: { source: Provider; part: Part }[];
+  sources: SourceResult[];
 }
 
-/** Publish each provider as it arrives, preserving the same relevance ranking after merging. */
 export async function runProgressiveSearch(
   query: string,
   source: MusicSource,
@@ -47,74 +68,143 @@ export async function runProgressiveSearch(
   onResults: (snapshot: SearchSnapshot) => void,
   timeoutMs = 15000,
   signal?: AbortSignal,
+  resume?: SearchSnapshot,
 ): Promise<void> {
-  const sources: MusicSource[] = source === 'all' ? ['youtube', 'soundcloud'] : [source];
-  const tracks = new Map<MusicSource, Track[]>(),
-    artists = new Map<MusicSource, Artist[]>();
-  let pending = sources.length * 2;
-  const failures = new Set<MusicSource>();
+  const providers: Provider[] = source === 'all' ? ['youtube', 'soundcloud'] : [source];
+  const deadline = performance.now() + timeoutMs;
+  const parts: Part[] = ['tracks', 'artists'];
+  const sources: SourceResult[] = providers.map((provider) => {
+    const previous = resume?.sources.find((item) => item.source === provider);
+    return previous
+      ? { ...previous, status: { ...previous.status } }
+      : {
+          source: provider,
+          tracks: [],
+          artists: [],
+          popular: [],
+          status: { tracks: 'pending', artists: 'pending' },
+        };
+  });
+
   const request = <T>(
-    provider: MusicSource,
     execute: (id: string) => Promise<T>,
-    fallback: T,
-  ): Promise<T> => {
+    budget: number,
+  ): Promise<T | undefined> => {
+    if (signal?.aborted || budget <= 0) return Promise.resolve(undefined);
     const id = crypto.randomUUID();
     return new Promise((resolve) => {
       let finished = false;
-      const finish = (value: T, failed = false, cancel = false) => {
+      const finish = (value?: T, cancel = false) => {
         if (finished) return;
         finished = true;
         clearTimeout(timer);
         signal?.removeEventListener('abort', abort);
-        if (failed) failures.add(provider);
         if (cancel) void api.cancelSearch?.(id).catch(() => {});
         resolve(value);
       };
-      const abort = () => finish(fallback, false, true);
-      const timer = setTimeout(() => finish(fallback, true, true), timeoutMs);
+      const abort = () => finish(undefined, true);
+      const timer = setTimeout(abort, budget);
       signal?.addEventListener('abort', abort, { once: true });
-      if (signal?.aborted) {
-        abort();
-        return;
-      }
       Promise.resolve()
-        .then(() => (finished ? fallback : execute(id)))
+        .then(() => (finished ? undefined : execute(id)))
         .then(
           (value) => finish(value),
-          () => finish(fallback, true),
+          () => finish(),
         );
     });
   };
+  let extrasPending = true;
+
+  const ranked = () => ({
+    tracks: assessSearchTracks(
+      sources.flatMap((item) => mergeSearchTopTracks(item.tracks, item.popular)),
+      query,
+    ),
+    artists: assessSearchArtists(
+      sources.flatMap((item) => item.artists),
+      query,
+    ),
+  });
   const publish = () => {
     if (signal?.aborted) return;
-    const combined = sources.flatMap((item) => tracks.get(item) || []);
-    const seen = new Set<string>();
-    const combinedArtists = sources
-      .flatMap((item) => artists.get(item) || [])
-      .filter((artist) => {
-        const key = (artist.name || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+    const { tracks, artists } = ranked();
+    const failures = sources.flatMap((item) =>
+      parts
+        .filter((part) => item.status[part] === 'failed')
+        .map((part) => ({ source: item.source, part })),
+    );
     onResults({
-      tracks: rankSearchTracks(combined, query).slice(0, 40),
-      artists: combinedArtists.slice(0, 6),
-      pending: --pending > 0,
-      failedSources: [...failures],
+      tracks: tracks.items.slice(0, 40),
+      artists: artists.items.slice(0, 6),
+      tracksFirst: tracks.strong && !artists.strong,
+      pending:
+        extrasPending ||
+        sources.some((item) => parts.some((part) => item.status[part] === 'pending')),
+      failedSources: [...new Set(failures.map((failure) => failure.source))],
+      failures,
+      sources: sources.map((item) => ({ ...item, status: { ...item.status } })),
     });
   };
-  const jobs = sources.flatMap((provider) => [
-    request(provider, (id) => api.search(query, 40, provider, id), { data: [] }).then((reply) => {
-      tracks.set(provider, Array.isArray(reply?.data) ? reply.data : []);
-      publish();
-    }),
-    request(provider, async (id) => api.searchArtists?.(query, 6, provider, id) || { data: [] }, {
-      data: [],
-    }).then((reply) => {
-      artists.set(provider, Array.isArray(reply?.data) ? reply.data : []);
-      publish();
-    }),
-  ]);
+
+  const alternatives = searchQueryVariants(query);
+  const jobs = sources.map(async (item) => {
+    const selected = parts.filter((part) => item.status[part] !== 'ok');
+    for (const part of selected) item.status[part] = 'pending';
+    await Promise.all(
+      selected.map(async (part) => {
+        const budget = deadline - performance.now();
+        if (part === 'tracks') {
+          const reply = await request((id) => api.search(query, 40, item.source, id), budget);
+          item.status.tracks = Array.isArray(reply?.data) ? 'ok' : 'failed';
+          if (Array.isArray(reply?.data)) item.tracks = reply.data;
+          publish();
+          return;
+        }
+        const reply = api.searchArtists
+          ? await request((id) => api.searchArtists!(query, 12, item.source, id), budget)
+          : { data: [] };
+        item.status.artists = Array.isArray(reply?.data) ? 'ok' : 'failed';
+        if (Array.isArray(reply?.data)) item.artists = reply.data;
+        publish();
+        const exact = assessSearchArtists(item.artists, query);
+        if (api.searchArtistTracks && exact.strong) {
+          const hits = await request(
+            (id) => api.searchArtistTracks!(exact.items[0], item.source, id),
+            Math.min(3500, deadline - performance.now()),
+          );
+          if (Array.isArray(hits)) {
+            item.popular = hits;
+            publish();
+          }
+        }
+      }),
+    );
+    if (!selected.length || !alternatives.length || signal?.aborted) return;
+    const results = ranked();
+    if (results.tracks.strong || results.artists.strong) return;
+    const budgetEnd = Math.min(deadline, performance.now() + 1800);
+    for (const alternative of alternatives) {
+      const budget = budgetEnd - performance.now();
+      if (budget <= 0 || signal?.aborted) return;
+      const [trackReply, artistReply] = await Promise.all([
+        selected.includes('tracks') && item.status.tracks === 'ok'
+          ? request((id) => api.search(alternative, 16, item.source, id), budget)
+          : undefined,
+        api.searchArtists && selected.includes('artists') && item.status.artists === 'ok'
+          ? request((id) => api.searchArtists!(alternative, 6, item.source, id), budget)
+          : undefined,
+      ]);
+      const tracks = assessSearchTracks(trackReply?.data || [], alternative);
+      const artists = assessSearchArtists(artistReply?.data || [], alternative);
+      if (tracks.strong) item.tracks = [...item.tracks, ...tracks.items];
+      if (artists.strong) item.artists = [...item.artists, ...artists.items];
+      if (tracks.strong || artists.strong) {
+        publish();
+        return;
+      }
+    }
+  });
   await Promise.all(jobs);
+  extrasPending = false;
+  publish();
 }

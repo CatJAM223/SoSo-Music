@@ -271,9 +271,8 @@ app
 
     if (phase === 'initial') {
       const overlayWindow = () =>
-        windows.find(
-          ({ title, window }) => title === 'SoSo Music Overlay' && !window.isDestroyed(),
-        )?.window;
+        windows.find(({ title, window }) => title === 'SoSo Music Overlay' && !window.isDestroyed())
+          ?.window;
       await main.webContents.executeJavaScript('window.electronAPI.setPlayerOverlayEnabled(true)');
       assert.equal(overlayWindow(), undefined, 'Do not load the overlay with the player focused');
       main.isFocused = () => false;
@@ -281,7 +280,11 @@ app
       await until(() => overlayWindow()?.isVisible(), 'show overlay when player loses focus');
       main.isFocused = () => true;
       main.emit('focus');
-      assert.equal(overlayWindow().isVisible(), false, 'Hide the overlay when the player is focused');
+      assert.equal(
+        overlayWindow().isVisible(),
+        false,
+        'Hide the overlay when the player is focused',
+      );
       await main.webContents.executeJavaScript('window.electronAPI.setPlayerOverlayEnabled(false)');
       assert.equal(overlayWindow(), undefined);
     }

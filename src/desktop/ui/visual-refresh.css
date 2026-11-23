@@ -195,3 +195,28 @@ html.dark[data-theme='default'] {
     border-top: 1px solid var(--border-color);
   }
 }
+.soso-transport-hint {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(16rem, 40vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: #18181b;
+  color: #fafafa;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.soso-transport-play:is(:hover, :focus-visible) .soso-transport-hint,
+.soso-transport-forward:is(:hover, :focus-visible) .soso-transport-hint {
+  display: block;
+}

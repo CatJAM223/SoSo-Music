@@ -19,6 +19,7 @@ import {createRoot} from 'react-dom/client';
 import {TrackRow as DesktopRow} from './src/desktop/ui/components/TrackRow';
 import {PlayerBar as DesktopBar} from './src/desktop/ui/components/PlayerBar';
 import {Sidebar} from './src/desktop/ui/components/Sidebar';
+import {SearchBar} from './src/desktop/ui/components/SearchBar';
 import {QueueDrawer} from './src/shared/components/QueueDrawer';
 import {SearchAlbumResults} from './src/shared/components/SearchAlbumResults';
 import {DiscoverView as DesktopDiscover} from './src/desktop/ui/pages/DiscoverView';
@@ -51,7 +52,25 @@ function Fixture(){
  const noop=()=>{};
  return <FixtureAudioState.Provider value={state}><div className="p-5"><button id="press-target" className="rounded-lg px-4 py-2 bg-soso-brand text-black">Control</button><button id="disabled-target" disabled className="ml-4 rounded-lg px-4 py-2">Disabled</button></div><main key={layout+mode} className="soso-view-enter px-4 pb-32">{mode==='motion'?<div className="flex gap-6 h-96"><Sidebar currentView={view} onNavigate={setView} onOpenCreatePlaylist={noop} onOpenSettings={noop} refreshPlaylistsTrigger={0}/><div className="flex-1 pt-4"><SearchAlbumResults albums={[{id:'album_1',title:'Measured album',artist:{name:'Fixture'},cover:art('#7b57ce')}]} onOpenAlbum={()=>window.actions.push('album')}/></div></div>:mode==='wave'?<Discover onNavigate={noop} onNavigateToArtist={noop} onOpenAddToPlaylist={noop}/>:window.tracks.map((track,index)=><Row key={track.id} track={track} index={index} playlistContext={window.tracks} onOpenAddToPlaylist={noop}/>)}</main><Bar onToggleQueue={()=>setQueueOpen(value=>!value)} isQueueOpen={queueOpen} onToggleLyrics={noop} onOpenMobilePlayer={noop} onOpenAddToPlaylist={noop}/><QueueDrawer isOpen={queueOpen} onClose={()=>setQueueOpen(false)}/></FixtureAudioState.Provider>;
 }
-createRoot(document.getElementById('root')).render(<Fixture/>);
+const root=createRoot(document.getElementById('root'));
+root.render(<Fixture/>);
+window.showSearchFixture=(initialQuery,queueAction=false)=>{
+  window.searchActions=[];
+  bridge.getSearchHistory=async()=>[{id:1,query:'Previous search'}];
+  bridge.getLibraryPage=async request=>({
+    kind:'tracks',items:queueAction&&request.query==='Fixture'?[{deezer_id:'sc_local',title:'Fixture Local',artist:'Local artist',duration:180}]:[]
+  });
+  bridge.getListeningHistory=async()=>queueAction?[{track_id:'sc_recent',title:'Fixture Recent',artist:'Recent artist',source:'soundcloud'}]:[];
+  bridge.getAutocomplete=async()=>{
+    if(queueAction)await new Promise(resolve=>{window.finishAutocomplete=resolve;});
+    return [
+    {id:'artist',type:'artist',title:'Fixture Artist',source:'soundcloud'},
+    {id:'record',type:'album',title:'Fixture Album',artist:'Example Artist',source:'soundcloud'},
+    {id:'song',type:'track',title:'Fixture Song',artist:'Example Artist',source:'soundcloud',track:{id:'sc_song',title:'Fixture Song',artist:{name:'Example Artist'},album:{title:'Fixture Album'},source:'soundcloud',duration:180,preview:''}}
+    ];
+  };
+  root.render(<main key={initialQuery+queueAction}><SearchBar initialQuery={initialQuery} onSearch={query=>window.searchActions.push(['search',query])} onPlayTrack={track=>window.searchActions.push(['play',track.id])} onPlayNext={queueAction?(track=>window.searchActions.push(['next',track.id])):undefined} onNavigateToArtist={artist=>window.searchActions.push(['artist',artist.id])} onNavigateToAlbum={album=>window.searchActions.push(['album',album.id])}/><button id="after-search">After search</button></main>);
+};
 `;
 try {
   await build({
@@ -108,7 +127,7 @@ try {
             return {
               loader: 'js',
               contents:
-                'export const platformBridge=new Proxy({getCharts:async()=>({tracks:{data:[]}}),getLyrics:async()=>[],getChords:async()=>null},{get:(target,key)=>target[key]??(async()=>[])});',
+                'export const platformBridge=new Proxy({getCharts:async()=>({tracks:{data:[]}}),getLyrics:async()=>[],getChords:async()=>null,getLibraryPage:(...args)=>window.electronAPI.getLibraryPage(...args),getListeningHistory:(...args)=>window.electronAPI.getListeningHistory(...args)},{get:(target,key)=>target[key]??(async()=>[])});',
             };
           });
         },
@@ -135,7 +154,11 @@ try {
   delete env.ELECTRON_RUN_AS_NODE;
   const result = spawnSync(
     require('electron'),
-    [path.join(root, 'scripts/testing/uiInteractionsProbe.cjs'), output],
+    [
+      path.join(root, 'scripts/testing/uiInteractionsProbe.cjs'),
+      output,
+      ...process.argv.slice(2).filter((arg) => arg === '--search-only'),
+    ],
     { cwd: root, stdio: 'inherit', env, windowsHide: true, timeout: 60000 },
   );
   if (result.error) throw result.error;

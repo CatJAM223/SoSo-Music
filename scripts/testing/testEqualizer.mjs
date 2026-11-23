@@ -48,7 +48,7 @@ app.whenReady().then(async()=>{
   if(precise!==-6){result.ok=false;result.error='Negative gain keyboard entry failed: '+precise;}else result.results.push({preciseGain:precise});
   await window.webContents.executeJavaScript('document.querySelector(".equalizer-precise input").blur()');
   await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
-  await window.webContents.executeJavaScript('document.querySelectorAll(".equalizer-presets button")[0].click()');
+  await window.webContents.executeJavaScript('document.querySelector(".equalizer-panel-top button").click()');
   await new Promise(resolve=>setTimeout(resolve,60));
   const reducedMotionY=await window.webContents.executeJavaScript('Number(document.querySelector(".equalizer-handle").getAttribute("cy"))');
   if(Math.abs(reducedMotionY-118)>0.1){result.ok=false;result.error='Reduced motion should snap to neutral';}else result.results.push({reducedMotion:'respected'});

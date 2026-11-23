@@ -3,16 +3,31 @@ export default {
   title: 'Desktop/Update notification',
   component: AppUpdateNotice,
   render: () => (
-    <AppUpdateNotice
-      update={{ status: 'available', currentVersion: '3.1.0', latestVersion: '3.2.0', message: '' }}
-      onDismiss={() => {}}
-    />
+    <div className="app-update-anchor" style={{ marginTop: 320, minHeight: 90 }}>
+      <AppUpdateNotice
+        update={{
+          status: 'available',
+          currentVersion: '4.2.0',
+          latestVersion: '4.3.0',
+          message: '',
+          releaseHighlights: {
+            summary: 'Меньше повторов в рекомендациях.',
+            changes: ['Дневная пятёрка помнит недавние показы.'],
+          },
+        }}
+        onDismiss={() => {}}
+      />
+    </div>
   ),
 };
 export const NewVersion = {
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    const dialog = canvasElement.ownerDocument.querySelector('[role="dialog"]');
-    if (!dialog?.textContent?.includes('3.2.0') || !dialog.querySelector('.app-update-wave'))
-      throw Error('Missing version or artwork');
+    const notice = canvasElement.querySelector('.app-update-notice');
+    const expand = notice?.querySelector<HTMLButtonElement>('.app-update-expand');
+    if (!notice?.textContent?.includes('4.3.0') || !expand)
+      throw Error('Missing version or details action');
+    expand.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    if (expand.getAttribute('aria-expanded') !== 'true') throw Error('Details did not expand');
   },
 };

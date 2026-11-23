@@ -101,7 +101,7 @@ test('same-day refill preserves current cards on success and failure, while midn
       calls++;
       if (calls === 1) return [first];
       if (calls === 2) throw Error('Offline');
-      if (calls === 3) return [second];
+      if (calls === 3) return [...options.retainedTracks, second];
       return [];
     },
     () => new Date(stamp),

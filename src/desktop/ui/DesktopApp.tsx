@@ -25,7 +25,9 @@ import { SnippetModal } from './components/SnippetModal';
 import { OnboardingTour } from './components/OnboardingTour';
 import { DiscoverView } from './pages/DiscoverView';
 import { Track } from '../../shared/types';
+import type { ArtistDestination, NavigateToArtist } from '../../shared/types/artistNavigation';
 import { useAudioState } from '../../shared/context/AudioContext';
+import { isYouTubePlaybackDisabled } from '../../shared/services/youtubeAvailability';
 import { parseMultiArtists } from '../../shared/utils/artistParser';
 import { MultiArtistModal } from './components/modals/MultiArtistModal';
 import { CursorGlow } from './components/CursorGlow';
@@ -102,6 +104,18 @@ export const DesktopApp: React.FC = () => {
   const { themePreset } = useTheme();
   const { currentTrack, isPlaying } = useAudioState();
   const { update: availableUpdate, dismiss: dismissUpdate } = useAppUpdateNotice();
+
+  useEffect(() => {
+    const warmup = requestIdleCallback(
+      () => {
+        if (navigator.onLine && !isYouTubePlaybackDisabled()) {
+          void window.electronAPI?.warmYouTubePlayback?.().catch(() => {});
+        }
+      },
+      { timeout: 750 },
+    );
+    return () => cancelIdleCallback(warmup);
+  }, []);
 
   // Navigation History Stack
   const [navigation, dispatchNavigation] = useReducer(
@@ -292,19 +306,22 @@ export const DesktopApp: React.FC = () => {
     };
   }, [triggerBack, triggerForward]);
 
-  const [multiArtistList, setMultiArtistList] = useState<string[] | null>(null);
+  const [artistPicker, setArtistPicker] = useState<{
+    artists: ArtistDestination[];
+    beforeNavigation?: () => void;
+  } | null>(null);
 
   const handleOpenAddToPlaylist = (track: Track) => {
     setTrackForPlaylist(track);
   };
 
-  const handleNavigateToArtist = (artist: { id?: string | number; name: string }) => {
-    const rawName = artist.name || (typeof artist === 'string' ? artist : '');
-    const parsed = parseMultiArtists(rawName);
+  const handleNavigateToArtist: NavigateToArtist = (artist, choices, beforeNavigation) => {
+    const parsed = choices ?? parseMultiArtists(artist.name).map((name) => ({ name }));
 
     if (parsed.length > 1) {
-      setMultiArtistList(parsed);
+      setArtistPicker({ artists: parsed, beforeNavigation });
     } else {
+      beforeNavigation?.();
       handleNavigate('artist', artist);
     }
   };
@@ -409,7 +426,8 @@ export const DesktopApp: React.FC = () => {
                   {currentView === 'genres' && (
                     <GenresView
                       onOpenAddToPlaylist={handleOpenAddToPlaylist}
-                      onNavigate={handleNavigate}
+                      onNavigateToArtist={handleNavigateToArtist}
+                      onNavigateToAlbum={handleNavigateToAlbum}
                     />
                   )}
 
@@ -489,16 +507,23 @@ export const DesktopApp: React.FC = () => {
       </div>
 
       {/* Bottom Desktop Player Bar — always visible so new users see controls and the "pick a track" hint */}
-      <PlayerBar
-        isQueueOpen={isQueueOpen}
-        onToggleQueue={() => setIsQueueOpen((prev) => !prev)}
-        isLyricsOpen={isLyricsOpen}
-        onToggleLyrics={() => setIsLyricsOpen((prev) => !prev)}
-        onNavigateToArtist={handleNavigateToArtist}
-        onOpenAddToPlaylist={handleOpenAddToPlaylist}
-      />
-
-      {availableUpdate && <AppUpdateNotice update={availableUpdate} onDismiss={dismissUpdate} />}
+      <div className="app-update-anchor">
+        <PlayerBar
+          isQueueOpen={isQueueOpen}
+          onToggleQueue={() => setIsQueueOpen((prev) => !prev)}
+          isLyricsOpen={isLyricsOpen}
+          onToggleLyrics={() => setIsLyricsOpen((prev) => !prev)}
+          onNavigateToArtist={handleNavigateToArtist}
+          onOpenAddToPlaylist={handleOpenAddToPlaylist}
+        />
+        {availableUpdate && (
+          <AppUpdateNotice
+            key={availableUpdate.latestVersion}
+            update={availableUpdate}
+            onDismiss={dismissUpdate}
+          />
+        )}
+      </div>
       <DesktopConnectionDialogs />
       <YouTubeAccessDialog
         currentTrackId={currentTrack?.id}
@@ -546,18 +571,33 @@ export const DesktopApp: React.FC = () => {
             key={settingsInitialTab}
             initialTab={settingsInitialTab}
             isOpen={isSettingsOpen}
-            onClose={() => setIsSettingsOpen(false)}
+            onClose={() => {
+              setIsSettingsOpen(false);
+              if (settingsInitialTab !== 'integrations') return;
+              requestAnimationFrame(() => {
+                if (
+                  document.activeElement === document.body &&
+                  !document.querySelector('dialog:modal')
+                ) {
+                  document.querySelector<HTMLButtonElement>('[data-tour="settings-nav"]')?.focus();
+                }
+              });
+            }}
           />
         )}
       </Suspense>
 
       {/* Multi-Artist Selection Modal */}
-      <MultiArtistModal
-        isOpen={multiArtistList !== null}
-        artists={multiArtistList || []}
-        onClose={() => setMultiArtistList(null)}
-        onSelectArtist={(selected) => handleNavigate('artist', selected)}
-      />
+      {artistPicker && (
+        <MultiArtistModal
+          artists={artistPicker.artists}
+          onClose={() => setArtistPicker(null)}
+          onSelectArtist={(selected) => {
+            artistPicker.beforeNavigation?.();
+            handleNavigate('artist', selected);
+          }}
+        />
+      )}
 
       {/* First-time Onboarding & Feature Spotlight Tour */}
       <OnboardingTour isOpen={isOnboardingOpen} onClose={() => setIsOnboardingOpen(false)} />

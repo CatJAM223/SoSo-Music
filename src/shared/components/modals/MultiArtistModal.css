@@ -1,0 +1,9 @@
+.multi-artist-dialog {
+  width: min(25rem, calc(100% - 2rem));
+  overscroll-behavior: contain;
+}
+
+.multi-artist-dialog::backdrop {
+  background: rgb(0 0 0 / 60%);
+  backdrop-filter: blur(12px);
+}

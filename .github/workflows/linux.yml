@@ -1,0 +1,41 @@
+name: Linux x64
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Prepare Rust target
+        run: rustup target add wasm32-unknown-unknown
+      - run: npm ci
+      - run: npm run build:linux
+      - run: npm run release:check
+      - run: npm test
+      - run: npm run test:rooms
+      - run: xvfb-run -a npm run test:desktop-bootstrap -- --production
+      - name: Verify Linux checksums
+        working-directory: release
+        run: sha256sum --strict --check -- *-linux-*.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SoSo-Music-linux-x64
+          path: |
+            release/*-linux-*.deb
+            release/*-linux-*.AppImage
+            release/*-linux-*.sha256
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error

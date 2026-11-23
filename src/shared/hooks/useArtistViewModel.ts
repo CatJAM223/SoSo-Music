@@ -68,7 +68,18 @@ export function useArtistViewModel({
       setTrackSearchFilter('');
 
       try {
-        const res = await platformBridge.getArtist(artistQuery, artistName, artistSource);
+        let source = artistSource;
+        let res = await platformBridge.getArtist(artistQuery, artistName, source);
+        // A credit without a profile ID may only be listed in the other catalog.
+        if (
+          !res &&
+          isMounted &&
+          artistQuery === artistName &&
+          (source === 'youtube' || source === 'soundcloud')
+        ) {
+          source = source === 'youtube' ? 'soundcloud' : 'youtube';
+          res = await platformBridge.getArtist(artistQuery, artistName, source);
+        }
         if (isMounted && res) {
           const details = normalizeArtistDetails(res);
           setArtistDetails(details);
@@ -78,7 +89,7 @@ export function useArtistViewModel({
           if (res.artist) {
             setLoadingAllTracks(true);
             platformBridge
-              .getArtistAllTracks(res.artist.id, res.artist.name, res.artist.source || artistSource)
+              .getArtistAllTracks(res.artist.id, res.artist.name, res.artist.source || source)
               .then((tracks) => {
                 if (isMounted) {
                   setAllTracks(

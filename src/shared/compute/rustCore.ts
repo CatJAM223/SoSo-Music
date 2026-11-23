@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.ts';
 export const MAX_COMPUTE_INPUT = 8 * 1024 * 1024;
 interface ComputeExports {
+  app_release: (size: number) => number;
   wave_session_affinity: (matches: number) => number;
   wave_search_limit: (base: number, exposed: number, attempt: number) => number;
   wave_search_retry: (count: number, attempt: number) => number;
@@ -60,9 +61,10 @@ export function initializeRustCompute(bytes: BufferSource): Promise<boolean> {
       const result = await WebAssembly.instantiate(copy, {});
       const exports = result.instance.exports as unknown as ComputeExports;
       if (
-        exports.abi_version?.() !== 8 ||
+        exports.abi_version?.() !== 9 ||
         !(exports.memory instanceof WebAssembly.Memory) ||
         [
+          'app_release',
           'wave_session_affinity',
           'wave_search_limit',
           'wave_search_retry',
@@ -106,7 +108,7 @@ export function initializeRustCompute(bytes: BufferSource): Promise<boolean> {
         throw Error('Unsupported Rust compute ABI');
       core = exports;
       localBytes = copy;
-      logger.info('[Compute:Rust] Required local compute core ready (ABI 8)');
+      logger.info('[Compute:Rust] Required local compute core ready (ABI 9)');
       return true;
     } catch (error) {
       core = null;
@@ -131,6 +133,7 @@ export function rustComputeBytes(): Uint8Array<ArrayBuffer> {
 }
 export function runRustCompute(
   operation:
+    | 'app_release'
     | 'daily_accepts'
     | 'daily_select'
     | 'daily_rejections'

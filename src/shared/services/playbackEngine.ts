@@ -1474,9 +1474,6 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
         cancelFade();
         audio.volume = isMutedRef.current ? 0 : volumeRef.current;
       }
-      setIsPlaying(true);
-      isPlayingRef.current = true;
-      setIsLoadingTrack(false);
       const session = playbackSessionRef.current;
       if (session && !session.finalized) {
         session.lastPosition = audio.currentTime;
@@ -1875,6 +1872,8 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       clearStalledRecoveryTimer();
       isTransitioningTrackRef.current = false;
       trackTransitionTimestampRef.current = 0;
+      setIsPlaying(true);
+      isPlayingRef.current = true;
       setIsLoadingTrack(false);
       streamRetryCountRef.current = 0;
       handledMediaErrorRef.current = null;
@@ -2062,7 +2061,8 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
   ) => {
     if (!engine.isMounted) return;
     playableSource = null;
-    const selectionStartedAt = takePlaybackIntentStart(track) ?? performance.now();
+    const commandStartedAt = performance.now();
+    const selectionStartedAt = takePlaybackIntentStart(track) ?? commandStartedAt;
     if (newQueue) {
       const context =
         normalizePlaybackOrigin(origin) ||
@@ -2176,6 +2176,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
       detectTrackSource(track),
       selectionStartedAt,
       temporaryRetry,
+      commandStartedAt - selectionStartedAt,
     );
     PlaybackLogger.info('[Track:Request] Playback request allocated', {
       requestId: currentRequestId,
@@ -2251,6 +2252,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     streamRetryCountRef.current = 0;
     handledMediaErrorRef.current = null;
     if (prepared) {
+      diagnosticsRef.current?.sourceReady('prepared');
       pendingResolutionRef.current = false;
       bufferedSourceRef.current = { audio, url: audio.currentSrc || audio.src };
       setBufferedRanges(readAudioBufferedRanges(audio, bufferedSourceRef.current));
@@ -2330,12 +2332,14 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     });
     if (cachedSource.kind === 'stale') return;
     if (cachedSource.kind === 'offline' || cachedSource.kind === 'memory') {
+      diagnosticsRef.current?.sourceReady(
+        cachedSource.kind === 'offline' ? 'local-cache' : 'memory-cache',
+      );
       if (cachedSource.kind === 'offline') {
         PlaybackLogger.info(
           `[Track:Cache] Hit offline IndexedDB for "${track.title}" in ${Date.now() - clickStartTime}ms`,
         );
         track = cachedSource.track;
-        setIsLoadingTrack(false);
       }
       loadStreamIntoAudio(audio, mainHlsRef, cachedSource.url, startPosition, false, track.id);
       // Start audio before touching artwork storage. A late reply belongs only to this request.
@@ -2372,10 +2376,10 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     const isStreamFresh =
       !forceRefresh && cached && Date.now() - cached.timestamp < STREAM_URL_MAX_AGE_MS;
     if (isStreamFresh && cached && isPlayableStreamForTrack(cached.url, track)) {
+      diagnosticsRef.current?.sourceReady('cached-url');
       PlaybackLogger.info(
         `[Track:Cache] Hit memory stream cache for "${track.title}" in ${Date.now() - clickStartTime}ms`,
       );
-      setIsLoadingTrack(false);
       loadStreamIntoAudio(audio, mainHlsRef, cached.url, startPosition, false, track.id);
       return;
     }
@@ -2392,7 +2396,6 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
     )
       .then((fullStreamUrl) => {
         if (currentRequestId !== streamRequestIdRef.current) return;
-        setIsLoadingTrack(false);
         const targetStreamUrl = isPlayableStreamForTrack(fullStreamUrl, track)
           ? fullStreamUrl
           : !isYouTube && isPlayableStreamForTrack(track.preview, track)
@@ -2404,6 +2407,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
           return;
         }
         if (targetStreamUrl) {
+          diagnosticsRef.current?.sourceReady('resolved');
           PlaybackLogger.info(
             `[Track:Stream] Resolved stream URL for "${track.title}" in ${resolveDuration}ms (source: ${effectiveSource}): ${getSafeAudioSourceLabel(targetStreamUrl)}`,
           );
@@ -2422,6 +2426,7 @@ function createPlaybackRuntime(engine: PlaybackEngine) {
             );
           }
         } else {
+          setIsLoadingTrack(false);
           PlaybackLogger.warn(
             `[Track:Stream] No playable stream URL returned for "${track.title}" after ${resolveDuration}ms (source: ${effectiveSource})`,
           );

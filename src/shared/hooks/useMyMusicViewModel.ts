@@ -1,4 +1,8 @@
-import { beginPlaybackIntent, markPreparedPlayback } from '../utils/playbackIntent.ts';
+import {
+  beginPlaybackIntent,
+  invalidatePlaybackIntent,
+  markPreparedPlayback,
+} from '../utils/playbackIntent.ts';
 import { usePagedLibrary } from './usePagedLibrary';
 import { mapLikedTracks } from '../utils/likedTrackMapping';
 import type {
@@ -108,8 +112,13 @@ export function useMyMusicViewModel({
     loadingPlaylists = playlistPage.loading,
     loadingAlbums = albumPage.loading,
     loadingArtists = artistPage.loading;
-  const loadLikedTracks = trackPage.refresh,
-    loadPlaylists = playlistPage.refresh,
+  const libraryQueue = useRef<{ key: string; result: Promise<Track[]> } | null>(null);
+  const refreshTrackPage = trackPage.refresh;
+  const loadLikedTracks = useCallback(() => {
+    libraryQueue.current = null;
+    refreshTrackPage();
+  }, [refreshTrackPage]);
+  const loadPlaylists = playlistPage.refresh,
     loadSavedAlbums = albumPage.refresh,
     loadFollowedArtists = artistPage.refresh;
   const activePage =
@@ -172,12 +181,22 @@ export function useMyMusicViewModel({
   const [offlineTracks, setOfflineTracks] = useState<Track[]>([]);
   const [loadingOffline, setLoadingOffline] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [preparingTrackId, setPreparingTrackId] = useState<string>();
   const playGeneration = useRef(0);
-  const pendingLibraryQueue = useRef<{ key: string; result: Promise<Track[]> } | null>(null);
   useEffect(() => {
-    // Membership updates invalidate even a read for the same search and sort.
-    pendingLibraryQueue.current = null;
-  }, [likedTrackIds, trackPage.items]);
+    libraryQueue.current = null;
+  }, [likedTrackIds]);
+  useEffect(() => {
+    playGeneration.current++;
+    setPreparingTrackId(undefined);
+  }, [searchQuery, sort]);
+  useEffect(
+    () =>
+      platformBridge.onRecordingAliasesChanged?.(() => {
+        libraryQueue.current = null;
+      }),
+    [],
+  );
 
   const loadListeningHistory = useCallback(async () => {
     const isCurrent = beginRead('history');
@@ -288,34 +307,51 @@ export function useMyMusicViewModel({
 
   const handlePlayLibraryTrack = async (selected?: Track) => {
     const generation = ++playGeneration.current;
-    const ownsIntent = beginPlaybackIntent();
+    const ownsIntent = beginPlaybackIntent(
+      selected
+        ? () => {
+            if (mounted.current && generation === playGeneration.current)
+              setPreparingTrackId(undefined);
+          }
+        : undefined,
+    );
+    const canCommit = () =>
+      mounted.current && generation === playGeneration.current && ownsIntent();
+    const key = JSON.stringify([searchQuery, sort]);
     setPlaybackError(null);
+    setPreparingTrackId(selected ? String(selected.id) : undefined);
     try {
-      const key = JSON.stringify([searchQuery, sort]);
-      let pending = pendingLibraryQueue.current;
-      if (pending?.key !== key) {
-        const request = {
-          key,
-          result: platformBridge
-            .getLibraryPlaybackTracks({ query: searchQuery, sort })
-            .then(mapLikedTracks)
-            .finally(() => {
-              if (pendingLibraryQueue.current === request) pendingLibraryQueue.current = null;
-            }),
-        };
-        pending = pendingLibraryQueue.current = request;
+      while (canCommit()) {
+        let pending = libraryQueue.current;
+        if (pending?.key !== key) {
+          const request = {
+            key,
+            result: platformBridge
+              .getLibraryPlaybackTracks({ query: searchQuery, sort })
+              .then(mapLikedTracks)
+              .catch((error) => {
+                if (libraryQueue.current === request) libraryQueue.current = null;
+                throw error;
+              }),
+          };
+          pending = libraryQueue.current = request;
+        }
+        const context = await pending.result;
+        if (!canCommit()) return;
+        if (libraryQueue.current !== pending) continue;
+        const first = selected
+          ? context.find((track) => String(track.id) === String(selected.id))
+          : context[0];
+        if (first) {
+          markPreparedPlayback(first);
+          playTrack(first, context, false, undefined, { kind: 'library' });
+        } else if (selected) setPlaybackError('Трек больше не входит в эту подборку.');
+        return;
       }
-      const context = await pending.result;
-      if (!mounted.current || generation !== playGeneration.current || !ownsIntent()) return;
-      const first = selected
-        ? context.find((track) => String(track.id) === String(selected.id))
-        : context[0];
-      if (first) {
-        markPreparedPlayback(first);
-        playTrack(first, context, false, undefined, { kind: 'library' });
-      } else if (selected) setPlaybackError('Трек больше не входит в эту подборку.');
     } catch (error) {
-      if (mounted.current && generation === playGeneration.current) setPlaybackError(String(error));
+      if (canCommit()) setPlaybackError(String(error));
+    } finally {
+      if (ownsIntent()) invalidatePlaybackIntent();
     }
   };
   const handlePlayAllTracks = () => {
@@ -446,6 +482,7 @@ export function useMyMusicViewModel({
     refreshStats,
     activePage,
     playbackError,
+    preparingTrackId,
     handlePlayLibraryTrack,
     playlists,
     loadingPlaylists,

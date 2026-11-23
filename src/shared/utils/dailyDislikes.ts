@@ -2,6 +2,7 @@ import { requireRustCompute } from '../compute/rustCore.ts';
 import { dailyDecision } from '../compute/dailySelection.ts';
 import { compareWaveSongBatch, createWaveSongMatrix } from '../compute/waveSongMatrix.ts';
 import type { Track } from '../types/index.ts';
+import { recordingKey } from '../types/musicDomain.ts';
 import { tasteTrackId } from './tastePolicy.ts';
 import {
   createWaveSongIdentifier,
@@ -12,6 +13,7 @@ import {
 
 export interface DailyDislikedTrack {
   id: string | number;
+  recordingId?: string;
   title: string;
   artist: string;
 }
@@ -54,6 +56,8 @@ export function createDailyDislikePolicy(disliked: readonly DailyDislikedTrack[]
     song: identityOf(track),
   });
   const largeDislikeSet = rejected.length > 4096;
+  const rejectedRecordings = new Set(disliked.map(recordingKey));
+  const recordingRejected = (track: Track) => rejectedRecordings.has(recordingKey(track));
   const byArtist = new Map<string, (typeof rejected)[number][]>();
   for (const item of rejected) {
     for (const artist of item.song.artists) {
@@ -70,7 +74,8 @@ export function createDailyDislikePolicy(disliked: readonly DailyDislikedTrack[]
   }
   const countArtists = (artists: string[]) =>
     artists.reduce((highest, artist) => Math.max(highest, byArtist.get(artist)?.length ?? 0), 0);
-  const rejectionCount = (track: Pick<Track, 'title' | 'artist'>) => countArtists(artistKeys(track));
+  const rejectionCount = (track: Pick<Track, 'title' | 'artist'>) =>
+    countArtists(artistKeys(track));
   const acceptsPacket = (item: ReturnType<typeof packet>) => {
     if (!rejected.length) return true;
     const candidate = [item];
@@ -79,10 +84,16 @@ export function createDailyDislikePolicy(disliked: readonly DailyDislikedTrack[]
         return false;
     return true;
   };
-  const accepts = (track: Track) => !rejected.length || acceptsPacket(packet(track));
+  const accepts = (track: Track) =>
+    !recordingRejected(track) && (!rejected.length || acceptsPacket(packet(track)));
   const knownIndexes = new WeakMap<
     Track[],
-    { identify: ReturnType<typeof createWaveSongIdentifier>; ids: Set<string>; heard: WeakSet<Track>; fresh: WeakSet<Track> }
+    {
+      identify: ReturnType<typeof createWaveSongIdentifier>;
+      ids: Set<string>;
+      heard: WeakSet<Track>;
+      fresh: WeakSet<Track>;
+    }
   >();
   function* select(
     candidates: Track[],
@@ -90,6 +101,14 @@ export function createDailyDislikePolicy(disliked: readonly DailyDislikedTrack[]
     preserve: number,
     reuseImmutableKnown = false,
   ): Generator<void, Track[]> {
+    if (rejectedRecordings.size) {
+      const retained = candidates.slice(0, preserve).filter((track) => !recordingRejected(track));
+      candidates = [
+        ...retained,
+        ...candidates.slice(preserve).filter((track) => !recordingRejected(track)),
+      ];
+      preserve = retained.length;
+    }
     if (!candidates.length) return [];
     const blocked = largeDislikeSet ? [] : rejected;
     const large = known.length > 4096;
@@ -105,7 +124,12 @@ export function createDailyDislikePolicy(disliked: readonly DailyDislikedTrack[]
           if (index % 512 === 511) yield;
         }
       }
-      context = { identify: createWaveSongIdentifier([...names]), ids, heard: new WeakSet(), fresh: new WeakSet() };
+      context = {
+        identify: createWaveSongIdentifier([...names]),
+        ids,
+        heard: new WeakSet(),
+        fresh: new WeakSet(),
+      };
       if (reuseImmutableKnown) knownIndexes.set(known, context);
     }
     const { identify, ids: knownIds, heard, fresh } = context;
@@ -121,9 +145,10 @@ export function createDailyDislikePolicy(disliked: readonly DailyDislikedTrack[]
         .map((track, index) => ({ track, retained: index < preserve, payload: encode(track) }))
         .filter(({ payload }) => acceptsPacket(payload))
         .map((item) => ({ ...item, count: countArtists(item.payload.song.artists) }));
-      ranked.sort((a, b) =>
-        Number(b.retained) - Number(a.retained) ||
-        (a.retained && b.retained ? 0 : a.count - b.count),
+      ranked.sort(
+        (a, b) =>
+          Number(b.retained) - Number(a.retained) ||
+          (a.retained && b.retained ? 0 : a.count - b.count),
       );
       candidates = ranked.map(({ track }) => track);
       preserve = ranked.filter(({ retained }) => retained).length;

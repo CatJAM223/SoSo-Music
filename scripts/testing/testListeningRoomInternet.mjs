@@ -3,7 +3,8 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-const binary = fileURLToPath(new URL('../../build/native/soso-rooms.exe', import.meta.url));
+const executable = process.platform === 'win32' ? 'soso-rooms.exe' : 'soso-rooms';
+const binary = fileURLToPath(new URL('../../build/native/' + executable, import.meta.url));
 const children = [];
 const relayOnly = !process.argv.includes('--allow-direct');
 function peer() {

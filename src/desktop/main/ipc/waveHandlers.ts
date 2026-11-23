@@ -11,6 +11,7 @@ import {
 } from '../../../shared/utils/waveRecommendations.ts';
 import { MusicAggregatorService } from '../services/musicAggregator.ts';
 import { WaveBatchRequestRegistry } from '../services/waveBatchRequestRegistry.ts';
+import { matchesDislikedWaveTrack } from '../../../shared/utils/waveQueue.ts';
 
 export function registerWaveHandlers(ipc: IpcMain, db: DatabaseManager): void {
   const requests = new WaveBatchRequestRegistry();
@@ -51,37 +52,46 @@ export function registerWaveHandlers(ipc: IpcMain, db: DatabaseManager): void {
       context = normalizeWaveBatchContext(context);
       const request = requests.begin(event.sender, requestId);
       try {
+        const revision = db.getChangeRevision?.();
         const snapshot = waveTasteSnapshot(db);
         const policy = db.getTastePolicy();
         const { disliked } = snapshot;
+        const dislikedTracks = db.getDislikedWaveTracks();
         const seeds = [
           ...snapshot.waveSeeds,
           ...(Array.isArray(provided) ? provided.slice(0, 8) : [])
             .map(normalizeWaveSeed)
             .filter((track) => track !== null && isTasteEligible(track, policy)),
         ].filter((track): track is NonNullable<typeof track> => track !== null);
-        return identifyCatalogTracks(
-          await MusicAggregatorService.getWaveBatch(
-            mood,
-            seeds,
-            [...(Array.isArray(excluded) ? excluded : []), ...disliked],
-            [
-              ...snapshot.artists,
-              ...snapshot.likes.map((track) => ({ name: track.artist })),
-              ...(context?.learnedTracks || [])
-                .filter((track) => isTasteEligible(track, policy))
-                .map((track) => ({ name: track.artist?.name || '' })),
-            ],
-            db.getDislikedWaveTracks(),
-            normalizeWaveBatchContext({
-              ...filterTasteContext(context || {}, policy),
-              tasteTracks:
-                context?.tasteRevision === snapshot.revision && Array.isArray(context.tasteTracks)
-                  ? context.tasteTracks.filter((track) => isTasteEligible(track, policy))
-                  : snapshot.waveSeeds,
-            }),
-            request.signal,
-          ),
+        const batch = await MusicAggregatorService.getWaveBatch(
+          mood,
+          seeds,
+          [...(Array.isArray(excluded) ? excluded : []), ...disliked],
+          [
+            ...snapshot.artists,
+            ...snapshot.likes.map((track) => ({ name: track.artist })),
+            ...(context?.learnedTracks || [])
+              .filter((track) => isTasteEligible(track, policy))
+              .map((track) => ({ name: track.artist?.name || '' })),
+          ],
+          dislikedTracks,
+          normalizeWaveBatchContext({
+            ...filterTasteContext(context || {}, policy),
+            tasteTracks:
+              context?.tasteRevision === snapshot.revision && Array.isArray(context.tasteTracks)
+                ? context.tasteTracks.filter((track) => isTasteEligible(track, policy))
+                : snapshot.waveSeeds,
+          }),
+          request.signal,
+        );
+        request.signal.throwIfAborted();
+        const tracks = identifyCatalogTracks(batch);
+        const latestDislikes =
+          revision === db.getChangeRevision?.() && revision !== undefined
+            ? dislikedTracks
+            : db.getDislikedWaveTracks();
+        return tracks.filter(
+          (track) => !latestDislikes.some((disliked) => matchesDislikedWaveTrack(track, disliked)),
         );
       } catch (error) {
         if (request.signal.aborted) return [];

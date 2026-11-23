@@ -1,18 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  createAppUpdateChecker,
-  compareReleaseVersion,
-} from '../src/desktop/main/services/appUpdates.ts';
+import { createAppUpdateChecker } from '../src/desktop/main/services/appUpdates.ts';
 import { PROJECT_RELEASES_API, PROJECT_REPOSITORY } from '../src/shared/utils/projectRepository.ts';
 const response = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const release = (tag_name, extra = {}) => ({ tag_name, draft: false, prerelease: false, ...extra });
-test('Release versions compare numerically and never offer prerelease or malformed tags', () => {
-  assert.equal(compareReleaseVersion('v3.10.0', '3.9.0'), 1);
-  assert.equal(compareReleaseVersion('3.0.0', '3.0.0'), 0);
-  assert.equal(compareReleaseVersion('2.9.6', '3.0.0'), -1);
-  assert.equal(compareReleaseVersion('v3.1.0-beta', '3.0.0'), null);
-  assert.equal(compareReleaseVersion('3.0.0/../../evil', '3.0.0'), null);
+test('The Rust release decision reaches the update checker over the production adapter', async () => {
+  const statusFor = async (tag) =>
+    createAppUpdateChecker('3.9.0', async () => response(release(tag)))();
+  assert.equal((await statusFor('v3.10.0')).status, 'available');
+  assert.equal((await statusFor('3.9.0')).status, 'up-to-date');
+  assert.equal((await statusFor('2.9.6')).status, 'up-to-date');
+  assert.equal((await statusFor('v3.10.0-beta')).status, 'error');
+  assert.equal((await statusFor('3.9.0/../../evil')).status, 'error');
+});
+test('A release notice uses the Rust-parsed summary, while legacy releases keep their link', async () => {
+  const statusFor = async (body) =>
+    createAppUpdateChecker('3.9.0', async () => response(release('v3.10.0', { body })))();
+  const status = await statusFor(
+    '## Главное\r\n\r\nМеньше повторов в рекомендациях.\r\n- **Режимы отличаются.**\r\n- Дневная пятёрка помнит показы.\r\n## Скачать\r\n- Выберите ZIP.',
+  );
+  assert.deepEqual(status.releaseHighlights, {
+    summary: 'Меньше повторов в рекомендациях.',
+    changes: ['Режимы отличаются.', 'Дневная пятёрка помнит показы.'],
+  });
+  const legacy = await statusFor('## Исправления\n- Другое описание');
+  assert.equal(legacy.releaseHighlights, undefined);
+  assert.equal(legacy.releaseUrl, status.releaseUrl);
 });
 test('Update checker reads only the configured GitHub repository and constructs the release URL', async () => {
   const requests = [];

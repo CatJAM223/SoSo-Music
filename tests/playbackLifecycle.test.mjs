@@ -565,6 +565,54 @@ test('Rapid switching ignores one hundred out-of-order provider replies and fail
   f.h.unmount();
 });
 
+test('Three Next presses followed by Pause keep the last selected track paused', async () => {
+  const queue = ['start', 'next', 'next2', 'next3'].map(track);
+  const resolveDelayed = deferred();
+  const url = 'https://rr1.googlevideo.com/videoplayback?itag=140';
+  const f = fixture({
+    queue,
+    resolve: (item) => (item.id === queue[0].id ? Promise.resolve(url) : resolveDelayed.promise),
+  });
+  await f.h.api().playTrack(queue[0]);
+  await f.h.flush();
+  assert.equal(f.audio.plays, 1);
+  for (let i = 1; i < queue.length; i++) {
+    await f.h.api().nextTrack();
+    await f.h.flush();
+    assert.equal(f.h.api().currentTrack.id, queue[i].id);
+    assert.equal(f.h.api().isLoadingTrack, true);
+  }
+  f.h.api().togglePlay();
+  resolveDelayed.resolve(url);
+  await f.h.flush();
+  assert.equal(f.h.api().currentTrack.id, queue[3].id);
+  assert.equal(f.h.api().isPlaying, false);
+  assert.equal(f.h.api().isLoadingTrack, false);
+  assert.equal(f.audio.plays, 1);
+  f.h.unmount();
+});
+
+test('The player stays in loading state between media play and playing', async () => {
+  const f = fixture();
+  const audioStart = deferred();
+  f.audio.playResult = () => {
+    f.audio.paused = false;
+    f.audio.dispatchEvent(new Event('play'));
+    return audioStart.promise;
+  };
+  await f.h.api().playTrack(f.props.queueRef.current[0]);
+  await f.h.flush();
+  assert.equal(f.audio.plays, 1);
+  assert.equal(f.h.api().isLoadingTrack, true);
+  assert.equal(f.h.api().isPlaying, false);
+  f.audio.dispatchEvent(new Event('playing'));
+  audioStart.resolve();
+  await f.h.flush();
+  assert.equal(f.h.api().isLoadingTrack, false);
+  assert.equal(f.h.api().isPlaying, true);
+  f.h.unmount();
+});
+
 test('Resuming an exhausted pending final track never plays the previous track source', async () => {
   const final = deferred();
   let calls = 0;

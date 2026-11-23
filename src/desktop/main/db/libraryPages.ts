@@ -192,7 +192,9 @@ export function readLibraryPlaybackRows(
   const { layout, where, params, order } = queryParts(r);
   const stmt = db.prepare(
     'SELECT deezer_id,title,artist,album,album_id,cover_url,preview_url,duration FROM ' +
-      layout.table + where + order,
+      layout.table +
+      where +
+      order,
   );
   try {
     stmt.bind(params);

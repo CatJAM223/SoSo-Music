@@ -86,6 +86,7 @@ export interface WaveQualityEvent {
   familiar: boolean;
   familiarity?: Track['waveFamiliarity'];
   method?: WaveMethod;
+  methods?: WaveMethod[];
   selectedSource?: MusicSource;
   tasteRevision?: number;
   surface?: 'daily';
@@ -131,6 +132,7 @@ export function attributeWaveBatch(
 }
 function eventFor(track: Track, event: WaveQualityEvent['event']): WaveQualityEvent {
   const r = track.waveRecommendation!;
+  const methods = [...new Set(r.provenance?.map((path) => path.method))];
   return {
     schema: 1,
     event,
@@ -141,7 +143,7 @@ function eventFor(track: Track, event: WaveQualityEvent['event']): WaveQualityEv
     familiar: r.familiar,
     recordingId: recordingKey(track),
     ...(r.familiarity ? { familiarity: r.familiarity } : {}),
-    ...(r.provenance?.length ? { method: r.provenance[0].method } : {}),
+    ...(methods.length > 1 ? { methods } : methods.length ? { method: methods[0] } : {}),
     ...(r.selectedSource ? { selectedSource: r.selectedSource } : {}),
     ...(r.tasteRevision !== undefined ? { tasteRevision: r.tasteRevision } : {}),
     ...(r.surface ? { surface: r.surface } : {}),
@@ -203,6 +205,7 @@ export function summarizeWaveQuality(events: readonly WaveQualityEvent[]) {
   return [...groups].map(([cohort, rows]) => {
     const offered = new Map<string, WaveQualityEvent>(),
       liked = new Set<string>();
+    const overlapping = new Set<string>();
     const episodes = new Map<
       string,
       { selected?: WaveQualityEvent; started?: WaveQualityEvent; outcome?: WaveQualityEvent }
@@ -222,6 +225,10 @@ export function summarizeWaveQuality(events: readonly WaveQualityEvent[]) {
       return stats;
     };
     for (const event of rows) {
+      const overlap =
+        Array.isArray(event.methods) &&
+        new Set(event.methods.filter((method) => WAVE_METHODS.includes(method))).size > 1;
+      if (overlap) overlapping.add(event.recommendationId);
       if (event.event === 'offered') offered.set(event.recommendationId, event);
       if (event.event === 'liked' && !liked.has(event.recommendationId)) {
         liked.add(event.recommendationId);
@@ -304,6 +311,7 @@ export function summarizeWaveQuality(events: readonly WaveQualityEvent[]) {
       novelStarts,
       familiarityStarts,
       methods: Object.fromEntries(methods),
+      overlappingRecommendations: overlapping.size,
       selectedWithoutStart,
       eligibleOutcomes,
       earlySkips,

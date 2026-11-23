@@ -28,6 +28,25 @@ test('Startup outcomes include queue preparation, distinguish cancellation and c
   assert.equal(outcomes[1].delivery, 'progressive');
 });
 
+test('Startup diagnostics capture the prepared queue and the time until the source is ready', () => {
+  let now = 50;
+  const events = [];
+  const diagnostics = new PlaybackDiagnostics(
+    (event) => events.push(event),
+    () => now,
+  );
+  diagnostics.begin(1, 'first', 'youtube', 0, false, 30);
+  now = 80;
+  diagnostics.sourceReady('prepared');
+  now = 100;
+  diagnostics.playing('progressive');
+  const outcome = events.at(-1);
+  assert.equal(outcome.queuePreparationMs, 30);
+  assert.equal(outcome.sourceReadyMs, 80);
+  assert.equal(outcome.elapsedMs, 100);
+  assert.equal(outcome.startupPath, 'prepared');
+});
+
 test('Buffering excludes initial loading, deduplicates waiting and closes on pause and failure', () => {
   let now = 0;
   const events = [];

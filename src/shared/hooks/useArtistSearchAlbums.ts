@@ -127,7 +127,7 @@ export function useArtistSearchAlbums(
 
     if (searchByTitle) {
       requests.push(
-        platformBridge.getAutocomplete(query).then((suggestions) =>
+        platformBridge.getAutocomplete(query, source).then((suggestions) =>
           suggestions
             .filter(
               (suggestion) =>

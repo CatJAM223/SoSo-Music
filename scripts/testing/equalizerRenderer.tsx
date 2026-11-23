@@ -196,6 +196,7 @@ function sineWave(): string {
       ),
       'Removed equalizer captions must stay hidden',
     );
+    document.querySelector<HTMLElement>('.equalizer-advanced summary')!.click();
     const circles = document.querySelectorAll<SVGCircleElement>('[role="slider"]');
     assert(
       circles.length === EQUALIZER_FREQUENCIES.length,
@@ -204,10 +205,20 @@ function sineWave(): string {
     circles[5].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
     await sleep(30);
     assert(audioEqualizer().getSnapshot().gains[5] === 0.5, 'Graph keyboard control failed');
-    const buttons = [...document.querySelectorAll<HTMLButtonElement>('.equalizer-presets button')];
-    buttons.find((button) => button.textContent?.includes('Колонки'))!.click();
+    const preset = document.querySelector<HTMLSelectElement>('.equalizer-panel-top select')!;
+    preset.value = 'speakers';
+    preset.dispatchEvent(new Event('change', { bubbles: true }));
     await sleep(30);
     assert(audioEqualizer().getSnapshot().presetId === 'speakers', 'Preset selection failed');
+    const gainInput = document.querySelector<HTMLInputElement>('.equalizer-precise input')!;
+    gainInput.focus();
+    assert(document.activeElement === gainInput, 'Precise gain input did not receive focus');
+    gainInput.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }),
+    );
+    assert(document.activeElement === gainInput, 'IME confirmation blurred the gain input');
+    gainInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert(document.activeElement !== gainInput, 'Enter did not commit the gain input');
     const toggle = document.querySelector<HTMLButtonElement>('[role="switch"]')!;
     toggle.click();
     await sleep(30);

@@ -1592,7 +1592,12 @@ export class DatabaseManager {
     return ids;
   }
 
-  public getDislikedWaveTracks(): { id: string; title: string; artist: string }[] {
+  public getDislikedWaveTracks(): {
+    id: string;
+    title: string;
+    artist: string;
+    recordingId?: string;
+  }[] {
     if (!this.db) return [];
     const stmt = this.db.prepare('SELECT track_id, title, artist FROM disliked_tracks');
     const tracks: { id: string; title: string; artist: string }[] = [];
@@ -1609,7 +1614,7 @@ export class DatabaseManager {
     } finally {
       stmt.free();
     }
-    return tracks;
+    return this.withRecordingIds(tracks, (track) => track.id);
   }
 
   public isTrackDisliked(trackId: string | number): boolean {

@@ -174,41 +174,6 @@
   animation: heartBreakRight 0.65s cubic-bezier(0.25, 1, 0.5, 1) forwards;
 }
 
-/* Staggered Item Appearance */
-.stagger-item {
-  animation: staggerFadeIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes staggerFadeIn {
-  0% {
-    opacity: 0;
-    transform: translateY(8px) scale(0.99);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.stagger-item:nth-child(1) {
-  animation-delay: 15ms;
-}
-.stagger-item:nth-child(2) {
-  animation-delay: 35ms;
-}
-.stagger-item:nth-child(3) {
-  animation-delay: 55ms;
-}
-.stagger-item:nth-child(4) {
-  animation-delay: 75ms;
-}
-.stagger-item:nth-child(5) {
-  animation-delay: 95ms;
-}
-.stagger-item:nth-child(n + 6) {
-  animation-delay: 115ms;
-}
-
 /* Instrumental cue: media-clock SVG morph, shared by desktop and Android. */
 .karaoke-wait {
   width: 64px;

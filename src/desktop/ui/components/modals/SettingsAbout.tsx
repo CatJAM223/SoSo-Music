@@ -39,7 +39,7 @@ export function SettingsAbout() {
     <div className="settings-page settings-about">
       <div className="settings-page-heading">
         <h3>SoSo Music</h3>
-        <p>{t('Музыкальный плеер для Windows и Android')}</p>
+        <p>{t('Музыкальный плеер для Windows, Linux и Android')}</p>
       </div>
       <section className="settings-section" aria-label={t('Проект и обновления')}>
         <div className="settings-row">

@@ -2,6 +2,7 @@ import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
 import React, { useState, useEffect, useRef } from 'react';
 import { Track } from '../../../shared/types';
+import type { NavigateToArtist } from '../../../shared/types/artistNavigation';
 import type { PlaybackOrigin } from '../../../shared/types/tastePolicy';
 import { TrackRow } from './TrackRow';
 import { formatTotalDuration } from '../../../shared/utils/formatters';
@@ -12,7 +13,8 @@ interface TrackTableProps {
   playlistContext?: Track[];
   playbackOrigin?: PlaybackOrigin;
   onPlayTrack?: (track: Track) => void;
-  onNavigateToArtist?: (artist: { id?: string | number; name: string }) => void;
+  preparingTrackId?: string;
+  onNavigateToArtist?: NavigateToArtist;
   onNavigateToAlbum?: (album: any) => void;
   hideAlbumColumn?: boolean;
   totalDurationSeconds?: number;
@@ -28,6 +30,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   playlistContext,
   playbackOrigin,
   onPlayTrack,
+  preparingTrackId,
   onNavigateToArtist,
   onNavigateToAlbum,
   hideAlbumColumn = false,
@@ -141,6 +144,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
               playlistContext={playlistContext || tracks}
               playbackOrigin={playbackOrigin}
               onPlayTrack={onPlayTrack}
+              isPreparingPlayback={preparingTrackId === String(track.id)}
               onNavigateToArtist={onNavigateToArtist}
               onNavigateToAlbum={onNavigateToAlbum}
               hideAlbumColumn={hideAlbumColumn}

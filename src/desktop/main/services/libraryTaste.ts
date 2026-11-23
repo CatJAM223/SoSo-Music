@@ -210,10 +210,13 @@ export class LibraryTasteService {
       return;
     }
     clearTimeout(this.refreshTimer);
-    this.refreshTimer = setTimeout(() => {
-      this.refreshTimer = undefined;
-      if (this.store.autoAnalyze) this.analyze(true);
-    }, Math.max(250, this.retryAfter - Date.now()));
+    this.refreshTimer = setTimeout(
+      () => {
+        this.refreshTimer = undefined;
+        if (this.store.autoAnalyze) this.analyze(true);
+      },
+      Math.max(250, this.retryAfter - Date.now()),
+    );
     this.refreshTimer.unref?.();
   }
 

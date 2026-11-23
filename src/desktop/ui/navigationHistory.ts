@@ -1,5 +1,6 @@
 import type { Artist, Album, MusicSource, Playlist, Track } from '../../shared/types';
 import type { MyMusicTab } from '../../shared/hooks/useMyMusicViewModel';
+import type { SearchSnapshot } from '../../shared/utils/progressiveSearch';
 
 export interface SearchPageState {
   query: string;
@@ -8,7 +9,7 @@ export interface SearchPageState {
   results: Track[];
   artists: Artist[];
   completed: boolean;
-  failedSources?: MusicSource[];
+  snapshot?: SearchSnapshot;
 }
 export interface MyMusicPageState {
   tab: MyMusicTab;

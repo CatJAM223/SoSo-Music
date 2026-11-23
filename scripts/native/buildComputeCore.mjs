@@ -9,7 +9,11 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const manifest = path.join(root, 'native/compute-core/Cargo.toml');
 const cargoName = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
-const homeCargo = path.join(os.homedir(), '.cargo/bin', cargoName);
+const homeCargo = path.join(
+  process.env.CARGO_HOME || path.join(os.homedir(), '.cargo'),
+  'bin',
+  cargoName,
+);
 const cargo = fs.existsSync(homeCargo) ? homeCargo : cargoName;
 const result = spawnSync(
   cargo,
@@ -60,6 +64,7 @@ for (const file of [
   'Cargo.toml',
   'Cargo.lock',
   'src/lib.rs',
+  'src/app_release.rs',
   'src/ranking.rs',
   'src/sequence.rs',
   'src/search.rs',
@@ -80,7 +85,7 @@ fs.writeFileSync(
   path.join(output, 'soso-core.json'),
   JSON.stringify(
     {
-      abi: 8,
+      abi: 9,
       workletSha256: crypto
         .createHash('sha256')
         .update(fs.readFileSync(path.join(output, 'soso-normalization.js')))

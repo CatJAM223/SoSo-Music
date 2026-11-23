@@ -6,6 +6,8 @@ import type { Track, WaveBatchContext, WaveMood } from '../../../shared/types/in
 import { WaveRequestScheduler } from '../../../shared/services/waveRequestScheduler.ts';
 import { gatherWaveDiscovery } from '../../../shared/services/waveDiscovery.ts';
 import { waveMemoryTrack } from '../../../shared/services/waveMemory.ts';
+import { matchesWaveSource } from '../../../shared/services/waveSource.ts';
+import { identifyCatalogTracks } from './recordingCatalog.ts';
 import { mapConcurrentSettled, shuffled } from '../../../shared/utils/concurrentTasks.ts';
 import { waveTasteArtistWeights } from '../../../shared/utils/waveTaste.ts';
 import {
@@ -32,6 +34,7 @@ import { includeWaveGenreDiscovery } from './waveGenreDiscovery.ts';
 import {
   fillWaveMoodCandidates,
   fillEmptyWaveCandidates,
+  fillDiscoverFallback,
   type WaveMoodCandidates,
 } from './waveMoodCandidates.ts';
 
@@ -111,7 +114,10 @@ export class WaveEngine {
     if (!options.hasTaste || options.mood === 'favorites') return;
     const discover = options.mood === 'discover';
     const result = await gatherWaveDiscovery(
-      selectWaveMoodSeeds(options.seeds, options.mood),
+      selectWaveMoodSeeds(
+        options.seeds.filter((track) => matchesWaveSource(track, context.source)),
+        options.mood,
+      ),
       context,
       {
         familiarArtists: options.artists,
@@ -156,6 +162,7 @@ export class WaveEngine {
     offeredTracks: Track[],
     remember: boolean,
     candidates: Track[] = options.pool.values(),
+    limit = BATCH_SIZE,
   ): Track[] {
     const seeds = options.seeds;
     const genres = this.tasteProvider?.report().genres;
@@ -169,7 +176,7 @@ export class WaveEngine {
       candidates,
       options.mood,
       options.artists,
-      BATCH_SIZE,
+      limit,
       {
         ...waveQueueContext(rankingContext),
         tasteTracks: context.tasteTracks || seeds,
@@ -206,6 +213,7 @@ export class WaveEngine {
     context: WaveBatchContext = {},
     rememberSession = true,
     signal?: AbortSignal,
+    dailyShowHistory?: Track[],
   ): Promise<Track[]> {
     const request = waveRequests.createBatch(signal);
     try {
@@ -222,14 +230,6 @@ export class WaveEngine {
       }
       const history = rememberSession ? this.sessionPrints : [];
       const artists = familiarArtistNames(seedTracks, followedArtists);
-      const pool = new WaveCandidatePool({
-        mood,
-        source: context.source,
-        excluded: excludeIds,
-        disliked: dislikedTracks,
-        familiarArtists: artists,
-        heard: context.recentTracks || [],
-      });
       const offered = [
         ...new Map(
           [
@@ -238,9 +238,22 @@ export class WaveEngine {
           ].map((track) => [String(track.id), track]),
         ).values(),
       ].slice(-OFFERED_LIMIT);
+      const pool = new WaveCandidatePool({
+        mood,
+        source: context.source,
+        excluded: excludeIds,
+        disliked: dislikedTracks,
+        familiarArtists: artists,
+        heard: context.recentTracks || [],
+        offered: dailyShowHistory || offered,
+        oldestOffersFirst: dailyShowHistory !== undefined,
+      });
       const exposedTracks = [
         ...new Map(
-          [...(context.recentTracks || []), ...offered].map((track) => [String(track.id), track]),
+          [...(context.recentTracks || []), ...(dailyShowHistory || offered)].map((track) => [
+            String(track.id),
+            track,
+          ]),
         ).values(),
       ];
       const weights = waveTasteArtistWeights(seedTracks);
@@ -250,6 +263,7 @@ export class WaveEngine {
         artists,
         pool,
         exposedTracks,
+        libraryGenres: this.tasteProvider?.report().genres.map((genre) => genre.name),
         hasTaste: artists.length > 0 || seedTracks.length > 0,
         methodScores: context.novelty ? context.methodScores : undefined,
         catalog: createWaveCatalog(request, context.source),
@@ -275,14 +289,17 @@ export class WaveEngine {
       ]);
       for (
         let attempt = 0;
-        options.searchHasMore &&
-        requireRustCompute().wave_search_retry(pool.size, attempt);
+        options.searchHasMore && requireRustCompute().wave_search_retry(pool.size, attempt);
         attempt++
       ) {
         signal?.throwIfAborted();
         options.searchAttempt = attempt + 1;
         options.searchHasMore = false;
         await this.fillCandidates(options, rememberSession, signal);
+      }
+      if (mood === 'discover' && options.hasTaste) {
+        signal?.throwIfAborted();
+        await fillDiscoverFallback(options);
       }
       signal?.throwIfAborted();
       let candidates = pool.values();
@@ -293,7 +310,15 @@ export class WaveEngine {
           : await this.tasteProvider.enrichCandidates(candidates, signal);
       }
       signal?.throwIfAborted();
-      return this.rankBatch(options, context, offered, rememberSession, candidates);
+      if (dailyShowHistory) candidates = identifyCatalogTracks(candidates);
+      return this.rankBatch(
+        options,
+        context,
+        offered,
+        rememberSession,
+        candidates,
+        dailyShowHistory ? candidates.length : BATCH_SIZE,
+      );
     } finally {
       request.dispose();
     }

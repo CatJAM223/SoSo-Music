@@ -210,7 +210,7 @@ test('Actual Rust ABI rejects malformed input and has no imported host capabilit
   assert.deepEqual(WebAssembly.Module.imports(module), []);
   const instance = await WebAssembly.instantiate(module),
     e = instance.exports;
-  assert.equal(e.abi_version(), 8);
+  assert.equal(e.abi_version(), 9);
   assert.throws(() => e.memory.grow(1025), RangeError, 'WASM memory is capped at 64 MiB');
   assert.equal(e.reserve(8 * 1024 * 1024 + 1), 0);
   assert.equal(e.calculate(8 * 1024 * 1024 + 1), -1);
@@ -230,6 +230,7 @@ test('Generated Rust artifact matches the current source and build settings', ()
     'Cargo.toml',
     'Cargo.lock',
     'src/lib.rs',
+    'src/app_release.rs',
     'src/ranking.rs',
     'src/sequence.rs',
     'src/search.rs',
@@ -251,7 +252,7 @@ test('Generated Rust artifact matches the current source and build settings', ()
   );
   assert.equal(metadata.sourceSha256, hash.digest('hex'));
   assert.equal(metadata.wasmSha256, crypto.createHash('sha256').update(bytes).digest('hex'));
-  assert.equal(metadata.abi, 8);
+  assert.equal(metadata.abi, 9);
   assert.equal(
     metadata.workletSha256,
     crypto

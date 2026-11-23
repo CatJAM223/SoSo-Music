@@ -81,7 +81,11 @@ function fixture(options = {}) {
       '../utils/playlistEvents': { subscribePlaylistUpdates: () => () => {} },
       '../utils/formatters': { detectTrackSource: () => 'youtube' },
       './formatters': { detectTrackSource: () => 'youtube' },
-      '../utils/playbackIntent.ts': { beginPlaybackIntent, markPreparedPlayback },
+      '../utils/playbackIntent.ts': {
+        beginPlaybackIntent,
+        invalidatePlaybackIntent,
+        markPreparedPlayback,
+      },
       '../context/AudioContext': { useAudioState: () => audio, useAudioControls: () => audio },
       '../bridge/platformBridge': { platformBridge: platform },
       '../services/offlineCacheService': {
@@ -154,7 +158,9 @@ test('whole My Music hook discards pending complete context after a foreign play
       resolve = yes;
     });
   const pending = f.h.api().handlePlayLibraryTrack(f.h.api().tracks[0]);
+  assert.equal(f.h.render().preparingTrackId, '0');
   invalidatePlaybackIntent();
+  assert.equal(f.h.render().preparingTrackId, undefined);
   resolve([{ deezer_id: '0', title: '0', artist: 'A', duration: 60 }]);
   await pending;
   assert.equal(f.plays.length, 0);
@@ -182,6 +188,47 @@ test('rapid clicks in the same library reuse the pending queue and play the late
   assert.equal(calls, 1);
   assert.equal(f.plays.length, 1);
   assert.equal(f.plays[0][0].id, tracks[1].id);
+  assert.equal(f.plays[0][1].length, 205);
+  f.h.unmount();
+});
+
+test('A completed playback queue is reused until the library search changes', async () => {
+  const f = fixture();
+  await f.h.flush();
+  const read = f.platform.getLibraryPlaybackTracks;
+  const reads = [];
+  f.platform.getLibraryPlaybackTracks = (request) => {
+    reads.push(request.query);
+    return read(request);
+  };
+  const { tracks, handlePlayLibraryTrack } = f.h.api();
+  await handlePlayLibraryTrack(tracks[0]);
+  await handlePlayLibraryTrack(tracks[1]);
+  assert.deepEqual(reads, ['']);
+  assert.equal(f.plays[0][1], f.plays[1][1]);
+  f.h.api().setSearchQuery('rare');
+  await f.h.flush();
+  await f.h.api().handlePlayLibraryTrack();
+  assert.deepEqual(reads, ['', 'rare']);
+  f.h.unmount();
+});
+
+test('Loading another display page leaves an active library playback request valid', async () => {
+  const f = fixture();
+  await f.h.flush();
+  const read = f.platform.getLibraryPlaybackTracks;
+  let finish;
+  f.platform.getLibraryPlaybackTracks = (request) =>
+    new Promise((resolve) => {
+      finish = () => resolve(read(request));
+    });
+  const pending = f.h.api().handlePlayLibraryTrack(f.h.api().tracks[0]);
+  await f.h.api().activePage.loadMore();
+  await f.h.flush();
+  assert.equal(f.h.api().tracks.length, 200);
+  finish();
+  await pending;
+  assert.equal(f.plays.length, 1);
   assert.equal(f.plays[0][1].length, 205);
   f.h.unmount();
 });

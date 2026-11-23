@@ -6,6 +6,8 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {
   createDailyRecommendationLoader,
+  DAILY_HISTORY_LIMIT,
+  orderDailyRepeats,
   DAILY_RECOMMENDATIONS_KEY,
   localRecommendationDay,
   readDailyRecommendations,
@@ -16,6 +18,7 @@ import { createDailyDislikePolicy } from '../src/shared/utils/dailyDislikes.ts';
 import { validateWaveContext } from '../src/desktop/main/ipc/waveInput.ts';
 import { readWaveMethodScores, readWaveNovelty } from '../src/shared/types/wavePolicy.ts';
 import { attributeWaveBatch, readWaveRecommendation } from '../src/shared/services/waveQuality.ts';
+import { waveMemoryTrack } from '../src/shared/services/waveMemory.ts';
 const track = (id, artist = 'Singer ' + id, title = 'Melody ' + id) => ({
   id,
   title,
@@ -203,6 +206,10 @@ test('Daily IPC uses taste and dislikes, excludes recent/previous songs, and lea
     },
     normalizeWaveSeed,
     selectDailyRecommendations,
+    DAILY_HISTORY_LIMIT,
+    orderDailyRepeats,
+    waveMemoryTrack,
+    identifyCatalogTracks: (tracks) => tracks,
     createDailyDislikePolicy,
     validateWaveContext,
     readWaveMethodScores,
@@ -251,12 +258,119 @@ test('Daily IPC uses taste and dislikes, excludes recent/previous songs, and lea
     methodScores: { similar: 0.5 },
   });
   assert.equal(args[5].methodScores, undefined);
+  const history = Array.from({ length: 10 }, (_, i) => track('prior-' + i));
+  const latest = [...history].reverse();
+  ctx.WaveEngine.getWaveBatch = async (...values) => {
+    const excluded = new Set(values[2]);
+    return latest.filter(({ id }) => !excluded.has(id));
+  };
+  const repeats = await handler(
+    null,
+    history.map(({ id }) => id),
+    history,
+  );
+  assert.deepEqual(
+    Array.from(repeats, ({ id }) => id),
+    history.slice(0, 5).map(({ id }) => id),
+  );
   ctx.dbManager.getLikedTracks = () => [];
   ctx.dbManager.getTasteLikedTracks = () => [];
   ctx.dbManager.getWaveTasteTracks = () => [];
   args = null;
   assert.equal((await handler(null, [])).length, 0);
   assert.equal(args, null);
+});
+
+test('Daily shows survive restart and exclude the first day on the third day across providers', async () => {
+  const saved = storage();
+  let date = new Date(2026, 10, 10, 12);
+  const catalog = Array.from({ length: 15 }, (_, i) => track('yt_' + i));
+  const fetch = async (_, previous) => selectDailyRecommendations(catalog, previous);
+  const first = await createDailyRecommendationLoader(saved, fetch, () => date)();
+  date.setDate(11);
+  const second = await createDailyRecommendationLoader(saved, fetch, () => date)();
+  date.setDate(12);
+  catalog.splice(
+    0,
+    5,
+    ...first.tracks.map((old, i) => ({
+      ...old,
+      id: 'sc_' + i,
+      source: 'soundcloud',
+      title: old.title + ' (Official Audio)',
+    })),
+  );
+  const third = await createDailyRecommendationLoader(saved, fetch, () => date)();
+  assert.equal(
+    new Set([...first.tracks, ...second.tracks, ...third.tracks].map(({ artist }) => artist.name))
+      .size,
+    15,
+  );
+});
+
+test('Daily update accepts a validated replacement or empty response and falls back on error', async () => {
+  const saved = storage();
+  let date = new Date(2026, 10, 10, 12);
+  const old = track('old');
+  const fresh = track('new');
+  let next = [old];
+  const load = createDailyRecommendationLoader(
+    saved,
+    async () => {
+      if (!next) throw new Error('Unavailable');
+      return next;
+    },
+    () => date,
+  );
+  assert.deepEqual(
+    (await load()).tracks.map(({ id }) => id),
+    ['old'],
+  );
+  date = new Date(+date + 301_000);
+  next = null;
+  assert.deepEqual(
+    (await load()).tracks.map(({ id }) => id),
+    ['old'],
+  );
+  date = new Date(+date + 301_000);
+  next = [fresh];
+  assert.deepEqual(
+    (await load()).tracks.map(({ id }) => id),
+    ['new'],
+  );
+  date = new Date(+date + 301_000);
+  next = [];
+  assert.deepEqual((await load()).tracks, []);
+  next = null;
+  await assert.rejects(
+    createDailyRecommendationLoader(
+      saved,
+      async () => {
+        throw new Error('Unavailable');
+      },
+      () => date,
+    )(),
+  );
+});
+
+test('Daily retains each source snapshot and carries all shown songs to the next day', async () => {
+  const saved = storage();
+  const date = new Date(2026, 10, 10, 12);
+  const requests = [];
+  const fetch = async (_, previous, { source }) => {
+    requests.push(previous);
+    const provider = source === 'all' ? 'youtube' : source;
+    return Array.from({ length: 5 }, (_, i) => ({ ...track(provider + i), source: provider }));
+  };
+  const load = createDailyRecommendationLoader(saved, fetch, () => date);
+  const mixed = await load();
+  await load('', 'soundcloud');
+  const restarted = createDailyRecommendationLoader(saved, fetch, () => date);
+  assert.deepEqual(await restarted(), mixed);
+  assert.equal(requests.length, 2);
+  date.setDate(11);
+  await restarted();
+  assert.equal(requests[2].length, 10);
 });
 
 test('An old persisted snapshot cannot replace today when writing storage fails', async () => {

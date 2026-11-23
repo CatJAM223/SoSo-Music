@@ -80,17 +80,31 @@ pub(super) fn calculate(mut job: Job) -> Vec<u8> {
     let mut previous_music = job.previous.as_ref();
     let mut familiarity_counts = [0.0; 3];
     while !remaining.is_empty() && selected.len() < job.limit {
+        let position = job.offset + selected.len() as f64;
+        let mood_confidence = |i: usize| {
+            let directed = if job.mood == 1 {
+                job.candidates[i].profile.energy
+            } else {
+                -job.candidates[i].profile.energy
+            };
+            if directed >= 1.0 { 2 } else if directed > 0.0 { 1 } else { 0 }
+        };
+        let opening_confidence = if position < 5.0 && matches!(job.mood, 1 | 2) {
+            remaining.iter().map(|&i| mood_confidence(i)).max().unwrap_or(0)
+        } else {
+            0
+        };
+        let eligible = |i| opening_confidence == 0 || mood_confidence(i) == opening_confidence;
         let space_likes = job.mood != 5
             && job.previous_liked
-            && remaining.iter().any(|&i| !job.candidates[i].liked);
-        let position = job.offset + selected.len() as f64;
+            && remaining.iter().any(|&i| eligible(i) && !job.candidates[i].liked);
         let wants_familiar = ((position + 1.0) * job.novelty + job.phase + 1e-9).floor()
             == (position * job.novelty + job.phase + 1e-9).floor();
         let mut best_index = 0;
         let mut best_score = f64::NEG_INFINITY;
         for (index, &id) in remaining.iter().enumerate() {
             let c = &job.candidates[id];
-            if space_likes && c.liked {
+            if !eligible(id) || (space_likes && c.liked) {
                 continue;
             }
             let mut score = if let Some(targets) = job.familiarity_targets {

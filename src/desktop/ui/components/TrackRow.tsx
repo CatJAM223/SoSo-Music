@@ -17,12 +17,14 @@ import {
 } from '../../../shared/context/AudioContext';
 import { advanceTrackArtwork } from '../../../shared/utils/trackArtwork';
 import { formatTime, detectTrackSource, resolveTrackCover } from '../../../shared/utils/formatters';
-import { parseArtists } from '../../../shared/utils/artistParser';
+import { TrackArtistButton } from '../../../shared/components/TrackArtistButton';
+import type { NavigateToArtist } from '../../../shared/types/artistNavigation';
 import { SourceBadge } from './SourceBadge';
 import { cleanAlbumTitle } from '../../../shared/utils/albumMetadata';
 import { AnimatedLikeButton } from '../../../shared/components/BrokenHeartEffect';
 import { OfflineProgressRing } from '../../../shared/components/OfflineProgressRing';
 import { useOfflineDownloadProgress } from '../../../shared/services/offlineDownloadProgress';
+import { invalidatePlaybackIntent } from '../../../shared/utils/playbackIntent';
 
 interface TrackRowProps {
   track: Track;
@@ -31,7 +33,8 @@ interface TrackRowProps {
   playlistContext?: Track[];
   playbackOrigin?: PlaybackOrigin;
   onPlayTrack?: (track: Track) => void;
-  onNavigateToArtist?: (artist: { id?: string | number; name: string }) => void;
+  isPreparingPlayback?: boolean;
+  onNavigateToArtist?: NavigateToArtist;
   onNavigateToAlbum?: (album: any) => void;
   hideAlbumColumn?: boolean;
 }
@@ -92,6 +95,7 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
     playlistContext,
     playbackOrigin,
     onPlayTrack,
+    isPreparingPlayback,
     onNavigateToArtist,
     onNavigateToAlbum,
     hideAlbumColumn = false,
@@ -144,10 +148,8 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
     const isCurrentFullTrack = !!(currentTrack && String(currentTrack.id) === String(track.id));
     const isCurrentlyPlayingFull = !!(isCurrentFullTrack && isPlaying && !isSnippetPlaying);
     const isCurrentlyLoadingFull = !!(
-      isCurrentFullTrack &&
-      isLoadingTrack &&
-      !isWaveStarting &&
-      !isSnippetPlaying
+      isPreparingPlayback ||
+      (isCurrentFullTrack && isLoadingTrack && !isWaveStarting && !isSnippetPlaying)
     );
 
     const isCurrentSnippet = !!(snippetTrack && String(snippetTrack.id) === String(track.id));
@@ -164,6 +166,10 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
     const handleFullPlay = () => {
       if (roomConnection) {
         void addToRoom();
+        return;
+      }
+      if (isPreparingPlayback) {
+        invalidatePlaybackIntent();
         return;
       }
       if (isCurrentFullTrack && !isSnippetPlaying) {
@@ -314,81 +320,15 @@ export const TrackRow: React.FC<TrackRowProps> = React.memo(
           </div>
           <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-zinc-400 truncate mt-0.5 font-medium">
             <SourceBadge source={detectTrackSource(track)} size="sm" />
-            <span className="truncate">
-              {(() => {
-                const rawArtist =
-                  track.artist?.name ||
-                  (typeof track.artist === 'string' ? track.artist : 'Unknown Artist');
-                const parsed = parseArtists(rawArtist, track.title);
-                if (parsed.length <= 1) {
-                  return (
-                    <span
-                      onClick={(e) => {
-                        if (onNavigateToArtist && rawArtist && rawArtist !== 'Unknown Artist') {
-                          e.stopPropagation();
-                          const source =
-                            track.artist?.source || track.source || detectTrackSource(track);
-                          const rawTrackId = String(track.id || '');
-                          const isNumericScId =
-                            track.artist?.id && String(track.artist.id).match(/^sc_art_\d+$/);
-                          const artistId =
-                            track.artist?.id && !isNumericScId
-                              ? track.artist.id
-                              : rawTrackId.startsWith('sc_') || source === 'soundcloud'
-                                ? `sc_art_${rawArtist.toLowerCase().replace(/\s+/g, '_')}`
-                                : rawTrackId.startsWith('yt_') || source === 'youtube'
-                                  ? `yt_art_${rawArtist.toLowerCase().replace(/\s+/g, '_')}`
-                                  : track.artist?.id;
-                          onNavigateToArtist({
-                            id: artistId,
-                            name: rawArtist,
-                            source,
-                          } as any);
-                        }
-                      }}
-                      className={`py-0.5 ${
-                        onNavigateToArtist
-                          ? 'hover:underline cursor-pointer hover:text-slate-950 dark:hover:text-white font-semibold text-slate-700 dark:text-zinc-300 active:text-soso-brand'
-                          : 'hover:text-slate-900 dark:hover:text-zinc-200'
-                      }`}
-                    >
-                      {rawArtist}
-                    </span>
-                  );
-                }
-                return parsed.map((art, idx) => (
-                  <React.Fragment key={art.name + idx}>
-                    <span
-                      onClick={(e) => {
-                        if (onNavigateToArtist) {
-                          e.stopPropagation();
-                          const source =
-                            track.artist?.source || track.source || detectTrackSource(track);
-                          const rawTrackId = String(track.id || '');
-                          const artistId =
-                            rawTrackId.startsWith('sc_') || source === 'soundcloud'
-                              ? `sc_art_${art.name.toLowerCase().replace(/\s+/g, '_')}`
-                              : rawTrackId.startsWith('yt_') || source === 'youtube'
-                                ? `yt_art_${art.name.toLowerCase().replace(/\s+/g, '_')}`
-                                : undefined;
-                          onNavigateToArtist({
-                            id: artistId,
-                            name: art.name,
-                            source,
-                          } as any);
-                        }
-                      }}
-                      className="hover:underline cursor-pointer hover:text-slate-950 dark:hover:text-white font-semibold text-slate-700 dark:text-zinc-300 active:text-soso-brand"
-                    >
-                      {art.name}
-                    </span>
-                    {idx < parsed.length - 1 && (
-                      <span className="text-slate-400 dark:text-zinc-500">, </span>
-                    )}
-                  </React.Fragment>
-                ));
-              })()}
-            </span>
+            <TrackArtistButton
+              track={track}
+              onNavigateToArtist={onNavigateToArtist}
+              className={
+                onNavigateToArtist
+                  ? 'font-semibold text-slate-700 hover:text-slate-950 active:text-soso-brand dark:text-zinc-300 dark:hover:text-white'
+                  : ''
+              }
+            />
           </div>
         </div>
 

@@ -107,10 +107,10 @@ for (const [mood, matchingGenre, oppositeGenre, direction] of [
         },
       },
     });
-    assert.deepEqual(queries, [artist + (mood === 'energy' ? ' energetic' : ' chill')]);
-    assert.equal(pool.size, 1);
-    assert.equal(pool.values()[0].id, 'result-' + mood);
-    assert.equal(waveMusicProfile(pool.values()[0]).energy, 0);
+    assert.equal(queries[0], artist + (mood === 'energy' ? ' energetic' : ' chill'));
+    const neutral = pool.values().find((track) => track.id === 'result-' + mood);
+    assert.ok(neutral);
+    assert.equal(waveMusicProfile(neutral).energy, 0);
   });
 }
 
@@ -151,8 +151,65 @@ test('personal mood searches fall back to the artist when qualified results are 
         },
       },
     });
-    assert.deepEqual(queries, [artist + ' chill', artist]);
+    assert.equal(queries[0], artist + ' chill');
+    assert.equal(queries.at(-1), artist);
     assert.equal(pool.values()[0].id, 'fallback');
+  }
+});
+
+test('Mood fallback finds five distinct matching songs and represents both providers', async () => {
+  for (const [mood, genre, direction] of [
+    ['energy', 'Metal', 1],
+    ['chill', 'Ambient', -1],
+  ]) {
+    const artist = 'Personal Musician';
+    const pool = new WaveCandidatePool({
+      mood,
+      excluded: [],
+      disliked: [],
+      familiarArtists: [artist],
+      heard: [],
+    });
+    const both = async (query) => {
+      if (query === genre)
+        return { data: Array.from({ length: 3 }, (_, i) => song('genre-' + i, genre)) };
+      if (query === artist) return { data: [song('neutral', undefined, artist)] };
+      return {
+        data: [
+          ...['soundcloud', 'youtube'].flatMap((source) =>
+            Array.from({ length: 3 }, (_, i) => ({
+              ...song(source + '-' + i, genre, artist),
+              source,
+            })),
+          ),
+        ],
+      };
+    };
+    await fillWaveMoodCandidates({
+      mood,
+      seeds: [song('seed', undefined, artist)],
+      artists: [artist],
+      hasTaste: true,
+      libraryGenres: [genre],
+      pool,
+      rotate: (names) => names,
+      catalog: {
+        both: (query) =>
+          query !== genre && !query.startsWith(artist) ? { data: [] } : both(query),
+      },
+    });
+    assert.equal(
+      new Set(
+        pool
+          .values()
+          .filter((track) => track.artist.name === artist)
+          .map(({ source }) => source),
+      ).size,
+      2,
+    );
+    const opening = sequenceWaveTracks(pool.values(), mood, [artist], 5);
+    assert.equal(opening.length, 5);
+    assert.ok(opening.every((track) => waveMusicProfile(track).energy === direction));
   }
 });
 

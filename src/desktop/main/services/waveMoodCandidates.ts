@@ -56,6 +56,7 @@ export interface WaveMoodCandidates {
   artists: string[];
   hasTaste: boolean;
   exposedTracks?: readonly Track[];
+  libraryGenres?: readonly string[];
   pool: WaveCandidatePool;
   catalog: WaveCatalog;
   rotate: (artists: string[]) => string[];
@@ -134,41 +135,31 @@ async function searchArtists(
 async function searchCombinedArtists(
   options: WaveMoodCandidates,
   artists: string[],
-): Promise<void> {
+  qualify: boolean,
+): Promise<string[]> {
   const replies = await mapConcurrentSettled(
     artists,
-    async (artist) => {
-      const query = artist + (options.mood === 'energy' ? ' energetic' : ' chill');
-      const reply = await searchCatalog(options, 'both', query, 10, artist).catch(() => ({
-        data: [],
-      }));
-      // A small catalog may not support qualified searches. Keep personal music available.
-      if (
-        !reply.data?.some(
-          (track) =>
-            !track.playbackUnavailable &&
-            matchesWaveArtist(track, artist) &&
-            waveMoodScore(waveMusicProfile(track), options.mood) >= 0,
-        )
-      )
-        return searchCatalog(options, 'both', artist, 10);
-      return reply;
-    },
+    (artist) =>
+      searchCatalog(
+        options,
+        'both',
+        qualify ? artist + (options.mood === 'energy' ? ' energetic' : ' chill') : artist,
+        10,
+        artist,
+      ),
     SEARCH_CONCURRENCY,
   );
+  const missing: string[] = [];
+  const score = (track: Track) => waveMoodScore(waveMusicProfile(track), options.mood);
   replies.forEach((reply, index) => {
-    if (reply.status === 'fulfilled')
-      options.pool.addRanked(
-        [...(reply.value.data || [])].sort(
-          (left, right) =>
-            waveMoodScore(waveMusicProfile(right), options.mood) -
-            waveMoodScore(waveMusicProfile(left), options.mood),
-        ),
-        3,
-        artists[index],
-        'artist',
-      );
+    const artist = artists[index];
+    const eligible =
+      reply.status === 'fulfilled'
+        ? (reply.value.data || []).filter((track) => score(track) >= 0)
+        : [];
+    if (!options.pool.addRanked(eligible, 3, artist, 'artist', score)) missing.push(artist);
   });
+  return missing;
 }
 
 async function similarNames(
@@ -197,8 +188,26 @@ async function similarNames(
 }
 
 async function fillMix(options: WaveMoodCandidates): Promise<void> {
-  if (options.hasTaste)
-    return searchArtists(options, options.rotate(options.artists).slice(0, 7), 10, 3);
+  if (options.hasTaste) {
+    const artists = options.rotate(options.artists);
+    if (options.mood === 'favorites') return searchArtists(options, artists.slice(0, 7), 10, 3);
+    const styles = new Map<string, Set<string>>();
+    for (const seed of options.seeds) {
+      for (const artist of getWaveArtistKeys(seed)) {
+        const previous = styles.get(artist) || new Set<string>();
+        for (const style of waveMusicProfile(seed).styles) previous.add(style);
+        styles.set(artist, previous);
+      }
+    }
+    const represented = new Set<string>();
+    const varied = artists.filter((artist) => {
+      const genres = [...(styles.get(normalizeWaveArtist(artist)) || [])];
+      if (!genres.some((genre) => !represented.has(genre))) return false;
+      genres.forEach((genre) => represented.add(genre));
+      return true;
+    });
+    return searchArtists(options, [...new Set([...varied, ...artists])].slice(0, 7), 10, 3);
+  }
   const replies = await Promise.allSettled(
     MIX_QUERIES.map((query) => searchCatalog(options, 'fallback', query, 10)),
   );
@@ -211,22 +220,45 @@ async function fillEnergyOrChill(options: WaveMoodCandidates): Promise<void> {
   const artists = options
     .rotate(moodArtists.length ? [...new Set(moodArtists)] : options.artists)
     .slice(0, MOOD_ARTIST_LIMIT);
-  const queries = options.hasTaste
-    ? []
-    : shuffled(options.mood === 'energy' ? ENERGY_QUERIES : CHILL_QUERIES).slice(
-        0,
-        EMPTY_MOOD_QUERY_LIMIT,
-      );
-  const [, replies] = await Promise.all([
-    searchCombinedArtists(options, artists),
-    mapConcurrentSettled(
+  const score = (track: Track) => waveMoodScore(waveMusicProfile(track), options.mood);
+  const enoughForOpening = () =>
+    options.pool.count((track) => track.waveMetadataScope !== 'artist' && score(track) > 0) >= 5;
+  const missing = await searchCombinedArtists(options, artists, true);
+  let reserve = MOOD_ARTIST_LIMIT;
+  if (!options.searchAttempt && !enoughForOpening()) {
+    const genres = [...new Set(options.libraryGenres || [])]
+      .filter((genre) => waveMoodScore(waveMusicProfile({ genre }), options.mood) > 0)
+      .slice(0, EMPTY_MOOD_QUERY_LIMIT);
+    const coldQueries = options.mood === 'energy' ? ENERGY_QUERIES : CHILL_QUERIES;
+    const queries = options.hasTaste
+      ? genres
+      : shuffled(coldQueries).slice(0, EMPTY_MOOD_QUERY_LIMIT);
+    const remaining = EMPTY_MOOD_QUERY_LIMIT - queries.length;
+    const known = new Set(options.artists.map(normalizeWaveArtist));
+    const nearby =
+      options.hasTaste && remaining > 0
+        ? await similarNames(options, artists.slice(0, remaining), remaining, (name) =>
+            known.has(normalizeWaveArtist(name)),
+          )
+        : [];
+    const replies = await mapConcurrentSettled(
       queries,
       (query) => searchCatalog(options, 'both', query, 8),
       SEARCH_CONCURRENCY,
-    ),
-  ]);
-  for (const reply of replies)
-    if (reply.status === 'fulfilled') options.pool.addRanked(reply.value.data || [], 3);
+    );
+    replies.forEach((reply) => {
+      if (reply.status === 'fulfilled') {
+        const eligible = (reply.value.data || []).filter((track) => score(track) >= 0);
+        options.pool.addRanked(eligible, 3, undefined, undefined, score);
+      }
+    });
+    const alternatives = nearby.slice(0, remaining);
+    await searchCombinedArtists(options, alternatives, true);
+    reserve -= queries.length + alternatives.length;
+  }
+  if (!enoughForOpening()) {
+    await searchCombinedArtists(options, missing.slice(0, reserve), false);
+  }
 }
 
 async function fillDiscover(options: WaveMoodCandidates): Promise<void> {
@@ -251,14 +283,42 @@ async function fillDiscover(options: WaveMoodCandidates): Promise<void> {
         options.pool.add(track, 'similar', targets[index]);
     }
   });
-  if (options.pool.size >= 15 || options.hasTaste) return;
+  if (!options.hasTaste) await fillDiscoverFallback(options);
+}
+
+export async function fillDiscoverFallback(options: WaveMoodCandidates): Promise<void> {
+  const known = new Set(options.artists.map(normalizeWaveArtist));
+  const newArtists = (track: Track) => {
+    const artists = getWaveArtistKeys(track, options.artists);
+    return artists.length > 0 && !artists.some((artist) => known.has(artist));
+  };
+  const distinct = new Set(
+    options.pool
+      .values()
+      .filter(newArtists)
+      .flatMap((track) => getWaveArtistKeys(track)),
+  );
+  if (distinct.size >= 8) return;
+  const genres = [
+    ...new Set([
+      ...(options.libraryGenres || []),
+      ...options.seeds.flatMap((track) => [...waveMusicProfile(track).styles]),
+    ]),
+  ];
+  const queries = [...genres, ...shuffled(DISCOVERY_QUERIES)].slice(0, 3);
   const fallback = await mapConcurrentSettled(
-    shuffled(DISCOVERY_QUERIES).slice(0, 3),
+    queries,
     (query) => searchCatalog(options, 'fallback', query, 10),
     SEARCH_CONCURRENCY,
   );
-  for (const reply of fallback)
-    if (reply.status === 'fulfilled') reply.value.data?.forEach((track) => options.pool.add(track));
+  fallback.forEach((reply, index) => {
+    if (reply.status === 'fulfilled') {
+      const tracks = (reply.value.data || []).filter(newArtists);
+      if (!options.hasTaste) tracks.forEach((track) => options.pool.add(track));
+      else
+        options.pool.addRanked(tracks, 4, undefined, index < genres.length ? 'genre' : undefined);
+    }
+  });
 }
 
 async function fillArtistRadio(options: WaveMoodCandidates): Promise<void> {
