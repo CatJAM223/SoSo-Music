@@ -5,8 +5,7 @@ import { useLastFmKeySettings } from '../../hooks/useLastFmKeySettings';
 import { useLocale } from '../../../../shared/i18n/useLocale';
 import { t } from '../../../../shared/i18n/locale';
 import { useYouTubeAccountSettings } from '../../hooks/useYouTubeAccountSettings';
-import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState, useEffect, useId, useLayoutEffect, useRef } from 'react';
 import {
   X,
   CircleHelp,
@@ -43,6 +42,7 @@ import { SettingsAppearance } from './SettingsAppearance';
 import { SettingsStats } from './SettingsStats';
 import { ConfirmDeleteModal } from '../../../../shared/components/modals/ConfirmDeleteModal';
 import { SettingsLibraryTaste } from '../../../../shared/components/settings/SettingsLibraryTaste';
+import { useNativeModal } from '../../../../shared/hooks/useNativeModal';
 import './SettingsModal.css';
 
 interface SettingsModalProps {
@@ -98,6 +98,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   useLocale();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [focusedTab, setFocusedTab] = useState<SettingsTab>(initialTab);
+  const settingsId = useId();
+  const settingsDialog = useNativeModal();
   const lastFm = useLastFmKeySettings(isOpen && activeTab === 'api');
   const overlay = useOverlaySettings(isOpen && activeTab === 'integrations');
   const [showApiHelp, setShowApiHelp] = useState(false);
@@ -223,18 +226,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [qrImage, setQrImage] = useState('');
   const [qrExpanded, setQrExpanded] = useState(false);
   const showExpandedQr = qrExpanded && isOpen && lanSession.active && Boolean(qrImage);
-  useEffect(() => {
-    if (!showExpandedQr) return;
-    const close = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        setQrExpanded(false);
-      }
-    };
-    window.addEventListener('keydown', close, true);
-    return () => window.removeEventListener('keydown', close, true);
-  }, [showExpandedQr]);
+  const qrDialog = useNativeModal();
   const selectedQrAddress = lanSession.addresses.includes(qrAddress)
     ? qrAddress
     : lanSession.addresses[0] || '';
@@ -325,6 +317,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   });
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [confirmCacheClear, setConfirmCacheClear] = useState(false);
+  const cacheClearButton = useRef<HTMLButtonElement>(null);
+  const cacheHeading = useRef<HTMLHeadingElement>(null);
+  const cacheCleared = useRef(false);
+  useLayoutEffect(() => {
+    if (confirmCacheClear || !cacheCleared.current) return;
+    cacheCleared.current = false;
+    if (cacheClearButton.current?.disabled) cacheHeading.current?.focus();
+  }, [confirmCacheClear]);
 
   const loadCacheStats = React.useCallback(async () => {
     try {
@@ -595,6 +595,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (!(await offlineCacheService.clearCache()))
         throw new Error(t('Не удалось удалить скачанные треки. Попробуйте ещё раз.'));
       await loadCacheStats();
+      cacheCleared.current = true;
       setStatusMessage({
         type: 'success',
         title: t('Офлайн кэш очищен'),
@@ -629,19 +630,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const handleTabsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const tabs = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    );
+    const index = tabs.indexOf(event.target as HTMLButtonElement);
+    if (index < 0) return;
+
+    let next: number;
+    switch (event.key) {
+      case 'ArrowUp':
+        next = (index - 1 + tabs.length) % tabs.length;
+        break;
+      case 'ArrowDown':
+        next = (index + 1) % tabs.length;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = tabs.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    setFocusedTab(SETTINGS_TABS[next].id);
+    tabs[next].focus();
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="settings-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in select-none">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="desktop-settings-title"
-        className="settings-modal settings-redesign relative overflow-hidden"
+    <>
+      <dialog
+        ref={settingsDialog}
+        aria-labelledby={`${settingsId}-title`}
+        className="settings-modal settings-redesign animate-fade-in select-none overflow-hidden"
+        onCancel={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') event.stopPropagation();
+        }}
       >
         <div className="settings-modal-header flex items-center justify-between shrink-0">
-          <h2 id="desktop-settings-title">{t('Настройки')}</h2>
-          <button onClick={onClose} aria-label={t('Закрыть настройки')} className="settings-close">
+          <h2 id={`${settingsId}-title`}>{t('Настройки')}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t('Закрыть настройки')}
+            className="settings-close"
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -650,6 +693,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           aria-orientation="vertical"
           aria-label={t('Категории настроек')}
           className="settings-tabs"
+          onKeyDown={handleTabsKeyDown}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setFocusedTab(activeTab);
+          }}
         >
           {SETTINGS_TABS.map((tab) => {
             const isActive = activeTab === tab.id;
@@ -657,12 +704,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             return (
               <button
                 key={tab.id}
+                type="button"
                 role="tab"
-                id={'settings-tab-' + tab.id}
-                aria-controls="settings-panel"
+                id={`${settingsId}-tab-${tab.id}`}
+                aria-controls={`${settingsId}-panel-${tab.id}`}
                 title={t(tab.label)}
                 aria-selected={isActive}
-                onClick={() => setActiveTab(tab.id)}
+                tabIndex={focusedTab === tab.id ? 0 : -1}
+                onFocus={() => setFocusedTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setFocusedTab(tab.id);
+                }}
                 className={isActive ? 'active' : ''}
               >
                 <Icon size={21} aria-hidden="true" />
@@ -672,11 +725,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           })}
         </div>
 
+        {SETTINGS_TABS.filter(({ id }) => id !== activeTab).map(({ id }) => (
+          <div
+            key={id}
+            role="tabpanel"
+            id={`${settingsId}-panel-${id}`}
+            aria-labelledby={`${settingsId}-tab-${id}`}
+            hidden
+          />
+        ))}
         <div
-          key={activeTab}
+          key={`active-${activeTab}`}
           role="tabpanel"
-          id="settings-panel"
-          aria-labelledby={'settings-tab-' + activeTab}
+          id={`${settingsId}-panel-${activeTab}`}
+          aria-labelledby={`${settingsId}-tab-${activeTab}`}
+          tabIndex={0}
           className="settings-modal-content overflow-y-auto flex-1 min-h-0"
         >
           {activeTab === 'general' && (
@@ -1279,7 +1342,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </section>
               <section className="settings-section">
-                <h4>{t('Хранилище')}</h4>
+                <h4 ref={cacheHeading} tabIndex={-1}>
+                  {t('Хранилище')}
+                </h4>
                 <div className="settings-row">
                   <div className="settings-row-copy">
                     <strong>{t('Офлайн треки')}</strong>
@@ -1289,6 +1354,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </span>
                   </div>
                   <button
+                    ref={cacheClearButton}
                     type="button"
                     className="settings-action"
                     disabled={cacheStats.count === 0 || isClearingCache}
@@ -1315,7 +1381,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}{' '}
         </div>
-      </div>
+      </dialog>
       <ConfirmDeleteModal
         isOpen={confirmCacheClear}
         title={t('Удалить скачанные треки?')}
@@ -1328,41 +1394,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         onConfirm={handleClearCache}
         onClose={() => setConfirmCacheClear(false)}
       />
-      {showExpandedQr &&
-        createPortal(
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('QR-код для подключения телефона')}
-            className="fixed inset-0 z-[200] bg-zinc-950 flex flex-col items-center justify-center gap-5 p-6 text-white"
+      {showExpandedQr && (
+        <dialog
+          ref={qrDialog}
+          aria-label={t('QR-код для подключения телефона')}
+          className="settings-qr-dialog fixed inset-0 m-0 h-full w-full max-h-none max-w-none border-0 bg-zinc-950 flex-col items-center justify-center gap-5 p-6 text-white"
+          onCancel={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setQrExpanded(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') event.stopPropagation();
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setQrExpanded(false);
+          }}
+        >
+          <button
+            type="button"
+            aria-label={t('Закрыть QR-код')}
             onClick={() => setQrExpanded(false)}
+            className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/10 flex items-center justify-center"
           >
-            <button
-              type="button"
-              autoFocus
-              aria-label={t('Закрыть QR-код')}
-              onClick={() => setQrExpanded(false)}
-              className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/10 flex items-center justify-center"
-            >
-              <X />
-            </button>
-            <h2 className="text-xl font-bold">{t('Подключение телефона')}</h2>
-            <img
-              src={qrImage}
-              alt={t('QR-код сопряжения с телефоном')}
-              className="rounded-xl object-contain bg-white"
-              style={{ width: 'min(72vw, 65vh, 720px)', height: 'min(72vw, 65vh, 720px)' }}
-            />
-            <p className="text-sm text-zinc-300">
-              {t('Откройте сканер QR-кода в приложении на телефоне')}
-            </p>
-            <p className="text-sm">
-              {t('Код: ')}
-              <strong className="font-mono">{lanSession.code}</strong>
-            </p>
-          </div>,
-          document.body,
-        )}
-    </div>
+            <X />
+          </button>
+          <h2 className="text-xl font-bold">{t('Подключение телефона')}</h2>
+          <img
+            src={qrImage}
+            alt={t('QR-код сопряжения с телефоном')}
+            className="rounded-xl object-contain bg-white"
+            style={{ width: 'min(72vw, 65vh, 720px)', height: 'min(72vw, 65vh, 720px)' }}
+          />
+          <p className="text-sm text-zinc-300">
+            {t('Откройте сканер QR-кода в приложении на телефоне')}
+          </p>
+          <p className="text-sm">
+            {t('Код: ')}
+            <strong className="font-mono">{lanSession.code}</strong>
+          </p>
+        </dialog>
+      )}
+    </>
   );
 };

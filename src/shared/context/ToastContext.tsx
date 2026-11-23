@@ -8,25 +8,35 @@ export interface ToastItem {
   message: string;
   type: ToastType;
   duration: number;
+  action?: { label: string; run: () => void };
 }
 
 interface ToastContextType {
   toasts: ToastItem[];
-  showToast: (message: string, type?: ToastType, duration?: number) => void;
+  showToast: (
+    message: string,
+    type?: ToastType,
+    duration?: number,
+    action?: ToastItem['action'],
+  ) => void;
   dismissToast: (id: string) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
-let globalToastEmitter: ((message: string, type?: ToastType, duration?: number) => void) | null =
-  null;
+let globalToastEmitter: ToastContextType['showToast'] | null = null;
 
 /**
  * Global static helper to trigger toasts from non-React service contexts
  */
-export const emitToast = (message: string, type: ToastType = 'info', duration: number = 4000) => {
+export const emitToast = (
+  message: string,
+  type: ToastType = 'info',
+  duration = 4000,
+  action?: ToastItem['action'],
+) => {
   if (globalToastEmitter) {
-    globalToastEmitter(message, type, duration);
+    globalToastEmitter(message, type, duration, action);
   }
 };
 
@@ -38,10 +48,10 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const showToast = useCallback(
-    (message: string, type: ToastType = 'info', duration: number = 4000) => {
+    (message: string, type: ToastType = 'info', duration = 4000, action?: ToastItem['action']) => {
       if (!message) return;
       const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const newToast: ToastItem = { id, message, type, duration };
+      const newToast: ToastItem = { id, message, type, duration, action };
 
       setToasts((prev) => {
         // Keep maximum 3 simultaneous toasts

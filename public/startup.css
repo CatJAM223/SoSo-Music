@@ -1,4 +1,11 @@
 /* Critical startup layout: available before the renderer bundle and React. */
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
 html,
 body,
 #root {

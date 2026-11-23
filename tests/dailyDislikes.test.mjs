@@ -11,8 +11,11 @@ import {
   createDailyRecommendationLoader,
   selectDailyRecommendations,
   DAILY_RECOMMENDATIONS_KEY,
+  DAILY_HISTORY_LIMIT,
   localRecommendationDay,
+  orderDailyRepeats,
 } from '../src/shared/utils/dailyRecommendations.ts';
+import { waveMemoryTrack } from '../src/shared/services/waveMemory.ts';
 import { normalizeWaveSeed } from '../src/shared/utils/waveRecommendations.ts';
 import { hookRuntime } from './helpers/hookRuntime.mjs';
 const song = (id, artist = 'Rejected Artist', title = 'First constellation') => ({
@@ -76,11 +79,18 @@ test('A daily batch excludes dislikes past the packet boundary and preserves art
   assert.equal(policy.artistFeedback['boundary artist'], -0.75);
   const hidden = song('last', 'Different artist', 'Different title');
   const ranked = policy.select(
-    [song('later', 'Boundary Artist', 'Another empty shore'), copy, hidden,
-      song('first', 'Different artist', 'Moon over the ocean')],
+    [
+      song('later', 'Boundary Artist', 'Another empty shore'),
+      copy,
+      hidden,
+      song('first', 'Different artist', 'Moon over the ocean'),
+    ],
     [],
   );
-  assert.deepEqual(ranked.map((track) => track.id), ['first', 'later']);
+  assert.deepEqual(
+    ranked.map((track) => track.id),
+    ['first', 'later'],
+  );
 });
 test('two disliked songs reduce artist priority without banning other songs or collaborations', () => {
   const policy = createDailyDislikePolicy(two);
@@ -190,6 +200,10 @@ function dailyHandler(db, fetch) {
     WaveEngine: { getWaveBatch: fetch },
     normalizeWaveSeed,
     selectDailyRecommendations,
+    DAILY_HISTORY_LIMIT,
+    orderDailyRepeats,
+    waveMemoryTrack,
+    identifyCatalogTracks: (tracks) => tracks,
     createDailyDislikePolicy,
     readWaveNovelty,
     readWaveRecommendation,
@@ -363,10 +377,13 @@ test('actual daily hook ignores late pre-dislike responses and pending completio
 test('The daily view postpones starting a new selection until the window is visible', async () => {
   let visible = false;
   let calls = 0;
-  const h = dailyHook(async () => {
-    calls++;
-    return [song('fresh')];
-  }, () => visible);
+  const h = dailyHook(
+    async () => {
+      calls++;
+      return [song('fresh')];
+    },
+    () => visible,
+  );
   h.render(new Set());
   await h.flush();
   assert.equal(calls, 0);

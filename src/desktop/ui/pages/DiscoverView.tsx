@@ -5,6 +5,8 @@ import { youtubeDisabledProps } from '../../../shared/services/youtubeAvailabili
 import React, { useEffect, useState, useCallback } from 'react';
 import { Play, Pause, Heart, Disc3, ArrowRight, Music2, Loader2 } from 'lucide-react';
 import { Album, LikedTrack, SavedAlbum, Track, WaveMood } from '../../../shared/types';
+import type { NavigateToArtist } from '../../../shared/types/artistNavigation';
+import { TrackArtistButton } from '../../../shared/components/TrackArtistButton';
 import { useAudioState, useAudioControls } from '../../../shared/context/AudioContext';
 import { CatLoader } from '../components/CatLoader';
 import { detectTrackSource } from '../../../shared/utils/formatters';
@@ -14,7 +16,7 @@ import { WaveControl } from '../components/WaveControl';
 
 interface DiscoverViewProps {
   onNavigate: (view: string, data?: any) => void;
-  onNavigateToArtist: (artist: { id?: string | number; name: string }) => void;
+  onNavigateToArtist: NavigateToArtist;
   onNavigateToAlbum?: (album: Album) => void;
 }
 
@@ -288,13 +290,11 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
                   >
                     {track.title}
                   </p>
-                  <button
-                    onClick={() => onNavigateToArtist(track.artist)}
-                    className="mt-1 block max-w-full truncate text-xs text-slate-500 hover:underline dark:text-zinc-400"
-                    title={track.artist.name}
-                  >
-                    {track.artist.name}
-                  </button>
+                  <TrackArtistButton
+                    track={track}
+                    onNavigateToArtist={onNavigateToArtist}
+                    className="mt-1 text-xs text-slate-500 dark:text-zinc-400"
+                  />
                 </article>
               );
             })}

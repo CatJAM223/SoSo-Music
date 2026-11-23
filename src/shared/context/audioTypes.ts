@@ -110,9 +110,9 @@ export interface AudioControlsContextType {
   // Queue actions
   addToQueue: (track: Track) => void;
   insertIntoQueue: (track: Track, atIndex?: number) => void;
-  playNext: (track: Track) => void;
-  removeFromQueue: (index: number) => void;
-  clearQueue: () => void;
+  playNext: (track: Track) => (() => boolean) | void;
+  removeFromQueue: (index: number) => (() => boolean) | void;
+  clearQueue: () => (() => boolean) | void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   shuffleUpcomingQueue: () => void;
   replaceUpcomingQueue: (tracks: Track[]) => void;

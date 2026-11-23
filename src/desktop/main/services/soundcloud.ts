@@ -587,27 +587,16 @@ export class SoundCloudService {
           : [];
 
       for (const item of items) {
-        if (!item || !item.id || !item.title) continue;
-        let artistName = item.user?.username || 'SoundCloud';
-        let trackTitle = item.title;
-        if (trackTitle.includes(' - ')) {
-          const parts = trackTitle.split(' - ');
-          if (parts.length >= 2) {
-            artistName = parts[0].trim();
-            trackTitle = parts.slice(1).join(' - ').trim();
-          }
-        }
-        const artwork = (item.artwork_url || item.user?.avatar_url || '').replace(
-          '-large.',
-          '-t300x300.',
-        );
+        const track = this.transformSCTrack(item);
+        if (!track || track.playbackUnavailable) continue;
         suggestions.push({
-          id: item.id,
-          title: trackTitle,
-          artist: artistName,
+          id: track.id,
+          title: track.title,
+          artist: track.artist.name,
           type: 'track',
           source: 'soundcloud',
-          picture: artwork || undefined,
+          picture: track.cover_url || undefined,
+          track,
         });
       }
 
@@ -1043,6 +1032,22 @@ export class SoundCloudService {
     }
   }
 
+  public static async getSearchTopTracks(id: string | number): Promise<Track[]> {
+    const userId = String(id).replace(/^sc_(?:art_)?/i, '');
+    if (!/^\d+$/.test(userId)) return [];
+    const clientId = await streamShared(() => this.getSoundCloudKey());
+    const result = await streamWait(
+      this.fetchWithRelay(
+        `https://api-v2.soundcloud.com/users/${userId}/toptracks?client_id=${clientId}&limit=12`,
+      ),
+    );
+    return Array.isArray(result?.collection)
+      ? result.collection
+          .map((item: unknown) => this.transformSCTrack(item))
+          .filter((track: Track | null): track is Track => !!track && !track.playbackUnavailable)
+      : [];
+  }
+
   /**
    * Converts any SoundCloud artwork/avatar URL variant to high definition 500x500
    */
@@ -1071,12 +1076,13 @@ export class SoundCloudService {
       .replace(/^sc_art_/i, '')
       .replace(/^sc_/i, '')
       .trim();
+    const numericName = /^\d+$/.test(query) && query === expectedArtistName?.trim();
 
     try {
       const clientId = await this.getSoundCloudKey();
       let userData: any = null;
 
-      if (/^\d+$/.test(cleanUserQuery)) {
+      if (/^\d+$/.test(cleanUserQuery) && !numericName) {
         userData = await this.fetchWithRelay(
           `https://api-v2.soundcloud.com/users/${cleanUserQuery}?client_id=${clientId}`,
         );
@@ -1106,12 +1112,12 @@ export class SoundCloudService {
         const searchJson = await this.fetchWithRelay(
           `https://api-v2.soundcloud.com/search/users?q=${encodeURIComponent(searchQuery)}&client_id=${clientId}&limit=10`,
         );
-        const users: any[] = (searchJson?.collection || []).filter((user: any) =>
-          isValidTrackForArtist(
-            { title: '', artist: { name: fixMojibake(user.username || '') } } as Track,
-            searchQuery,
-          ),
-        );
+        const users: any[] = (searchJson?.collection || []).filter((user: any) => {
+          const name = fixMojibake(user.username || '');
+          return numericName
+            ? name.trim() === searchQuery
+            : isValidTrackForArtist({ title: '', artist: { name } } as Track, searchQuery);
+        });
         if (users.length > 0) {
           const cleanLower = searchQuery.toLowerCase().trim();
           users.sort((a, b) => {

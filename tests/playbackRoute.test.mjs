@@ -113,6 +113,7 @@ test('Actual audio playing callback sends structured route metadata instead of p
   const end = source.indexOf('    const handleWaiting', begin);
   assert.ok(begin > 0 && end > begin);
   const captured = [];
+  let playing = false;
   const audio = { paused: false, src: 'https://rr1.googlevideo.com/videoplayback', duration: 106 };
   const context = {
     engine: { transition() {} },
@@ -137,6 +138,10 @@ test('Actual audio playing callback sends structured route metadata instead of p
     clearStalledRecoveryTimer() {},
     isTransitioningTrackRef: {},
     trackTransitionTimestampRef: {},
+    setIsPlaying: (value) => {
+      playing = value;
+    },
+    isPlayingRef: { current: false },
     setIsLoadingTrack() {},
     streamRetryCountRef: {},
     handledMediaErrorRef: {},
@@ -150,6 +155,8 @@ test('Actual audio playing callback sends structured route metadata instead of p
   const invoke = () =>
     vm.runInNewContext('{' + source.slice(begin, end) + '\nhandlePlaying();}', context);
   invoke();
+  assert.equal(playing, true);
+  assert.equal(context.isPlayingRef.current, true);
   assert.equal(captured[0].meta.event, 'playback-start');
   assert.equal(captured[0].meta.delivery, 'progressive');
   assert.equal(captured[0].meta.trackId, 'yt_W0LiTBNjJ_o');

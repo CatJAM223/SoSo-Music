@@ -67,6 +67,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     refreshStats,
     activePage,
     playbackError,
+    preparingTrackId,
     handlePlayLibraryTrack,
     loadingPlaylists,
     tracks,
@@ -389,6 +390,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
               tracks={filteredTracks}
               totalDurationSeconds={totalDurationSeconds}
               onPlayTrack={handlePlayLibraryTrack}
+              preparingTrackId={preparingTrackId}
               onOpenAddToPlaylist={onOpenAddToPlaylist}
               onNavigateToArtist={onNavigateToArtist}
               onNavigateToAlbum={onNavigateToAlbum}

@@ -182,11 +182,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             ? weatherMode === 'rain'
             : true;
 
-    if (isDark) {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
+    const scheme = isDark ? 'dark' : 'light';
+    root.classList.toggle('dark', isDark);
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', scheme);
 
     // Set dynamic RGB for accent and glow
     const selectedAccent =
@@ -225,7 +223,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       localStorage.setItem('soso_theme_mode', themeMode);
       localStorage.setItem('soso_weather_mode', weatherMode);
       localStorage.setItem('soso_accent_color', accentColor);
-      localStorage.setItem('soso_theme', isDark ? 'dark' : 'light');
+      localStorage.setItem('soso_theme', scheme);
       localStorage.setItem('soso_cursor_glow', String(cursorGlow));
     } catch (e) {
       console.warn('Failed to save theme in localStorage:', e);

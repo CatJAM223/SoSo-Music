@@ -13,9 +13,7 @@ const csp = fs
   .match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/i)?.[1];
 if (!csp) throw Error('Missing production CSP');
 const fixture = `
-import {rankSearchTracks} from './src/shared/utils/searchRanking.ts';
-import {rankSearchTracks as referenceSearch} from './tests/fixtures/searchRankingBeforeRust.mjs';
-import {searchTracks,searchQueries} from './tests/helpers/searchRankingCases.mjs';
+import {rankSearchTracks,searchQueryVariants} from './src/shared/utils/searchRanking.ts';
 import {initializeRustCompute,probe} from './src/shared/compute/rustCore.ts';
 import {createWaveSongMatrix} from './src/shared/compute/waveSongMatrix.ts';
 import {buildWaveSongIdentity} from './src/shared/utils/waveIdentity.ts';
@@ -26,7 +24,9 @@ import {rankingCase,moods} from './tests/helpers/waveRankingCases.mjs';
 window.computeResult=(async()=>{
  const bytes=await (await fetch(new URL('compute/soso-core.wasm',document.baseURI))).arrayBuffer();
  if(!await initializeRustCompute(bytes))throw Error('Required Rust module failed under production CSP');
- const searchInput=searchTracks(150);for(const query of searchQueries){if(JSON.stringify(rankSearchTracks(searchInput,query).map(t=>t.id))!==JSON.stringify(referenceSearch(searchInput,query).map(t=>t.id)))throw Error('Rust browser search differs from reference');}
+ const studio={id:'studio',title:'Группа крови',artist:{name:'Кино'},source:'youtube',searchTopRank:1};
+ const live={...studio,id:'live',title:'Группа крови (концерт)',searchTopRank:undefined};
+ if(rankSearchTracks([live,studio],'Кино')[0]!==studio||rankSearchTracks([studio,live],'Кино Группа крови live')[0]!==live||!searchQueryVariants('rbyj').includes('кино'))throw Error('Rust browser search ranking failed');
  if(!await reference.initializeRustCompute(await (await fetch(new URL('compute/reference.wasm',document.baseURI))).arrayBuffer()))throw Error('Reference module failed');
  const c=rankingCase(120,40,80,3),songs=c.tracks.map(t=>buildWaveSongIdentity(t));
  const matrix=createWaveSongMatrix(songs,[],[]);if(!matrix)throw Error('Missing native matrix');

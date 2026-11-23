@@ -28,7 +28,14 @@ import {
   isTitleMatch,
 } from '../../../shared/utils/artistParser.ts';
 import { isYouTubeAudioStreamUrl } from '../../../shared/utils/audioUrlValidator.ts';
-import { rankSearchTracks } from '../../../shared/utils/searchRanking.ts';
+import {
+  assessSearchArtists,
+  assessSearchTracks,
+  markSearchOrder,
+  mergeSearchTopTracks,
+  rankSearchTracks,
+  searchQueryVariants,
+} from '../../../shared/utils/searchRanking.ts';
 import { cleanDiscoveryTracks } from '../../../shared/utils/discoveryTracks.ts';
 import type { ChartRegion } from '../../../shared/utils/chartRegions.ts';
 import { loadGenreCatalog } from '../../../shared/services/genreCatalog.ts';
@@ -69,13 +76,13 @@ export class MusicAggregatorService {
       const pureScTracks = (scRes.data || []).filter(
         (t: Track) => t.source === 'soundcloud' || String(t.id).startsWith('sc_'),
       );
-      const ranked = this.rankSearchTracks(pureScTracks, cleanQ);
+      const ranked = this.rankSearchTracks(markSearchOrder(pureScTracks), cleanQ);
       return { data: ranked.slice(0, limit), total: ranked.length };
     }
 
     if (source === 'youtube') {
       const ytRes = await YouTubeMusicService.search(cleanQ, limit * 2);
-      const ranked = this.rankSearchTracks(ytRes.data, cleanQ);
+      const ranked = this.rankSearchTracks(markSearchOrder(ytRes.data), cleanQ);
       return { data: ranked.slice(0, limit), total: ranked.length };
     }
 
@@ -89,7 +96,7 @@ export class MusicAggregatorService {
     const scTracks = scResult.status === 'fulfilled' ? scResult.value.data : [];
 
     // Interleave with official YouTube tracks first before ranking so tie-breaks favor YouTube
-    const allTracks = this.interleaveTracks(ytTracks, scTracks);
+    const allTracks = this.interleaveTracks(markSearchOrder(ytTracks), markSearchOrder(scTracks));
     const ranked = this.rankSearchTracks(allTracks, cleanQ);
 
     return {
@@ -190,7 +197,7 @@ export class MusicAggregatorService {
       return { data: pureScArtists };
     }
     if (source === 'youtube') {
-      const ytRes = await YouTubeMusicService.searchArtists(cleanQ, limit);
+      const ytRes = await YouTubeMusicService.searchArtists(cleanQ, limit, true);
       return { data: ytRes.data };
     }
 
@@ -207,8 +214,20 @@ export class MusicAggregatorService {
     const ytArtists = ytRes.status === 'fulfilled' ? ytRes.value?.data || [] : [];
     const scArtists = scRes.status === 'fulfilled' ? scRes.value : [];
 
-    const uniqueArtists = this.deduplicateArtists([...ytArtists, ...scArtists]);
+    const uniqueArtists = assessSearchArtists([...ytArtists, ...scArtists], cleanQ).items;
     return { data: uniqueArtists.slice(0, limit) };
+  }
+
+  public static async getSearchArtistTracks(
+    id: string | number,
+    name: string,
+    source: Exclude<MusicSource, 'all'>,
+  ): Promise<Track[]> {
+    const tracks =
+      source === 'youtube'
+        ? await YouTubeMusicService.getSearchTopTracks(id, name)
+        : await SoundCloudService.getSearchTopTracks(id);
+    return markSearchOrder(tracks.slice(0, 12), true);
   }
 
   /** The charts section exclusively uses the official YouTube Music ranking for the selected region. */
@@ -252,14 +271,18 @@ export class MusicAggregatorService {
     string,
     { items: AutocompleteSuggestion[]; expires: number }
   >();
-  public static async getAutocomplete(query: string): Promise<AutocompleteSuggestion[]> {
-    const key = (query || '').trim().toLocaleLowerCase();
-    if (!key) return [];
+  public static async getAutocomplete(
+    query: string,
+    source: MusicSource = 'all',
+  ): Promise<AutocompleteSuggestion[]> {
+    const normalized = (query || '').trim().toLowerCase();
+    if (!normalized) return [];
+    const key = `${source}:${normalized}`;
     const cached = this.autocompleteCache.get(key);
     if (cached && cached.expires > Date.now()) return cached.items;
     const pending = this.autocompleteRequests.get(key);
     if (pending) return pending;
-    const request = this.resolveAutocomplete(query).then((items) => {
+    const request = this.resolveAutocomplete(query.trim(), source).then((items) => {
       if (this.autocompleteCache.size >= 40)
         this.autocompleteCache.delete(this.autocompleteCache.keys().next().value!);
       this.autocompleteCache.set(key, {
@@ -276,128 +299,153 @@ export class MusicAggregatorService {
     }
   }
 
-  private static async resolveAutocomplete(query: string): Promise<AutocompleteSuggestion[]> {
-    const cleanQ = (query || '').trim();
-    if (!cleanQ) return [];
-
-    try {
-      const [scSettled, ytSettled, scArtistsSettled, ytAlbumsSettled, scAlbumsSettled] =
-        await Promise.allSettled([
-          settleWithin(SoundCloudService.getAutocomplete(cleanQ), 3000, []),
-          settleWithin(YouTubeMusicService.searchArtists(cleanQ, 3), 3000, { data: [] }),
-          settleWithin(SoundCloudService.searchArtists(cleanQ, 3), 3000, []),
-          settleWithin(YouTubeMusicService.searchAlbums(cleanQ, 3), 3000, []),
-          settleWithin(SoundCloudService.searchPlaylists(cleanQ, 5), 3000, []),
-        ]);
-
-      const scList = scSettled.status === 'fulfilled' ? scSettled.value : [];
-      const ytArtists = ytSettled.status === 'fulfilled' ? ytSettled.value?.data || [] : [];
-      const scArtists = scArtistsSettled.status === 'fulfilled' ? scArtistsSettled.value || [] : [];
-      const ytAlbums = ytAlbumsSettled.status === 'fulfilled' ? ytAlbumsSettled.value || [] : [];
-      const scAlbums =
-        scAlbumsSettled.status === 'fulfilled'
-          ? scAlbumsSettled.value
-              .filter(
-                (item: any) =>
-                  item?.is_album ||
-                  ['album', 'ep', 'single'].includes(String(item?.set_type || '').toLowerCase()),
-              )
-              .map((item: any) => {
-                const cover = String(item.artwork_url || '').replace('-large.', '-t500x500.');
-                const artistName = item.user?.username || '';
-                return {
-                  id: `sc_alb_${item.id}`,
-                  title: item.title || '',
-                  cover,
-                  cover_medium: cover,
-                  artist_name: artistName,
-                  artist: { name: artistName },
-                  source: 'soundcloud' as const,
-                };
-              })
+  private static async resolveAutocomplete(
+    cleanQ: string,
+    source: MusicSource,
+  ): Promise<AutocompleteSuggestion[]> {
+    const useYouTube = source !== 'soundcloud';
+    const useSoundCloud = source !== 'youtube';
+    const deadline = performance.now() + 3000;
+    const bounded = <T>(promise: Promise<T>, fallback: T) =>
+      settleWithin(promise, Math.max(0, deadline - performance.now()), fallback);
+    const ytArtists = useYouTube
+      ? bounded(YouTubeMusicService.searchArtists(cleanQ, 6), { data: [] }).then(({ data }) => data)
+      : Promise.resolve([]);
+    const scArtists = useSoundCloud
+      ? bounded(SoundCloudService.searchArtists(cleanQ, 6), [])
+      : Promise.resolve([]);
+    const popular = (artists: Promise<Artist[]>, provider: Exclude<MusicSource, 'all'>) =>
+      artists.then((items) => {
+        const exact = assessSearchArtists(items, cleanQ);
+        return exact.strong && deadline > performance.now()
+          ? bounded(
+              this.getSearchArtistTracks(exact.items[0].id, exact.items[0].name, provider),
+              [],
+            )
           : [];
-
-      const result: AutocompleteSuggestion[] = [];
-      const seenArtistKeys = new Set<string>();
-
-      // 1. Add YouTube Music official artists
-      for (const ytArt of ytArtists) {
-        if (!ytArt || !ytArt.name) continue;
-        const key = `yt_${ytArt.name.toLowerCase().trim()}`;
-        if (!seenArtistKeys.has(key)) {
-          seenArtistKeys.add(key);
-          result.push({
-            id: ytArt.id,
-            title: ytArt.name,
-            artist: 'Исполнитель',
-            type: 'artist',
-            source: 'youtube',
-            picture: ytArt.picture || undefined,
-          });
+      });
+    const [scList, youtubeTracks, yta, sca, ytAlbums, scPlaylists, ytHits, scHits] =
+      await Promise.all([
+        useSoundCloud ? bounded(SoundCloudService.getAutocomplete(cleanQ), []) : [],
+        useYouTube
+          ? bounded(YouTubeMusicService.search(cleanQ, 8, AbortSignal.timeout(3000)), {
+              data: [],
+              total: 0,
+            }).then(({ data }) => data)
+          : [],
+        ytArtists,
+        scArtists,
+        useYouTube ? bounded(YouTubeMusicService.searchAlbums(cleanQ, 4), []) : [],
+        useSoundCloud ? bounded(SoundCloudService.searchPlaylists(cleanQ, 5), []) : [],
+        popular(ytArtists, 'youtube'),
+        popular(scArtists, 'soundcloud'),
+      ]);
+    const artists = assessSearchArtists(
+      [
+        ...yta.map((artist) => ({ ...artist, source: 'youtube' as const })),
+        ...sca.map((artist) => ({ ...artist, source: 'soundcloud' as const })),
+        ...scList
+          .filter((item) => item.type === 'artist')
+          .map((item) => ({
+            id: item.id,
+            name: item.title,
+            picture: item.picture,
+            source: 'soundcloud' as const,
+          })),
+      ],
+      cleanQ,
+    );
+    const candidates = mergeSearchTopTracks(
+      [
+        ...markSearchOrder(youtubeTracks),
+        ...markSearchOrder(scList.flatMap((item) => (item.track ? [item.track] : []))),
+      ],
+      [...ytHits, ...scHits],
+    );
+    if (!artists.strong && !assessSearchTracks(candidates, cleanQ).strong) {
+      for (const alternative of searchQueryVariants(cleanQ)) {
+        const remaining = Math.floor(deadline - performance.now());
+        if (remaining <= 0) break;
+        const signal = AbortSignal.timeout(remaining);
+        const [yt, sc] = await Promise.all([
+          useYouTube
+            ? bounded(YouTubeMusicService.search(alternative, 6, signal), { data: [], total: 0 })
+            : { data: [] },
+          useSoundCloud
+            ? bounded(SoundCloudService.search(alternative, 6, signal), { data: [], total: 0 })
+            : { data: [] },
+        ]);
+        const recovered = assessSearchTracks(
+          [...markSearchOrder(yt.data), ...markSearchOrder(sc.data)],
+          alternative,
+        );
+        if (recovered.strong) {
+          candidates.push(...recovered.items);
+          break;
         }
       }
-
-      // 2. Add SoundCloud artists
-      for (const scArt of scArtists) {
-        if (!scArt || !scArt.name) continue;
-        const key = `sc_${scArt.name.toLowerCase().trim()}`;
-        if (!seenArtistKeys.has(key)) {
-          seenArtistKeys.add(key);
-          result.push({
-            id: scArt.id,
-            title: scArt.name,
-            artist: 'Исполнитель',
-            type: 'artist',
-            source: 'soundcloud',
-            picture: scArt.picture || undefined,
-          });
-        }
-      }
-
-      // 3. Add official albums directly from the album search filter.
-      const seenAlbumKeys = new Set<string>();
-      for (const album of [...ytAlbums, ...scAlbums]) {
-        if (!album?.title) continue;
-        const key = `${album.artist_name || album.artist?.name || ''}:${album.title}`
-          .toLocaleLowerCase()
-          .trim();
-        if (seenAlbumKeys.has(key)) continue;
-        seenAlbumKeys.add(key);
-        result.push({
-          id: album.id,
-          title: album.title,
-          artist: album.artist_name || album.artist?.name || '',
-          type: 'album',
-          source: album.source || 'youtube',
-          picture: album.cover_medium || album.cover || undefined,
-        });
-      }
-
-      // 4. Add SoundCloud suggestions (tracks and query completions)
-      for (const item of scList) {
-        if (item.type === 'artist') {
-          const key = `sc_${item.title.toLowerCase().trim()}`;
-          if (!seenArtistKeys.has(key)) {
-            seenArtistKeys.add(key);
-            result.push({
-              ...item,
-              source: 'soundcloud',
-            });
-          }
-        } else {
-          result.push(item);
-        }
-      }
-
-      return [
-        ...result.filter((item) => item.type === 'artist').slice(0, 4),
-        ...result.filter((item) => item.type === 'album').slice(0, 4),
-        ...result.filter((item) => item.type === 'track').slice(0, 4),
-      ];
-    } catch (e) {
-      console.warn('[MusicAggregatorService] getAutocomplete error:', e);
-      return await settleWithin(SoundCloudService.getAutocomplete(cleanQ), 3000, []);
     }
+    const tracks = rankSearchTracks(candidates, cleanQ).filter(
+      (track) => !track.playbackUnavailable,
+    );
+    const albums: AutocompleteSuggestion[] = [];
+    const seenAlbums = new Set<string>();
+    for (const album of [
+      ...ytAlbums,
+      ...scPlaylists
+        .filter(
+          (item: any) =>
+            item?.is_album ||
+            ['album', 'ep', 'single'].includes(String(item?.set_type || '').toLowerCase()),
+        )
+        .map((item: any) => ({
+          id: `sc_alb_${item.id}`,
+          title: item.title || '',
+          cover: String(item.artwork_url || '').replace('-large.', '-t500x500.'),
+          cover_medium: undefined,
+          artist_name: item.user?.username || '',
+          artist: undefined,
+          source: 'soundcloud' as const,
+        })),
+    ]) {
+      const artist = album.artist_name || album.artist?.name || '';
+      const key = `${artist}:${album.title}`.toLowerCase().trim();
+      if (!album.title || seenAlbums.has(key)) continue;
+      seenAlbums.add(key);
+      albums.push({
+        id: album.id,
+        title: album.title,
+        artist,
+        type: 'album',
+        source: album.source || 'youtube',
+        picture: album.cover_medium || album.cover || undefined,
+      });
+    }
+    const artistRows = artists.items.slice(0, 4).map((artist): AutocompleteSuggestion => ({
+      id: artist.id,
+      title: artist.name,
+      artist: 'Исполнитель',
+      type: 'artist',
+      source: artist.source,
+      picture: artist.picture,
+    }));
+    const trackRows = tracks.slice(0, 4).map((track): AutocompleteSuggestion => ({
+      id: track.id,
+      title: track.title,
+      artist: track.artist.name,
+      source: track.source,
+      type: 'track',
+      picture: track.cover_url || track.album?.cover_medium || track.album?.cover,
+      track,
+    }));
+    const albumRows = albums.slice(0, 4);
+    const completion = scList
+      .filter((item) => item.type === 'track' && !item.track && !item.source)
+      .slice(0, 1);
+    if (artists.strong) return [...artistRows, ...trackRows, ...albumRows, ...completion];
+    if (assessSearchTracks(tracks, cleanQ).strong)
+      return [...trackRows, ...artistRows, ...albumRows, ...completion];
+    return [...albumRows, ...trackRows, ...artistRows, ...completion];
   }
 
   /**

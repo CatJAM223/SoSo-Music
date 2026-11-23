@@ -1,10 +1,10 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 
 /** Contain keyboard focus and restore it without triggering shortcuts in the player below. */
 export function useDialogFocus(panel: RefObject<HTMLElement | null>, onClose: () => void) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const focusables = () =>
       Array.from(
@@ -14,8 +14,9 @@ export function useDialogFocus(panel: RefObject<HTMLElement | null>, onClose: ()
       );
     (panel.current?.querySelector<HTMLElement>('[data-initial-focus]') || focusables()[0])?.focus();
     const handleKey = (event: KeyboardEvent) => {
-      const focusedDialog = document.activeElement?.closest('[role="dialog"]');
+      const focusedDialog = document.activeElement?.closest('dialog, [role="dialog"]');
       if (focusedDialog && focusedDialog !== panel.current) return;
+      if (!focusedDialog && document.querySelector('dialog:modal')) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopImmediatePropagation();

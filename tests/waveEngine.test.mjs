@@ -19,6 +19,87 @@ beforeEach((t) => {
   t.mock.method(YouTubeMusicService, 'search', async () => ({ data: [] }));
 });
 
+test('Mix looks past previously offered top hits before filling each artist quota', async (t) => {
+  const names = ['Cobalt', 'Lilac', 'Canyon', 'Ochre', 'Silver'];
+  const titles = [
+    'Golden Hour',
+    'Distant Sun',
+    'Open Water',
+    'Cold Night',
+    'Southern Wind',
+    'Under Glass',
+    'Porcelain',
+    'Northern Lights',
+    'After Dark',
+    'Paper Moon',
+    'City Sleeps',
+    'Run Away',
+    'Rising Tide',
+    'Moving On',
+    'Quiet Town',
+    'Red Door',
+  ];
+  const limits = [];
+  t.mock.method(SoundCloudService, 'search', async (artist, limit) => {
+    limits.push(limit);
+    return {
+      data: titles.slice(0, limit).map((title, i) => ({
+        id: `sc_${artist}_${i}`,
+        artist: { name: artist },
+        title,
+        source: 'soundcloud',
+        duration: 180,
+      })),
+    };
+  });
+  const batch = (offeredTracks) =>
+    WaveEngine.getWaveBatch(
+      'mix',
+      [],
+      [],
+      names.map((name) => ({ name })),
+      [],
+      { source: 'soundcloud', offeredTracks },
+      false,
+    );
+  const first = await batch([]);
+  limits.length = 0;
+  const second = await batch(first);
+  assert.equal(first.length, 15);
+  assert.equal(second.length, 15);
+  assert.ok(limits.every((limit) => limit >= 16));
+  assert.ok(second.every((track) => !first.some((old) => old.id === track.id)));
+});
+
+test('Single-provider discovery spends all three radio slots on that provider', async (t) => {
+  t.mock.method(SoundCloudService, 'search', async () => ({ data: [] }));
+  for (const source of ['soundcloud', 'youtube']) {
+    const calls = [];
+    const anchors = ['Cobalt', 'Ochre', 'Lilac', 'Canyon', 'Silver', 'Copper'].map((name, i) => ({
+      id: i < 3 ? 'sc_' + (40 + i) : 'yt_' + String(i).repeat(11),
+      source: i < 3 ? 'soundcloud' : 'youtube',
+      title: 'Seed ' + name,
+      artist: { name },
+      duration: 180,
+    }));
+    const soundcloud = t.mock.method(SoundCloudService, 'getRelatedTracks', async (id) => {
+      calls.push(String(id));
+      return [];
+    });
+    const youtube = t.mock.method(YouTubeMusicService, 'getRadioTracks', async (id) => {
+      calls.push(String(id));
+      return [];
+    });
+    await WaveEngine.getWaveBatch('discover', anchors, [], [], [], { source }, false);
+    assert.deepEqual(
+      calls.sort(),
+      anchors.filter((track) => track.source === source).map((track) => track.id),
+    );
+    soundcloud.mock.restore();
+    youtube.mock.restore();
+  }
+});
+
 test('Wave queue starts with familiar music and spaces repeated artists', () => {
   const tracks = [
     { id: 'a1', artist: { name: 'Favorite' }, source: 'soundcloud' },
@@ -75,6 +156,18 @@ test('Disliked recording is blocked across source IDs without blocking distinct 
   };
   assert.equal(matchesDislikedWaveTrack(youtubeCopy, disliked), true);
   assert.equal(matchesDislikedWaveTrack(remix, disliked), false);
+  assert.equal(
+    matchesDislikedWaveTrack(
+      {
+        ...youtubeCopy,
+        title: 'Different upload title',
+        artist: { name: 'Different credits' },
+        recordingId: 'rec:soundcloud:1',
+      },
+      disliked,
+    ),
+    true,
+  );
 });
 
 test('Wave candidate search skips a disliked re-upload and continues to the next result', async (t) => {

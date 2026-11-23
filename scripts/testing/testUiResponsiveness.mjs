@@ -17,6 +17,8 @@ const scratch = path.join(root, 'scratch');
 fs.mkdirSync(scratch, { recursive: true });
 const output = fs.mkdtempSync(path.join(scratch, 'ui-responsiveness-'));
 const legacyArtworkValidation = process.argv.includes('--legacy-artwork-validation');
+const queueAllRows = process.argv.includes('--queue-all-rows');
+const queueOnly = process.argv.includes('--queue-only');
 const report = path.join(
   scratch,
   process.argv[process.argv.indexOf('--report') + 1] && process.argv.includes('--report')
@@ -26,8 +28,9 @@ const report = path.join(
 const entry = `
 import React, {Profiler} from 'react';
 import {createRoot} from 'react-dom/client';
-import {AudioProvider,useAudioState,useAudioProgress,useAudioControls} from './src/shared/context/AudioContext';
+import {AudioProvider,useAudioState,useAudioProgress,useAudioControls,AudioStateContext,AudioControlsContext} from './src/shared/context/AudioContext';
 import {TrackTable} from './src/desktop/ui/components/TrackTable';
+import {QueueDrawer} from './src/shared/components/QueueDrawer';
 import {useMyMusicViewModel} from './src/shared/hooks/useMyMusicViewModel';
 import {useArtistViewModel} from './src/shared/hooks/useArtistViewModel';
 import {PlaybackSessionWriter} from './src/shared/services/playbackSession';
@@ -43,9 +46,25 @@ function Clock(){const value=useAudioProgress();return <output id="clock">{value
 w.mountUi=(count,artwork=false)=>{w.uiLibrary=undefined;w.uiArtist=undefined;const cover=artwork?new URL('cover.svg',location.href).href:undefined;w.fixtureTracks=Array.from({length:count},(_,i)=>song(i,cover));root.render(<Profiler id="Application" onRender={(...args)=>w.uiProbe.rootProfiles.push({actualDuration:args[2]})}><AudioProvider><Driver/><Clock/><LibraryModelProbe/><ArtistModelProbe/><main style={{height:640,overflow:'auto'}}><Profiler id="TrackTable" onRender={(...args)=>w.uiProbe.profiles.push({id:args[0],phase:args[1],actualDuration:args[2],baseDuration:args[3],startTime:args[4],commitTime:args[5]})}><TrackTable tracks={w.fixtureTracks} onOpenAddToPlaylist={noop}/></Profiler></main></AudioProvider></Profiler>);};
 w.switchUiTrack=index=>{const start=performance.now();const result=w.uiControls.playTrack(w.fixtureTracks[index],w.fixtureTracks);w.uiProbe.syncCommands.push(performance.now()-start);return result;};
 w.tickUiClock=value=>{const audio=w.fixtureAudio;audio.currentTime=value;audio.dispatchEvent(new Event('timeupdate'));};
+function QueueBenchmark({tracks}){
+  const [open,setOpen]=React.useState(false);
+  return <AudioStateContext.Provider value={{currentTrack:tracks[0],queue:tracks,queueIndex:0,repeatMode:'off',shuffledUpcomingIndices:[]}}>
+    <AudioControlsContext.Provider value={{reorderQueue:(...indices)=>w.queueReorders.push(indices)}}>
+      <button id="open-queue" data-count={tracks.length-1} onClick={()=>setOpen(true)}>Queue</button>
+      <QueueDrawer isOpen={open} onClose={()=>setOpen(false)}/>
+    </AudioControlsContext.Provider>
+  </AudioStateContext.Provider>;
+}
+w.mountQueue=count=>{
+  const tracks=Array.from({length:count+1},(_,i)=>({...song(i),queueEntryId:'fixture-queue-'+i}));
+  w.queueReorders=[];
+  root.render(<QueueBenchmark key={count} tracks={tracks}/>);
+};
 `;
 const bootstrap = `
 window.uiLegacyArtworkValidation=${legacyArtworkValidation};
+window.uiQueueAllRows=${queueAllRows};
+window.uiQueueOnly=${queueOnly};
 window.uiProbe={renders:{},rootProfiles:[],profiles:[],persistence:[],syncCommands:[]};
 class FixtureAudio extends EventTarget{
  constructor(){super();this.src='';this.currentTime=0;this.duration=240;this.paused=true;this.seeking=false;this.readyState=4;this.networkState=1;this.buffered={length:0};this.volume=.8;this.playbackRate=1;this.error=null;window.fixtureAudio=this;}
@@ -123,6 +142,13 @@ try {
             }
             return { contents, loader: 'ts' };
           });
+          builder.onLoad({ filter: /[\\/]QueueDrawer\.tsx$/ }, (args) => {
+            if (!queueAllRows) return;
+            const source = fs.readFileSync(args.path, 'utf8');
+            const condition = 'const virtual = upcomingItems.length > 40;';
+            if (!source.includes(condition)) throw Error('Queue benchmark requires review');
+            return { contents: source.replace(condition, 'const virtual = false;'), loader: 'tsx' };
+          });
           builder.onResolve({ filter: /^react-dom\/client$/ }, () => ({
             path: require.resolve('react-dom/profiling'),
           }));
@@ -168,7 +194,7 @@ try {
       from: path.join(root, 'src/renderer/index.css'),
     },
   );
-  fs.writeFileSync(path.join(output, 'fixture.css'), css.css);
+  fs.appendFileSync(path.join(output, 'fixture.css'), css.css);
   fs.writeFileSync(
     path.join(output, 'cover.svg'),
     '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#346e8b"/></svg>',

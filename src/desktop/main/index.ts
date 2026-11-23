@@ -1,7 +1,7 @@
 import { OfflineAudioFiles } from './services/offlineAudioFiles';
 import { StreamRequestRegistry as AudioDownloadRegistry } from './services/streamRequestRegistry';
 import { restrictedIpc } from './ipc/restrictedIpc';
-import { configureRecordingCatalog } from './services/recordingCatalog';
+import { configureRecordingCatalog, identifyCatalogTracks } from './services/recordingCatalog';
 import { ListeningRooms } from './services/listeningRooms';
 const listeningRooms = new ListeningRooms();
 import { isChartRegion } from '../../shared/utils/chartRegions';
@@ -36,6 +36,7 @@ import {
   dialog,
   protocol,
   crashReporter,
+  net,
 } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -46,6 +47,8 @@ import { LibraryTasteService } from './services/libraryTaste';
 import { registerLibraryTasteHandlers } from './ipc/libraryTasteHandlers';
 import { registerTastePolicyHandlers } from './ipc/tastePolicyHandlers';
 import { createDailyDislikePolicy } from '../../shared/utils/dailyDislikes';
+import { DAILY_HISTORY_LIMIT, orderDailyRepeats } from '../../shared/utils/dailyRecommendations';
+import { waveMemoryTrack } from '../../shared/services/waveMemory';
 import { MusicAggregatorService } from './services/musicAggregator';
 import { StreamRequestRegistry } from './services/streamRequestRegistry.ts';
 import { sharedStreamResolver } from './services/sharedStreamResolver.ts';
@@ -366,10 +369,14 @@ async function createWindow() {
     event.preventDefault();
   });
 
-  // Handle closing -> Hide to tray instead of quitting, so music continues playing
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
+      if (process.platform === 'linux') {
+        // Run the normal save-on-exit flow after this close event returns.
+        queueMicrotask(() => app.quit());
+        return;
+      }
       setAnimationsPaused(true);
       mainWindow?.hide();
       return false;
@@ -589,9 +596,14 @@ function registerIpcHandlers() {
       mainWindow.isDestroyed() ||
       event.sender !== mainWindow.webContents ||
       event.senderFrame !== mainWindow.webContents.mainFrame ||
-      !widgetWindow || widgetWindow.isDestroyed() || !widgetWindow.isVisible() ||
-      typeof currentTime !== 'number' || !Number.isFinite(currentTime) || currentTime < 0
-    ) return;
+      !widgetWindow ||
+      widgetWindow.isDestroyed() ||
+      !widgetWindow.isVisible() ||
+      typeof currentTime !== 'number' ||
+      !Number.isFinite(currentTime) ||
+      currentTime < 0
+    )
+      return;
     widgetWindow.webContents.send('widget:progress', currentTime);
   });
 
@@ -654,8 +666,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('window:close', () => {
-    // Hide to background / tray
-    mainWindow?.hide();
+    if (process.platform === 'linux') app.quit();
+    else mainWindow?.hide();
   });
 
   ipcMain.handle('window:isMaximized', () => {
@@ -680,9 +692,15 @@ function registerIpcHandlers() {
     },
   );
 
-  ipcMain.handle('music:getAutocomplete', async (_event: any, query: string) => {
-    if (!query || typeof query !== 'string' || !query.trim()) return [];
-    return await MusicAggregatorService.getAutocomplete(query.trim());
+  ipcMain.handle('music:getAutocomplete', async (_event, query: unknown, source: unknown) => {
+    if (typeof query !== 'string' || !query.trim() || query.length > 500) return [];
+    const suggestions = await MusicAggregatorService.getAutocomplete(
+      query.trim(),
+      source === 'youtube' || source === 'soundcloud' ? source : 'all',
+    );
+    return suggestions.map((item) =>
+      item.track ? { ...item, track: identifyCatalogTracks([item.track])[0] } : item,
+    );
   });
 
   ipcMain.handle(
@@ -765,9 +783,9 @@ function registerIpcHandlers() {
             Boolean(track && !disliked.has(String(track.id)) && dailyPolicy.accepts(track)),
           );
       const savedLikes = dbManager.getLikedTracks();
-      const tasteLiked = new Set(dbManager.getTasteLikedTracks(savedLikes).map(
-        (row) => String(row.deezer_id || row.id),
-      ));
+      const tasteLiked = new Set(
+        dbManager.getTasteLikedTracks(savedLikes).map((row) => String(row.deezer_id || row.id)),
+      );
       const allLikes: Track[] = [];
       const likes: Track[] = [];
       for (const row of savedLikes) {
@@ -794,10 +812,10 @@ function registerIpcHandlers() {
       );
       const previous = Array.isArray(previousIds)
         ? previousIds
-            .slice(0, 5)
+            .slice(-DAILY_HISTORY_LIMIT)
             .filter(
               (id) =>
-                (typeof id === 'string' && id.length < 128) ||
+                (typeof id === 'string' && id.length <= 128) ||
                 (typeof id === 'number' && Number.isFinite(id)),
             )
         : [];
@@ -805,13 +823,17 @@ function registerIpcHandlers() {
         ...dislikedIds,
         ...allLikes.map((track) => track.id),
         ...recent.map((track) => track.id),
-        ...previous,
       ];
-      const previousSongs = normalize(
-        Array.isArray(previousTracks) ? previousTracks.slice(0, 5) : [],
+      const previousSongs = Array.isArray(previousTracks)
+        ? previousTracks
+            .slice(-DAILY_HISTORY_LIMIT)
+            .map(waveMemoryTrack)
+            .filter((track): track is Track => track !== null)
+        : [];
+      const selectionExclusions = [...allLikes, ...recent];
+      const previousSet = new Set(
+        [...previous, ...previousSongs.map((track) => track.id)].map(String),
       );
-      const selectionExclusions = [...allLikes, ...recent, ...previousSongs];
-      const recentTracks = [...recent, ...previousSongs];
       const adaptiveOptions = novelty
         ? {
             novelty,
@@ -837,38 +859,71 @@ function registerIpcHandlers() {
             ? readWaveRecommendation(track.waveRecommendation)
             : undefined,
         }));
-      const candidates: Track[] = [...retained];
-      const select = () =>
+      const select = (candidates: Track[], known: Track[], preserve: number) =>
         dailyPolicy.selectAsync(
           candidates,
-          selectionExclusions,
-          retained.length,
+          known,
+          preserve,
           () => new Promise<void>((resolve) => setImmediate(resolve)),
           true, // The same exclusion list is used for all refills in this request.
         );
-      let selected = await select();
+      const kept = await select(retained, selectionExclusions, retained.length);
+      const candidates: Track[] = [];
+      let selected = kept;
+      const fetchBatch = async (fresh: boolean) =>
+        identifyCatalogTracks(
+          await WaveEngine.getWaveBatch(
+            'default',
+            seeds,
+            [
+              ...excluded,
+              ...(fresh ? previousSet : []),
+              ...kept.map((track) => track.id),
+              ...candidates.map((track) => track.id),
+            ],
+            artists,
+            dislikedTracks,
+            {
+              source,
+              ...adaptiveOptions,
+              offeredTracks: kept,
+              recentTracks: fresh ? [...recent, ...previousSongs] : recent,
+              artistFeedback: dailyPolicy.artistFeedback,
+            },
+            false,
+            undefined,
+            fresh ? undefined : previousSongs,
+          ),
+        );
+      const selectFresh = (tracks: Track[]) =>
+        select(
+          [
+            ...kept,
+            ...orderDailyRepeats(
+              tracks.filter((track) => !previousSet.has(String(track.id))),
+              previousSongs,
+              true,
+            ),
+          ],
+          selectionExclusions,
+          kept.length,
+        );
       let added = 1;
       for (let attempt = 0; dailyPolicy.needsMore(selected.length, attempt, added); attempt++) {
-        const batch = await WaveEngine.getWaveBatch(
-          'default',
-          seeds,
-          [...excluded, ...candidates.map((track) => track.id)],
-          artists,
-          dislikedTracks,
-          {
-            source,
-            ...adaptiveOptions,
-            offeredTracks: candidates,
-            recentTracks,
-            artistFeedback: dailyPolicy.artistFeedback,
-          },
-          false,
-        );
+        const batch = await fetchBatch(true);
         const ids = new Set(candidates.map((track) => String(track.id)));
-        const fresh = batch.filter((track) => !ids.has(String(track.id)));
-        added = fresh.length;
-        candidates.push(...fresh);
-        selected = await select();
+        const extra = batch.filter((track) => !ids.has(String(track.id)));
+        added = extra.length;
+        candidates.push(...extra);
+        selected = await selectFresh(candidates);
+      }
+      if (selected.length < 5 && previousSongs.length) {
+        const fallback = await fetchBatch(false);
+        selected = await selectFresh([...candidates, ...fallback]);
+        if (selected.length < 5) {
+          const repeats = orderDailyRepeats(fallback, previousSongs);
+          selected = await select([...selected, ...repeats], selectionExclusions, selected.length);
+        }
       }
       if (!novelty || revision === undefined) return selected;
       return attributeWaveBatch(
@@ -1459,6 +1514,12 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('library:persistenceStatus', () => dbManager.getPersistenceStatus());
   registerIpcHandlers();
+  let requestedYouTubeWarmup = false;
+  ipcMain.handle('music:warmYouTubePlayback', () => {
+    if (requestedYouTubeWarmup || !net.isOnline()) return;
+    requestedYouTubeWarmup = true;
+    void YouTubeMusicService.getVisitorData();
+  });
   ipcMain.handle('listen:ready', (event) => {
     if (event.sender !== mainWindow?.webContents) return;
     listenRendererReady = true;

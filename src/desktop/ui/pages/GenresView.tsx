@@ -3,6 +3,7 @@ import { t, getIntlLocale } from '../../../shared/i18n/locale';
 import React, { useEffect, useState, useRef } from 'react';
 import { Search, RefreshCw } from 'lucide-react';
 import { Genre, Track, MusicSource } from '../../../shared/types';
+import type { NavigateToArtist } from '../../../shared/types/artistNavigation';
 import { TrackTable } from '../components/TrackTable';
 import { CatLoader } from '../components/CatLoader';
 import { platformBridge } from '../../../shared/bridge/platformBridge';
@@ -10,10 +11,15 @@ import { getGenreArtists } from '../../../shared/services/genreCatalog';
 
 interface GenresViewProps {
   onOpenAddToPlaylist: (track: Track) => void;
-  onNavigate: (view: string, data?: any) => void;
+  onNavigateToArtist: NavigateToArtist;
+  onNavigateToAlbum: (album: any) => void;
 }
 
-export const GenresView: React.FC<GenresViewProps> = ({ onOpenAddToPlaylist, onNavigate }) => {
+export const GenresView: React.FC<GenresViewProps> = ({
+  onOpenAddToPlaylist,
+  onNavigateToArtist,
+  onNavigateToAlbum,
+}) => {
   useLocale();
   const [genres, setGenres] = useState<Genre[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<Genre | null>(null);
@@ -234,8 +240,8 @@ export const GenresView: React.FC<GenresViewProps> = ({ onOpenAddToPlaylist, onN
             <TrackTable
               tracks={visibleTracks}
               onOpenAddToPlaylist={onOpenAddToPlaylist}
-              onNavigateToArtist={(artist) => onNavigate('artist', artist)}
-              onNavigateToAlbum={(album) => onNavigate('album', album)}
+              onNavigateToArtist={onNavigateToArtist}
+              onNavigateToAlbum={onNavigateToAlbum}
             />
           )}
         </div>

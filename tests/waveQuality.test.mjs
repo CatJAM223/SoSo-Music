@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createWaveLearning } from '../src/shared/services/waveLearning.ts';
+import { mergeWaveProvenance } from '../src/shared/types/wavePolicy.ts';
 import {
   attributeWaveBatch,
   markWaveLike,
@@ -15,6 +17,41 @@ const track = {
   duration: 180,
   preview: '',
 };
+
+test('Overlapping retrieval methods get one overlap event and leave method scores untouched', () => {
+  const events = [];
+  const learner = createWaveLearning(undefined, () => 10);
+  const emit = (event) => {
+    events.push(event);
+    learner.observe(event, 0);
+  };
+  const paths = [
+    ...['one', 'two', 'three'].map((anchor) => ({ method: 'radio', anchor })),
+    { method: 'artist' },
+  ];
+  assert.deepEqual(mergeWaveProvenance(paths), mergeWaveProvenance([...paths].reverse()));
+  for (let i = 0; i < 5; i++) {
+    const [recommended] = attributeWaveBatch(
+      [{ ...track, waveProvenance: mergeWaveProvenance(paths) }],
+      'default',
+      [],
+      emit,
+      undefined,
+      { source: 'all', revision: 0, enabled: true },
+    );
+    const episode = new WaveQualityEpisode(recommended, 'overlap-' + i, emit);
+    episode.started();
+    episode.finish(179, 180, 'ended');
+    markWaveLike(recommended, emit);
+  }
+  assert.deepEqual(events[0].methods, ['radio', 'artist']);
+  assert.equal(events[0].method, undefined);
+  const [summary] = summarizeWaveQuality(events);
+  assert.equal(summary.overlappingRecommendations, 5);
+  assert.equal(summary.completions, 5);
+  assert.deepEqual(summary.methods, {});
+  assert.equal(learner.scores('default', 'all', 0), undefined);
+});
 test('Wave attribution is immutable and retry/buffering notifications do not multiply starts or outcomes', () => {
   const events = [],
     emit = (event) => events.push(event);

@@ -21,6 +21,7 @@ import { advanceTrackArtwork } from '../utils/trackArtwork';
 import { detectTrackSource, resolveTrackCover, formatTime } from '../utils/formatters';
 import { extractAllArtists } from '../utils/artistParser';
 import { SourceBadge } from './SourceBadge';
+import { notifyQueueEdit } from '../utils/notifyQueueEdit';
 import './QueueDrawer.css';
 
 interface QueueDrawerProps {
@@ -33,6 +34,9 @@ interface UpcomingQueueItem {
   actualIndex: number;
   isLoopWrapped: boolean;
 }
+
+const QUEUE_ROW_HEIGHT = 84;
+const QUEUE_OVERSCAN = 6;
 
 export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => {
   useLocale();
@@ -50,9 +54,17 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
     useAudioControls();
 
   const youtubeDisabled = useYouTubeAvailability();
-  const [actionsOpenFor, setActionsOpenFor] = useState<number | null>(null);
+  const [actionsOpenFor, setActionsOpenFor] = useState<string | null>(null);
+  const queueId = React.useId();
+  const closeButton = React.useRef<HTMLButtonElement>(null);
+  const restoreActionsFocus = React.useRef<string[] | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [focusedEntry, setFocusedEntry] = useState<string>();
+  const [viewport, setViewport] = useState({ top: 0, height: 640 });
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const dragScroll = React.useRef({ frame: 0, speed: 0 });
   const [isGeneralDragOver, setIsGeneralDragOver] = useState<boolean>(false);
   const [present, setPresent] = useState(isOpen);
   React.useEffect(() => {
@@ -60,6 +72,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
       setPresent(true);
       return;
     }
+    setActionsOpenFor(null);
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setPresent(false);
       return;
@@ -71,10 +84,12 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
   React.useEffect(() => {
     if (isOpen) {
       const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
+        if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog:modal')) {
           e.preventDefault();
-          if (actionsOpenFor !== null) setActionsOpenFor(null);
-          else onClose();
+          if (actionsOpenFor !== null) {
+            restoreActionsFocus.current = [actionsOpenFor];
+            setActionsOpenFor(null);
+          } else onClose();
         }
       };
       window.addEventListener('keydown', handleKeyDown);
@@ -82,39 +97,149 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
     }
   }, [isOpen, onClose, actionsOpenFor]);
 
-  if (!isOpen && !present) return null;
-
-  // Build upcoming items list
-  // 1. Normal upcoming items (after queueIndex to queue.length - 1)
-  const upcomingItems: UpcomingQueueItem[] = [];
-  if (isShuffle && !isWaveActive) {
-    for (const index of shuffledUpcomingIndices) {
-      if (queue[index])
-        upcomingItems.push({ track: queue[index], actualIndex: index, isLoopWrapped: false });
+  React.useLayoutEffect(() => {
+    if (actionsOpenFor !== null || !restoreActionsFocus.current) return;
+    const candidates = restoreActionsFocus.current;
+    restoreActionsFocus.current = null;
+    if (!isOpen) return;
+    for (const id of candidates) {
+      const trigger = document.getElementById(id);
+      trigger?.focus();
+      if (trigger && document.activeElement === trigger) return;
     }
-  } else {
-    for (let i = queueIndex + 1; i < queue.length; i++) {
-      upcomingItems.push({
-        track: queue[i],
-        actualIndex: i,
-        isLoopWrapped: false,
-      });
-    }
+    closeButton.current?.focus();
+  }, [actionsOpenFor, isOpen]);
 
-    // 2. If Repeat All is enabled and there are tracks earlier in the queue, wrap around to the beginning!
-    if (repeatMode === 'all' && !isWaveActive) {
-      for (let i = 0; i <= queueIndex && i < queue.length; i++) {
-        // Don't duplicate the currently playing track in upcoming list if it's the only one
-        if (queue.length > 1 && i !== queueIndex) {
-          upcomingItems.push({
-            track: queue[i],
-            actualIndex: i,
-            isLoopWrapped: true,
-          });
+  const upcomingItems = React.useMemo(() => {
+    const items: UpcomingQueueItem[] = [];
+    if (!isOpen && !present) return items;
+    if (isShuffle && !isWaveActive) {
+      for (const index of shuffledUpcomingIndices) {
+        if (queue[index])
+          items.push({ track: queue[index], actualIndex: index, isLoopWrapped: false });
+      }
+    } else {
+      for (let i = queueIndex + 1; i < queue.length; i++) {
+        items.push({
+          track: queue[i],
+          actualIndex: i,
+          isLoopWrapped: false,
+        });
+      }
+
+      // 2. If Repeat All is enabled and there are tracks earlier in the queue, wrap around to the beginning!
+      if (repeatMode === 'all' && !isWaveActive) {
+        for (let i = 0; i <= queueIndex && i < queue.length; i++) {
+          // Don't duplicate the currently playing track in upcoming list if it's the only one
+          if (queue.length > 1 && i !== queueIndex) {
+            items.push({
+              track: queue[i],
+              actualIndex: i,
+              isLoopWrapped: true,
+            });
+          }
         }
       }
     }
+    return items;
+  }, [
+    isOpen,
+    present,
+    isShuffle,
+    isWaveActive,
+    queue,
+    queueIndex,
+    repeatMode,
+    shuffledUpcomingIndices,
+  ]);
+
+  const virtual = upcomingItems.length > 40;
+  const updateViewport = React.useCallback(() => {
+    const scroll = scrollRef.current;
+    const list = listRef.current;
+    if (!scroll || !list) return;
+    const top = Math.max(0, scroll.scrollTop - list.offsetTop);
+    const height = scroll.clientHeight;
+    setViewport((previous) =>
+      previous.top === top && previous.height === height ? previous : { top, height },
+    );
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen || !virtual || !scrollRef.current) return;
+    updateViewport();
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(scrollRef.current);
+    return () => observer.disconnect();
+  }, [isOpen, virtual, updateViewport]);
+
+  const stopDragScroll = React.useCallback(() => {
+    cancelAnimationFrame(dragScroll.current.frame);
+    dragScroll.current.frame = 0;
+    dragScroll.current.speed = 0;
+  }, []);
+  React.useEffect(() => {
+    if (!isOpen) return;
+    window.addEventListener('dragend', stopDragScroll);
+    window.addEventListener('drop', stopDragScroll);
+    return () => {
+      stopDragScroll();
+      window.removeEventListener('dragend', stopDragScroll);
+      window.removeEventListener('drop', stopDragScroll);
+    };
+  }, [isOpen, stopDragScroll]);
+
+  if (!isOpen && !present) return null;
+
+  const start = virtual
+    ? Math.max(
+        0,
+        Math.min(
+          upcomingItems.length - 1,
+          Math.floor(viewport.top / QUEUE_ROW_HEIGHT) - QUEUE_OVERSCAN,
+        ),
+      )
+    : 0;
+  const end = virtual
+    ? Math.min(
+        upcomingItems.length,
+        start + Math.ceil(viewport.height / QUEUE_ROW_HEIGHT) + 2 * QUEUE_OVERSCAN + 1,
+      )
+    : upcomingItems.length;
+  const visible = new Set(Array.from({ length: end - start }, (_, index) => start + index));
+  if (virtual && (focusedEntry || draggedIndex !== null)) {
+    const focused = focusedEntry
+      ? upcomingItems.findIndex((item) => queueEntryKey(item.track) === focusedEntry)
+      : -1;
+    if (focused >= 0) visible.add(focused);
+    const dragged =
+      draggedIndex === null
+        ? -1
+        : upcomingItems.findIndex((item) => item.actualIndex === draggedIndex);
+    if (dragged >= 0) visible.add(dragged);
   }
+
+  const handleScrollDrag = (event: React.DragEvent<HTMLDivElement>) => {
+    const scroll = event.currentTarget;
+    const { top, bottom } = scroll.getBoundingClientRect();
+    const edge = Math.min(56, (bottom - top) / 3);
+    const distance =
+      event.clientY < top + edge
+        ? event.clientY - top - edge
+        : Math.max(0, event.clientY - bottom + edge);
+    if (!distance) {
+      stopDragScroll();
+      return;
+    }
+    const motion = dragScroll.current;
+    motion.speed = Math.max(-18, Math.min(18, distance / 3));
+    if (motion.frame) return;
+    const step = () => {
+      scroll.scrollTop += motion.speed;
+      motion.frame = requestAnimationFrame(step);
+    };
+    motion.frame = requestAnimationFrame(step);
+  };
 
   const handleGeneralDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -159,6 +284,9 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
     setDragOverIndex(null);
   };
 
+  const actionsTriggerId = (track: Track) =>
+    `${queueId}-actions-${encodeURIComponent(queueEntryKey(track)!)}`;
+
   return (
     <>
       {/* Mobile Backdrop Overlay */}
@@ -202,6 +330,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
             </div>
           </div>
           <button
+            ref={closeButton}
+            type="button"
             aria-label={t('Закрыть')}
             onClick={() => {
               setActionsOpenFor(null);
@@ -247,7 +377,15 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
             )}
           </div>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 queue-scroll">
+        <div
+          ref={scrollRef}
+          onScroll={virtual ? updateViewport : undefined}
+          onDragOver={virtual ? handleScrollDrag : undefined}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) stopDragScroll();
+          }}
+          className="relative flex-1 min-h-0 overflow-y-auto px-4 pb-4 queue-scroll"
+        >
           {/* Next Up Section */}
           <div>
             <div className="queue-list-heading flex items-center justify-between mb-2.5">
@@ -261,7 +399,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                 <button
                   onClick={() => {
                     setActionsOpenFor(null);
-                    clearQueue();
+                    closeButton.current?.focus();
+                    notifyQueueEdit(t('Очередь очищена'), clearQueue());
                   }}
                   className="text-xs text-slate-400 dark:text-zinc-400 hover:text-red-500 active:scale-95 transition-all font-semibold"
                 >
@@ -281,203 +420,242 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
                 </p>
               </div>
             ) : (
-              <div className="space-y-2" role="list">
-                {upcomingItems.map((item, idx) => {
-                  const track = item.track;
-                  const actualIndex = item.actualIndex;
-                  const isDragging = draggedIndex === actualIndex;
-                  const isOver = dragOverIndex === actualIndex;
+              <div
+                ref={listRef}
+                className={virtual ? 'relative' : 'space-y-2'}
+                style={virtual ? { height: upcomingItems.length * QUEUE_ROW_HEIGHT } : undefined}
+                role="list"
+              >
+                {[...visible]
+                  .sort((left, right) => left - right)
+                  .map((idx) => {
+                    const item = upcomingItems[idx];
+                    const track = item.track;
+                    const actualIndex = item.actualIndex;
+                    const triggerId = actionsTriggerId(track);
+                    const actionsId = `${triggerId}-panel`;
+                    const actionsOpen = actionsOpenFor === triggerId;
+                    const isDragging = draggedIndex === actualIndex;
+                    const isOver = dragOverIndex === actualIndex;
 
-                  let displacementClass = '';
-                  if (draggedIndex !== null && dragOverIndex !== null && !isDragging) {
-                    if (draggedIndex < dragOverIndex) {
-                      if (actualIndex > draggedIndex && actualIndex <= dragOverIndex) {
-                        displacementClass = '-translate-y-2';
-                      }
-                    } else if (draggedIndex > dragOverIndex) {
-                      if (actualIndex >= dragOverIndex && actualIndex < draggedIndex) {
-                        displacementClass = 'translate-y-2';
+                    let displacementClass = '';
+                    if (draggedIndex !== null && dragOverIndex !== null && !isDragging) {
+                      if (draggedIndex < dragOverIndex) {
+                        if (actualIndex > draggedIndex && actualIndex <= dragOverIndex) {
+                          displacementClass = '-translate-y-2';
+                        }
+                      } else if (draggedIndex > dragOverIndex) {
+                        if (actualIndex >= dragOverIndex && actualIndex < draggedIndex) {
+                          displacementClass = 'translate-y-2';
+                        }
                       }
                     }
-                  }
 
-                  return (
-                    <div
-                      {...youtubeDisabledProps(track, youtubeDisabled)}
-                      key={queueEntryKey(track)}
-                      role="listitem"
-                      data-queue-next={idx === 0 ? true : undefined}
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', String(actualIndex));
-                        e.dataTransfer.setData(
-                          'application/json',
-                          JSON.stringify({ type: 'INTERNAL_QUEUE', actualIndex }),
-                        );
-                        setDraggedIndex(actualIndex);
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setDragOverIndex(actualIndex);
-                      }}
-                      onDragEnd={() => {
-                        setDraggedIndex(null);
-                        setDragOverIndex(null);
-                      }}
-                      onDrop={(e) => handleItemDrop(e, actualIndex)}
-                      className={`queue-row ${idx === 0 ? 'queue-row-next' : ''} group relative flex items-center justify-between p-2.5 rounded-xl transition-colors duration-150 cursor-grab active:cursor-grabbing ${
-                        isDragging
-                          ? 'opacity-30 scale-[0.97] bg-soso-brand/10 border-2 border-dashed border-soso-brand'
-                          : isOver
-                            ? 'bg-soso-brand/15 ring-2 ring-soso-brand/50 shadow-md scale-[1.01] border border-soso-brand/30'
-                            : item.isLoopWrapped
-                              ? 'bg-slate-100/60 dark:bg-zinc-800/40 hover:bg-slate-200/80 dark:hover:bg-zinc-800/80 border border-slate-200/50 dark:border-zinc-700/30'
-                              : 'hover:bg-slate-100 dark:hover:bg-zinc-800/70 border border-transparent'
-                      } ${displacementClass}`}
-                    >
-                      {/* Visual Drop Indicator Line */}
-                      {isOver && draggedIndex !== null && draggedIndex !== actualIndex && (
-                        <div
-                          className={`absolute left-2 right-2 h-0.5 bg-soso-brand rounded-full shadow-xs shadow-soso-brand ${
-                            draggedIndex > actualIndex ? '-top-1' : '-bottom-1'
-                          }`}
-                        />
-                      )}
-
-                      {/* Drag Grip Handle */}
+                    return (
                       <div
-                        className="queue-grip text-slate-300 dark:text-zinc-600 pr-1 shrink-0"
-                        draggable
-                        title={t('Перетащить трек')}
-                      >
-                        <span className="queue-position">{idx + 1}</span>
-                        <GripVertical className="w-4 h-4" />
-                      </div>
-
-                      {/* Track Info */}
-                      <div
-                        onClick={() => {
-                          setActionsOpenFor(null);
-                          playTrack(track, undefined, isWaveActive);
-                        }}
-                        className="queue-track-info flex items-center gap-3 min-w-0 flex-1 cursor-pointer"
-                        role="button"
-                        tabIndex={0}
-                        title={
-                          track.title +
-                          ' — ' +
-                          extractAllArtists(track.artist, track.title).join(', ')
+                        {...youtubeDisabledProps(track, youtubeDisabled)}
+                        key={queueEntryKey(track)}
+                        role="listitem"
+                        aria-posinset={virtual ? idx + 1 : undefined}
+                        aria-setsize={virtual ? upcomingItems.length : undefined}
+                        style={
+                          virtual
+                            ? {
+                                position: 'absolute',
+                                top: idx * QUEUE_ROW_HEIGHT,
+                                insetInline: 0,
+                                height: QUEUE_ROW_HEIGHT - 8,
+                              }
+                            : undefined
                         }
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            setActionsOpenFor(null);
-                            playTrack(track, undefined, isWaveActive);
-                          }
+                        onFocus={() => setFocusedEntry(queueEntryKey(track))}
+                        onBlur={(event) => {
+                          if (!event.currentTarget.contains(event.relatedTarget))
+                            setFocusedEntry(undefined);
                         }}
+                        data-queue-next={idx === 0 ? true : undefined}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', String(actualIndex));
+                          e.dataTransfer.setData(
+                            'application/json',
+                            JSON.stringify({ type: 'INTERNAL_QUEUE', actualIndex }),
+                          );
+                          setDraggedIndex(actualIndex);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setDragOverIndex(actualIndex);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedIndex(null);
+                          setDragOverIndex(null);
+                        }}
+                        onDrop={(e) => handleItemDrop(e, actualIndex)}
+                        className={`queue-row ${idx === 0 ? 'queue-row-next' : ''} group relative flex items-center justify-between p-2.5 rounded-xl transition-colors duration-150 cursor-grab active:cursor-grabbing ${
+                          isDragging
+                            ? 'opacity-30 scale-[0.97] bg-soso-brand/10 border-2 border-dashed border-soso-brand'
+                            : isOver
+                              ? 'bg-soso-brand/15 ring-2 ring-soso-brand/50 shadow-md scale-[1.01] border border-soso-brand/30'
+                              : item.isLoopWrapped
+                                ? 'bg-slate-100/60 dark:bg-zinc-800/40 hover:bg-slate-200/80 dark:hover:bg-zinc-800/80 border border-slate-200/50 dark:border-zinc-700/30'
+                                : 'hover:bg-slate-100 dark:hover:bg-zinc-800/70 border border-transparent'
+                        } ${displacementClass}`}
                       >
-                        <div className="relative shrink-0">
-                          <img
-                            src={resolveTrackCover(track, undefined, 'thumbnail')}
-                            alt={track.title}
-                            onError={(event) =>
-                              advanceTrackArtwork(event.currentTarget, track, 'thumbnail')
-                            }
-                            className="w-12 h-12 rounded-lg object-cover"
-                            draggable={false}
-                            loading="lazy"
+                        {/* Visual Drop Indicator Line */}
+                        {isOver && draggedIndex !== null && draggedIndex !== actualIndex && (
+                          <div
+                            className={`absolute left-2 right-2 h-0.5 bg-soso-brand rounded-full shadow-xs shadow-soso-brand ${
+                              draggedIndex > actualIndex ? '-top-1' : '-bottom-1'
+                            }`}
                           />
-                          {item.isLoopWrapped && (
-                            <div
-                              title={t('Воспроизведётся после окончания очереди (по кругу)')}
-                              className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-soso-brand text-black flex items-center justify-center shadow"
-                            >
-                              <CornerDownRight className="w-2.5 h-2.5" />
-                            </div>
-                          )}
+                        )}
+
+                        {/* Drag Grip Handle */}
+                        <div
+                          className="queue-grip text-slate-300 dark:text-zinc-600 pr-1 shrink-0"
+                          draggable
+                          title={t('Перетащить трек')}
+                        >
+                          <span className="queue-position">{idx + 1}</span>
+                          <GripVertical className="w-4 h-4" />
                         </div>
 
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:text-soso-brand">
-                            {track.title}
-                          </p>
-                          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-                            <SourceBadge source={detectTrackSource(track)} size="sm" />
-                            <p className="text-xs text-slate-500 dark:text-zinc-400 truncate">
-                              {extractAllArtists(track.artist, track.title).join(', ')}
+                        {/* Track Info */}
+                        <div
+                          onClick={() => {
+                            setActionsOpenFor(null);
+                            playTrack(track, undefined, isWaveActive);
+                          }}
+                          className="queue-track-info flex items-center gap-3 min-w-0 flex-1 cursor-pointer"
+                          role="button"
+                          tabIndex={0}
+                          title={
+                            track.title +
+                            ' — ' +
+                            extractAllArtists(track.artist, track.title).join(', ')
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setActionsOpenFor(null);
+                              playTrack(track, undefined, isWaveActive);
+                            }
+                          }}
+                        >
+                          <div className="relative shrink-0">
+                            <img
+                              src={resolveTrackCover(track, undefined, 'thumbnail')}
+                              alt={track.title}
+                              onError={(event) =>
+                                advanceTrackArtwork(event.currentTarget, track, 'thumbnail')
+                              }
+                              className="w-12 h-12 rounded-lg object-cover"
+                              draggable={false}
+                              loading="lazy"
+                            />
+                            {item.isLoopWrapped && (
+                              <div
+                                title={t('Воспроизведётся после окончания очереди (по кругу)')}
+                                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-soso-brand text-black flex items-center justify-center shadow"
+                              >
+                                <CornerDownRight className="w-2.5 h-2.5" />
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:text-soso-brand">
+                              {track.title}
                             </p>
+                            <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                              <SourceBadge source={detectTrackSource(track)} size="sm" />
+                              <p className="text-xs text-slate-500 dark:text-zinc-400 truncate">
+                                {extractAllArtists(track.artist, track.title).join(', ')}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <span className="queue-duration">{formatTime(track.duration)}</span>
+                        <div
+                          className="shrink-0"
+                          onBlur={(event) => {
+                            if (actionsOpen && !event.currentTarget.contains(event.relatedTarget))
+                              setActionsOpenFor(null);
+                          }}
+                        >
+                          <button
+                            id={triggerId}
+                            type="button"
+                            className="queue-more"
+                            aria-label={t('Действия с треком')}
+                            aria-expanded={actionsOpen}
+                            aria-controls={actionsId}
+                            onClick={() => setActionsOpenFor(actionsOpen ? null : triggerId)}
+                          >
+                            <MoreHorizontal size={18} />
+                          </button>
+                          <div
+                            id={actionsId}
+                            role="group"
+                            aria-labelledby={triggerId}
+                            hidden={!actionsOpen}
+                            className={`queue-actions-menu ${idx > 1 && idx >= upcomingItems.length - 2 ? 'queue-menu-above' : ''}`}
+                          >
+                            {idx > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  restoreActionsFocus.current = [triggerId];
+                                  setActionsOpenFor(null);
+                                  reorderQueue(actualIndex, upcomingItems[idx - 1].actualIndex);
+                                }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-90 transition-all"
+                              >
+                                <ChevronUp className="w-4 h-4" />
+                                <span>{t('Переместить выше')}</span>
+                              </button>
+                            )}
+
+                            {idx < upcomingItems.length - 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  restoreActionsFocus.current = [triggerId];
+                                  setActionsOpenFor(null);
+                                  reorderQueue(actualIndex, upcomingItems[idx + 1].actualIndex);
+                                }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-90 transition-all"
+                              >
+                                <ChevronDown className="w-4 h-4" />
+                                <span>{t('Переместить ниже')}</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                restoreActionsFocus.current = upcomingItems
+                                  .slice(Math.max(idx - 1, 0), idx + 2)
+                                  .filter((candidate) => candidate !== item)
+                                  .reverse()
+                                  .map((candidate) => actionsTriggerId(candidate.track));
+                                setActionsOpenFor(null);
+                                notifyQueueEdit(
+                                  t('«{0}» удалён из очереди', track.title),
+                                  removeFromQueue(actualIndex),
+                                );
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-90 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>{t('Удалить из очереди')}</span>
+                            </button>
                           </div>
                         </div>
                       </div>
-
-                      <span className="queue-duration">{formatTime(track.duration)}</span>
-                      <button
-                        className="queue-more"
-                        aria-label={t('Действия с треком')}
-                        aria-expanded={actionsOpenFor === actualIndex}
-                        aria-haspopup="menu"
-                        onClick={() =>
-                          setActionsOpenFor(actionsOpenFor === actualIndex ? null : actualIndex)
-                        }
-                      >
-                        <MoreHorizontal size={18} />
-                      </button>
-                      {/* Actions: Move Up / Down & Remove */}
-                      <div
-                        role="menu"
-                        hidden={actionsOpenFor !== actualIndex}
-                        className={`queue-actions-menu ${idx > 1 && idx >= upcomingItems.length - 2 ? 'queue-menu-above' : ''}`}
-                      >
-                        {idx > 0 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActionsOpenFor(null);
-                              reorderQueue(actualIndex, upcomingItems[idx - 1].actualIndex);
-                            }}
-                            role="menuitem"
-                            title={t('Переместить выше')}
-                            aria-label={t('Переместить выше')}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-90 transition-all"
-                          >
-                            <ChevronUp className="w-4 h-4" />
-                            <span>{t('Переместить выше')}</span>
-                          </button>
-                        )}
-
-                        {idx < upcomingItems.length - 1 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              reorderQueue(actualIndex, upcomingItems[idx + 1].actualIndex);
-                            }}
-                            role="menuitem"
-                            title={t('Переместить ниже')}
-                            aria-label={t('Переместить ниже')}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-90 transition-all"
-                          >
-                            <ChevronDown className="w-4 h-4" />
-                            <span>{t('Переместить ниже')}</span>
-                          </button>
-                        )}
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActionsOpenFor(null);
-                            removeFromQueue(actualIndex);
-                          }}
-                          role="menuitem"
-                          title={t('Удалить из очереди')}
-                          aria-label={t('Удалить из очереди')}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-90 transition-all"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          <span>{t('Удалить из очереди')}</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             )}
           </div>

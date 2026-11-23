@@ -1,147 +1,147 @@
-import type { Track } from '../types/index.ts';
-import { isArtistMatch, isTitleMatch } from './artistParser.ts';
-import { encodeNumbers, numericNames } from '../compute/songPacket.ts';
+import type { Artist, Track } from '../types/index.ts';
 import { runRustCompute } from '../compute/rustCore.ts';
 
-// Text predicates retain the shared JavaScript normalization and RegExp semantics.
-// Scoring, penalty application, deduplication and ordering live in Rust.
-const noise = [
-  /(\b\d+\s*hours?\b|\b1\s*hour\b|\b10\s*hours\b|\bloop\b)/i,
-  /(\bpodcast\b|\breaction\b|\bvoiceover\b|\bskit\b|\bmeme\b)/i,
-  /(\bkaraoke\b|\bкараоке\b|\bbacking track\b|\btype beat\b|\bминусовка\b|\bминус\b)/i,
-  /(\bbass boosted\b|\bnightcore\b|\bslowed\s*\+\s*reverb\b|\bsped up\b)/i,
-  /(\bmashup\b|\bмешап\b|\bmedley\b|\bmegamix\b|\bsuper mix\b|\bultimate mix\b)/i,
-  /(\bbootleg\b|\bfan.?made\b|\bfan edit\b|\btribute\b|\bunofficial\b|\bunauthorized\b)/i,
-  /(\bcover version\b|\bкавер\b|\bкавер-версия\b|\bcovers\b|\(cover\)|\[cover\])/i,
-  /\bprod\.?\s+by\b|\bprod\.\s*[A-Za-zА-ЯёА-яё]/i,
-];
-const exemptions = [
-  ['hour', 'loop'],
-  ['podcast', 'reaction'],
-  ['karaoke', 'караоке', 'type beat', 'instrumental', 'минус'],
-  ['bass boosted', 'nightcore', 'slowed', 'reverb', 'speed'],
-  ['mashup', 'мешап', 'medley', 'megamix'],
-  ['bootleg', 'fan', 'tribute', 'unofficial'],
-  ['cover', 'кавер'],
-  ['prod.', 'prod '],
-  ['mix', 'set', 'full album'],
-];
-export function rankSearchTracks(tracks: Track[], query: string): Track[] {
-  if (!tracks.length) return [];
-  if (tracks.length > 65536) throw Error('Search compute limit exceeded');
-  const q = query.toLowerCase().trim();
-  const tokens = q.split(/\s+/).filter(Boolean);
-  const delimiter = query.match(/\s*[-—–:]\s*/);
-  const artistPart = delimiter ? query.substring(0, delimiter.index).trim().toLowerCase() : '';
-  const titlePart = delimiter
-    ? query
-        .substring(delimiter.index! + delimiter[0].length)
-        .trim()
-        .toLowerCase()
-    : '';
-  const split = Boolean(artistPart && titlePart);
-  const exempt = exemptions.reduce(
-    (mask, words, index) => mask | (words.some((word) => q.includes(word)) ? 1 << index : 0),
-    0,
-  );
-  const names = numericNames();
-  const artistMatches = new Map<string, [boolean, boolean]>();
-  const titles = new Map<string, { lower: string; key: string; junk: number; featured: boolean }>();
-  const artists = new Map<string, { lower: string; key: string }>();
-  const words: number[] = [1397900104, 1, tracks.length, Number(split), exempt];
-  for (const track of tracks) {
-    const rawTitle = track.title || '';
-    let titleData = titles.get(rawTitle);
-    if (!titleData) {
-      const lower = rawTitle.toLowerCase();
-      titleData = {
-        lower: lower.trim(),
-        key: lower.replace(/[^a-z0-9а-яё]/gi, ''),
-        junk: noise.reduce(
-          (mask, pattern, index) => mask | (pattern.test(lower.trim()) ? 1 << index : 0),
+const encoder = new TextEncoder();
+const decoder = new TextDecoder('utf-8', { fatal: true });
+const SEARCH_PACKET_VERSION = 2;
+const MAX_CANDIDATES = 65_536;
+const MAX_PACKET_SIZE = 8 * 1024 * 1024;
+
+interface Candidate {
+  fields: string[];
+  flags: number;
+  providerRank?: number;
+  topRank?: number;
+  duration?: number;
+}
+
+function compute(query: string, mode: 0 | 1 | 2, candidates?: Candidate[]): Uint8Array {
+  const encodedQuery = encoder.encode(query.normalize('NFKC'));
+  const rows = candidates?.map((candidate) => ({
+    ...candidate,
+    fields: candidate.fields.map((field) => encoder.encode(field.normalize('NFKC'))),
+  }));
+  const size =
+    6 +
+    encodedQuery.length +
+    (rows
+      ? 4 +
+        rows.reduce(
+          (sum, row) => sum + 16 + row.fields.reduce((n, field) => n + 4 + field.length, 0),
           0,
-        ),
-        featured: (lower.trim().match(/\b(ft\.?|feat\.?|featuring)\b/gi) || []).length >= 3,
-      };
-      titles.set(rawTitle, titleData);
+        )
+      : 0);
+  if (size > MAX_PACKET_SIZE) throw Error('Search compute packet limit exceeded');
+  const input = new Uint8Array(size);
+  const view = new DataView(input.buffer);
+  input[0] = SEARCH_PACKET_VERSION;
+  input[1] = mode;
+  let offset = 2;
+  const putNumber = (value: number) => {
+    view.setUint32(offset, value, true);
+    offset += 4;
+  };
+  const putText = (value: Uint8Array) => {
+    putNumber(value.length);
+    input.set(value, offset);
+    offset += value.length;
+  };
+  putText(encodedQuery);
+  if (rows) {
+    putNumber(rows.length);
+    for (const row of rows) {
+      row.fields.forEach(putText);
+      putNumber(row.flags);
+      putNumber(row.providerRank ?? 0);
+      putNumber(row.topRank ?? 0);
+      putNumber(row.duration ?? 0);
     }
-    const rawArtist = (typeof track.artist === 'object' ? track.artist?.name : track.artist) || '';
-    let artistData = artists.get(rawArtist);
-    if (!artistData) {
-      const lower = rawArtist.toLowerCase();
-      artistData = { lower: lower.trim(), key: lower.replace(/[^a-z0-9а-яё]/gi, '') };
-      artists.set(rawArtist, artistData);
-    }
-    const title = titleData.lower;
-    const artist = artistData.lower;
-    const album = (track.album?.title || '').toLowerCase().trim();
-    let flags = 0;
-    if (split) {
-      let matches = artistMatches.get(artist);
-      if (!matches) {
-        matches = [
-          isArtistMatch(artist, artistPart) || artist.includes(artistPart),
-          isArtistMatch(artist, titlePart) || artist.includes(titlePart),
-        ];
-        artistMatches.set(artist, matches);
-      }
-      if (
-        (matches[0] && (isTitleMatch(title, titlePart) || title.includes(titlePart))) ||
-        (matches[1] && (isTitleMatch(title, artistPart) || title.includes(artistPart)))
-      )
-        flags |= 1;
-      if (
-        (artist === artistPart && title === titlePart) ||
-        (artist === titlePart && title === artistPart)
-      )
-        flags |= 2;
-      if (matches[0] || matches[1]) flags |= 4;
-      if (title.includes(artistPart) && title.includes(titlePart)) flags |= 8;
-    }
-    if (
-      [
-        `${artist} - ${title}`,
-        `${title} - ${artist}`,
-        `${artist} ${title}`,
-        `${title} ${artist}`,
-      ].includes(q)
-    )
-      flags |= 16;
-    if (title === q || artist === q) flags |= 32;
-    if (title.startsWith(q) || artist.startsWith(q)) flags |= 64;
-    if (title.includes(q) || artist.includes(q)) flags |= 128;
-    if (
-      track.album?.title &&
-      track.album.title !== 'Single' &&
-      track.album.title !== 'Unknown Album'
-    )
-      flags |= 256;
-    if (titleData.featured) flags |= 512;
-    const matched = tokens.filter(
-      (token) => title.includes(token) || artist.includes(token) || album.includes(token),
-    ).length;
-    const features =
-      (track.source === 'youtube' ? 1 : track.source === 'soundcloud' ? 2 : 0) |
-      ((track as Track & { user?: { verified?: boolean } }).user?.verified ? 4 : 0);
-    const duration = track.duration || 0;
-    const identity = `${titleData.key}_${artistData.key}`;
-    words.push(
-      flags,
-      matched,
-      tokens.length,
-      titleData.junk,
-      features,
-      Number.isFinite(duration) ? duration : duration > 0 ? Number.MAX_VALUE : -Number.MAX_VALUE,
-      names.id(identity),
-    );
   }
-  const result = runRustCompute('rank_search', encodeNumbers(words));
-  if (result.length % 4 || result.length > tracks.length * 4)
+  return runRustCompute('rank_search', input);
+}
+
+function rank<T>(
+  items: T[],
+  query: string,
+  mode: 0 | 1,
+  toCandidate: (item: T) => Candidate,
+): { items: T[]; strong: boolean } {
+  if (!items.length) return { items: [], strong: false };
+  if (items.length > MAX_CANDIDATES) throw Error('Search compute candidate limit exceeded');
+  const result = compute(query, mode, items.map(toCandidate));
+  if (result[0] > 1 || (result.length - 1) % 4 || result.length > 1 + items.length * 4)
     throw Error('Invalid Rust search result');
   const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
-  return Array.from({ length: result.length / 4 }, (_, i) => {
-    const index = view.getUint32(i * 4, true);
-    if (index >= tracks.length) throw Error('Invalid Rust search index');
-    return tracks[index];
-  });
+  return {
+    strong: result[0] === 1,
+    items: Array.from({ length: (result.length - 1) / 4 }, (_, i) => {
+      const index = view.getUint32(1 + i * 4, true);
+      if (index >= items.length) throw Error('Invalid Rust search index');
+      return items[index];
+    }),
+  };
+}
+
+export function assessSearchTracks(tracks: Track[], query: string) {
+  return rank(tracks, query, 0, (track) => ({
+    fields: [
+      track.title || '',
+      (typeof track.artist === 'string' ? track.artist : track.artist?.name) || '',
+      track.album?.title || '',
+      searchTrackKey(track),
+    ],
+    flags:
+      Number(track.source === 'youtube') |
+      (Number(
+        Boolean(track.album?.title && !['Single', 'Unknown Album'].includes(track.album.title)),
+      ) <<
+        1) |
+      (Number(Boolean(track.playbackUnavailable)) << 2),
+    providerRank: track.searchProviderRank,
+    topRank: track.searchTopRank,
+    duration: Number.isFinite(track.duration)
+      ? Math.max(0, Math.min(86400, Math.round(track.duration)))
+      : 0,
+  }));
+}
+
+export function rankSearchTracks(tracks: Track[], query: string): Track[] {
+  return assessSearchTracks(tracks, query).items;
+}
+
+export function assessSearchArtists(artists: Artist[], query: string) {
+  return rank(artists, query, 1, (artist) => ({
+    fields: ['', artist.name || '', '', String(artist.id)],
+    flags: Number(artist.source === 'youtube'),
+  }));
+}
+
+export function searchQueryVariants(query: string): string[] {
+  const result = decoder.decode(compute(query, 2));
+  return result ? result.split('\n') : [];
+}
+
+export function markSearchOrder(tracks: Track[], popular = false): Track[] {
+  return tracks.map((track, index) =>
+    popular ? { ...track, searchTopRank: index + 1 } : { ...track, searchProviderRank: index + 1 },
+  );
+}
+
+function searchTrackKey(track: Track): string {
+  return `${track.source || ''}:${track.id}`;
+}
+
+/** Attach shelf order to the search hit with the same provider ID, when available. */
+export function mergeSearchTopTracks(tracks: Track[], popular: Track[]): Track[] {
+  const hits = new Map(popular.map((track) => [searchTrackKey(track), track]));
+  return [
+    ...tracks.map((track) => {
+      const key = searchTrackKey(track);
+      const hit = hits.get(key);
+      if (!hit) return track;
+      hits.delete(key);
+      return { ...track, searchTopRank: hit.searchTopRank };
+    }),
+    ...hits.values(),
+  ];
 }

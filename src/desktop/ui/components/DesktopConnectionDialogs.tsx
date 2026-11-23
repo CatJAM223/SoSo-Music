@@ -1,9 +1,10 @@
 import { useLocale } from '../../../shared/i18n/useLocale';
 import { t } from '../../../shared/i18n/locale';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Smartphone, X } from 'lucide-react';
 import type { LanImportRequest } from '../../../shared/types';
+import { useNativeModal } from '../../../shared/hooks/useNativeModal';
 import './DesktopConnectionDialogs.css';
 
 export function DesktopConnectionDialogs() {
@@ -55,7 +56,8 @@ type Props = {
 
 function ConnectionDialog({ request, onRespond, onCloseSuccess }: Props) {
   useLocale();
-  const panel = useRef<HTMLDivElement>(null);
+  const dialog = useNativeModal();
+  const id = useId();
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -75,153 +77,104 @@ function ConnectionDialog({ request, onRespond, onCloseSuccess }: Props) {
       setBusy(false);
     }
   };
-  const closeRef = useRef(() => {});
-  closeRef.current = () => {
+  const handleClose = () => {
     if (!busyRef.current) {
       if (request) void respond(false);
       else onCloseSuccess();
     }
   };
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    panel.current?.querySelector<HTMLButtonElement>('[data-initial-focus]')?.focus();
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        closeRef.current();
-      }
-      if (event.key === 'Tab') {
-        const buttons = Array.from(
-          panel.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [],
-        );
-        const first = buttons[0],
-          last = buttons[buttons.length - 1];
-        if (!first) {
-          event.preventDefault();
-          return;
-        }
-        if (
-          event.shiftKey &&
-          (document.activeElement === first || !panel.current?.contains(document.activeElement))
-        ) {
-          event.preventDefault();
-          last.focus();
-        } else if (
-          !event.shiftKey &&
-          (document.activeElement === last || !panel.current?.contains(document.activeElement))
-        ) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    window.addEventListener('keydown', keydown, true);
-    return () => {
-      window.removeEventListener('keydown', keydown, true);
-      if (previous?.isConnected) previous.focus();
-    };
-  }, []);
   return createPortal(
-    <div className="soso-connection-backdrop" onClick={() => closeRef.current()}>
-      <div
-        ref={panel}
-        className="soso-connection-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="soso-connection-title"
-        aria-describedby="soso-connection-description"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <button
-          type="button"
-          className="soso-connection-close"
-          aria-label={t('Закрыть')}
-          disabled={busy}
-          onClick={() => closeRef.current()}
-        >
-          <X size={19} />
-        </button>
-        <span className="soso-connection-brand">SoSo Music</span>
-        {request ? (
-          <div className="soso-connection-icon">
-            <Smartphone size={30} strokeWidth={1.6} />
+    <dialog
+      ref={dialog}
+      className="soso-connection-dialog"
+      closedby="any"
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-description`}
+      onCancel={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handleClose();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') event.stopPropagation();
+      }}
+    >
+      <span className="soso-connection-brand">SoSo Music</span>
+      {request ? (
+        <div className="soso-connection-icon">
+          <Smartphone size={30} strokeWidth={1.6} />
+        </div>
+      ) : (
+        <svg className="soso-connection-check" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M 15 33 C 18 36 22 40 25 43 C 27 45 27 45 29 42 C 34 36 39 29 44 23 C 46 21 48 19 50 17" />
+        </svg>
+      )}
+      <h2 id={`${id}-title`}>{request ? t('Принять медиатеку?') : t('Аккаунт подключён')}</h2>
+      <p id={`${id}-description`}>
+        {request
+          ? t('Телефон отправляет свою музыку на этот ПК.')
+          : t('Сессия YouTube сохранена. Можно возвращаться к музыке.')}
+      </p>
+      {request && (
+        <>
+          <div className="soso-connection-counts">
+            {[
+              [t('Любимые треки'), request.tracks],
+              [t('Плейлисты'), request.playlists],
+              [t('Альбомы'), request.albums],
+              [t('Исполнители'), request.artists],
+            ].map(([label, count]) => (
+              <div key={label}>
+                <span>{label}</span>
+                <strong>{count}</strong>
+              </div>
+            ))}
           </div>
-        ) : (
-          <svg className="soso-connection-check" viewBox="0 0 64 64" aria-hidden="true">
-            <path d="M 15 33 C 18 36 22 40 25 43 C 27 45 27 45 29 42 C 34 36 39 29 44 23 C 46 21 48 19 50 17" />
-          </svg>
-        )}
-        <h2 id="soso-connection-title">
-          {request ? t('Принять медиатеку?') : t('Аккаунт подключён')}
-        </h2>
-        <p id="soso-connection-description">
-          {request
-            ? t('Телефон отправляет свою музыку на этот ПК.')
-            : t('Сессия YouTube сохранена. Можно возвращаться к музыке.')}
-        </p>
-        {request && (
-          <>
-            <div className="soso-connection-counts">
-              {[
-                [t('Любимые треки'), request.tracks],
-                [t('Плейлисты'), request.playlists],
-                [t('Альбомы'), request.albums],
-                [t('Исполнители'), request.artists],
-              ].map(([label, count]) => (
-                <div key={label}>
-                  <span>{label}</span>
-                  <strong>{count}</strong>
-                </div>
-              ))}
-            </div>
-            <p className="soso-connection-note">
-              {t('Музыка добавится в медиатеку ПК. Совпадающие записи могут обновиться.')}
-            </p>
-            <span className="soso-connection-device">
-              {t('Устройство: ')}
-              {request.address}
-            </span>
-          </>
-        )}
-        {error && (
-          <p className="soso-connection-error" role="alert">
-            {error}
+          <p className="soso-connection-note">
+            {t('Музыка добавится в медиатеку ПК. Совпадающие записи могут обновиться.')}
           </p>
-        )}
-        <div className="soso-connection-actions">
-          {request ? (
-            <>
-              <button
-                type="button"
-                data-initial-focus
-                disabled={busy}
-                onClick={() => void respond(false)}
-              >
-                {t('Отмена')}
-              </button>
-              <button
-                type="button"
-                className="soso-connection-primary"
-                disabled={busy}
-                onClick={() => void respond(true)}
-              >
-                {busy ? t('Подождите…') : t('Принять')}
-              </button>
-            </>
-          ) : (
+          <span className="soso-connection-device">
+            {t('Устройство: ')}
+            {request.address}
+          </span>
+        </>
+      )}
+      {error && (
+        <p className="soso-connection-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="soso-connection-actions">
+        {request ? (
+          <>
+            <button type="button" disabled={busy} onClick={() => void respond(false)}>
+              {t('Отмена')}
+            </button>
             <button
               type="button"
-              data-initial-focus
               className="soso-connection-primary"
-              onClick={onCloseSuccess}
+              disabled={busy}
+              onClick={() => void respond(true)}
             >
-              {t('Готово')}
+              {busy ? t('Подождите…') : t('Принять')}
             </button>
-          )}
-        </div>
+          </>
+        ) : (
+          <button type="button" className="soso-connection-primary" onClick={onCloseSuccess}>
+            {t('Готово')}
+          </button>
+        )}
       </div>
-    </div>,
+      <button
+        type="button"
+        className="soso-connection-close"
+        aria-label={t('Закрыть')}
+        disabled={busy}
+        onClick={handleClose}
+      >
+        <X size={19} />
+      </button>
+    </dialog>,
     document.body,
   );
 }

@@ -26,6 +26,7 @@ export function SettingsShortcuts() {
     saving = useRef(false),
     generation = useRef(0),
     captureAttempt = useRef(0);
+  const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     alive.current = true;
     const ticket = ++generation.current;
@@ -80,6 +81,11 @@ export function SettingsShortcuts() {
     if (!recording) return;
     const stop = () => setRecording(null);
     const keydown = (event: KeyboardEvent) => {
+      const focusedDialog = document.activeElement?.closest('dialog:modal');
+      if (focusedDialog && focusedDialog !== root.current?.closest('dialog:modal')) {
+        stop();
+        return;
+      }
       event.preventDefault();
       event.stopImmediatePropagation();
       if (event.repeat) return;
@@ -122,15 +128,8 @@ export function SettingsShortcuts() {
       if (!(event.target instanceof Element) || !event.target.closest('.shortcut-menu-wrap'))
         setMenu(null);
     };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenu(null);
-    };
     window.addEventListener('pointerdown', outside);
-    window.addEventListener('keydown', escape);
-    return () => {
-      window.removeEventListener('pointerdown', outside);
-      window.removeEventListener('keydown', escape);
-    };
+    return () => window.removeEventListener('pointerdown', outside);
   }, [menu]);
   function row(action: ShortcutAction) {
     const names: Record<string, string> = {
@@ -172,7 +171,20 @@ export function SettingsShortcuts() {
               <span className="shortcut-unassigned">{t('Не назначено')}</span>
             )}
           </button>
-          <div className="shortcut-menu-wrap">
+          <div
+            className="shortcut-menu-wrap"
+            onBlur={(event) => {
+              if (menu === action && !event.currentTarget.contains(event.relatedTarget))
+                setMenu(null);
+            }}
+            onKeyDown={(event) => {
+              if (menu !== action || event.key !== 'Escape') return;
+              event.preventDefault();
+              event.stopPropagation();
+              setMenu(null);
+              event.currentTarget.querySelector<HTMLButtonElement>('.shortcut-more')?.focus();
+            }}
+          >
             <button
               className="shortcut-more"
               aria-label={t('Действия с сочетанием')}
@@ -200,7 +212,7 @@ export function SettingsShortcuts() {
     );
   }
   return (
-    <div className="settings-page settings-shortcuts">
+    <div ref={root} className="settings-page settings-shortcuts">
       <section className="shortcuts-section">
         <h4>{t('Воспроизведение')}</h4>
         <div className="shortcuts-group">

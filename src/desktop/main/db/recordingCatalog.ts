@@ -59,9 +59,8 @@ export class RecordingCatalog {
     try {
       const batchSize = 256;
       for (let start = 0; start < length; start += batchSize) {
-        const refs = Array.from(
-          { length: Math.min(batchSize, length - start) },
-          (_, offset) => providerTrackRef(getTrack(start + offset)),
+        const refs = Array.from({ length: Math.min(batchSize, length - start) }, (_, offset) =>
+          providerTrackRef(getTrack(start + offset)),
         );
         statement?.bind([JSON.stringify(refs.map((ref) => [ref.provider, ref.providerId]))]);
         for (const [offset, ref] of refs.entries()) {

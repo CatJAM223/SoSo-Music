@@ -225,6 +225,56 @@ test('Wave refill keeps title homonyms from new artists instead of treating them
   );
 });
 
+test('A delayed Wave refill respects a new dislike and a later undo', async (t) => {
+  const current = song('current', 'Cobalt', 'Quiet Coast');
+  const blocked = song('blocked', 'Silver', 'Red Moon');
+  const alias = {
+    ...blocked,
+    id: 'yt_alias',
+    title: 'Red Moon (Official Audio)',
+    source: 'youtube',
+  };
+  const fresh = song('fresh', 'Ochre', 'Southern Sky');
+  const delay = Promise.withResolvers();
+  const h = waveHarness([[current], () => delay.promise, [blocked]]);
+  t.after(h.unmount);
+  await h.api.startWave();
+  const refill = h.api.fetchMoreWaveTracks();
+  h.api.handleWaveDislike(blocked);
+  delay.resolve([blocked, alias, fresh]);
+  await refill;
+  assert.deepEqual(
+    Array.from(h.queueRef.current, ({ id }) => id),
+    [current.id, fresh.id],
+  );
+  h.api.handleWaveUndislike(blocked.id);
+  await h.api.fetchMoreWaveTracks();
+  assert.ok(h.queueRef.current.some(({ id }) => id === blocked.id));
+});
+
+test('A dislike during opening worker ranking removes aliases before the first track plays', async (t) => {
+  const blocked = song('blocked', 'Silver', 'Red Moon');
+  const alias = { ...blocked, id: 'yt_alias', source: 'youtube' };
+  const fresh = song('fresh', 'Ochre', 'Southern Sky');
+  const ranking = Promise.withResolvers();
+  const started = Promise.withResolvers();
+  const h = waveHarness([[alias, fresh]], [], undefined, Date.now, undefined, (candidates) => {
+    started.resolve(candidates);
+    return ranking.promise;
+  });
+  t.after(h.unmount);
+  const opening = h.api.startWave();
+  const candidates = await started.promise;
+  h.api.handleWaveDislike(blocked);
+  ranking.resolve(candidates);
+  await opening;
+  assert.deepEqual(
+    Array.from(h.queueRef.current, ({ id }) => id),
+    [fresh.id],
+  );
+  assert.equal(h.plays[0].id, fresh.id);
+});
+
 test('A dislike followed by automatic next neither double-penalizes nor restores the track as a positive anchor', async () => {
   const current = song('disliked', 'Artist A', 'Red moon');
   const h = waveHarness([[current, song('pending', 'Artist B', 'Blue sky')], []]);

@@ -13,6 +13,7 @@ import { buildTrackPrintFromTrack } from '../../../shared/utils/trackFingerprint
 import {
   areSameWaveSong,
   createWaveSongIdentifier,
+  createWaveShowMatcher,
   isWaveNonMusic,
   matchesWaveArtist,
   type WaveSongIdentity,
@@ -32,6 +33,8 @@ interface CandidateOptions {
   disliked: readonly DislikedWaveTrack[];
   familiarArtists: string[];
   heard: readonly Track[];
+  offered?: readonly Track[];
+  oldestOffersFirst?: boolean;
 }
 
 function withFallbackArtwork(track: Track): Track {
@@ -49,6 +52,7 @@ export class WaveCandidatePool {
   private trackGroups = new Map<string, number>();
   private excluded: Set<string>;
   private playedSongs: WaveSongIdentity[];
+  private lastShow: ReturnType<typeof createWaveShowMatcher>;
   private options: CandidateOptions;
   private identify: ReturnType<typeof createWaveSongIdentifier>;
   constructor(options: CandidateOptions) {
@@ -56,9 +60,17 @@ export class WaveCandidatePool {
     this.excluded = new Set(options.excluded.map(String));
     this.identify = createWaveSongIdentifier(options.familiarArtists);
     this.playedSongs = options.heard.map(this.identify);
+    this.lastShow = createWaveShowMatcher(options.offered || [], options.familiarArtists);
   }
   get size(): number {
     return this.uniqueSongs.length;
+  }
+  count(predicate: (track: Track) => boolean): number {
+    return new Set(
+      [...this.tracks]
+        .filter(([, track]) => predicate(track))
+        .map(([id]) => this.trackGroups.get(id)),
+    ).size;
   }
   values(): Track[] {
     return [...this.tracks.values()].map((track) => {
@@ -68,6 +80,16 @@ export class WaveCandidatePool {
   }
 
   add(track: Track, method?: WaveMethod, anchor?: string, identity?: WaveSongIdentity): boolean {
+    const song = this.acceptedIdentity(track, identity);
+    return song ? this.addAccepted(track, song, method, anchor) : false;
+  }
+
+  private addAccepted(
+    track: Track,
+    song: WaveSongIdentity,
+    method?: WaveMethod,
+    anchor?: string,
+  ): boolean {
     const path =
       method &&
       readWaveProvenance({ method, provider: track?.source, anchor: anchor?.slice(0, 128) });
@@ -80,8 +102,6 @@ export class WaveCandidatePool {
       }
       return false;
     }
-    const song = this.acceptedIdentity(track, identity);
-    if (!song) return false;
     let index =
       this.recordingGroups.get(track.recordingId || '') ??
       this.uniqueSongs.findIndex((previous) => areSameWaveSong(previous.identity, song));
@@ -99,7 +119,10 @@ export class WaveCandidatePool {
     return true;
   }
 
-  private acceptedIdentity(track: Track, identity?: WaveSongIdentity): WaveSongIdentity | undefined {
+  private acceptedIdentity(
+    track: Track,
+    identity?: WaveSongIdentity,
+  ): WaveSongIdentity | undefined {
     if (
       !track ||
       !track.id ||
@@ -110,14 +133,14 @@ export class WaveCandidatePool {
     if (!matchesWaveSource(track, this.options.source) || isSoundCloudPreviewUrl(track.preview))
       return;
     if (this.excluded.has(String(track.id))) return;
-    if (this.options.disliked.some((disliked) => matchesDislikedWaveTrack(track, disliked)))
-      return;
+    if (this.options.disliked.some((disliked) => matchesDislikedWaveTrack(track, disliked))) return;
     if (!buildTrackPrintFromTrack(track).tokens.length) return;
     const song = identity ?? this.identify(track);
     if (this.playedSongs.some((played) => areSameWaveSong(played, song))) return;
     const duration = Number(track.duration) || 0;
     if (!requireRustCompute().wave_duration_allowed(duration)) return;
-    if (!isWaveMixOrPodcast(track) && !isWaveGarbageRemix(track) && !isWaveNonMusic(track)) return song;
+    if (!isWaveMixOrPodcast(track) && !isWaveGarbageRemix(track) && !isWaveNonMusic(track))
+      return song;
   }
 
   addRanked(
@@ -125,14 +148,32 @@ export class WaveCandidatePool {
     limit: number,
     expectedArtist?: string,
     method?: WaveMethod,
-  ): void {
+    priority?: (track: Track) => number,
+  ): number {
     const accepted: WaveSongIdentity[] = [];
-    for (const track of tracks) {
-      if (expectedArtist && !matchesWaveArtist(track, expectedArtist)) continue;
-      const song = this.identify(track);
+    const sourceRanks = new Map<string, number>();
+    const ranked = tracks
+      .filter((track) => !expectedArtist || matchesWaveArtist(track, expectedArtist))
+      .flatMap((track) => {
+        const song = this.acceptedIdentity(track);
+        if (!song) return [];
+        const last = this.lastShow(track, song, !this.options.oldestOffersFirst);
+        const exposure = this.options.oldestOffersFirst ? last : Number(last >= 0);
+        const score = priority?.(track) ?? 0;
+        const group = JSON.stringify([score, exposure, track.source]);
+        const rank = sourceRanks.get(group) ?? 0;
+        sourceRanks.set(group, rank + 1);
+        return [{ track, song, exposure, score, rank }];
+      })
+      .sort(
+        (a, b) => b.score - a.score || a.exposure - b.exposure || (priority ? a.rank - b.rank : 0),
+      );
+    for (const { track, song } of ranked) {
       const alreadyAccepted = accepted.some((previous) => areSameWaveSong(previous, song));
       if (!alreadyAccepted && accepted.length >= limit) continue;
-      if (this.add(track, method, expectedArtist, song) && !alreadyAccepted) accepted.push(song);
+      if (this.addAccepted(track, song, method, expectedArtist) && !alreadyAccepted)
+        accepted.push(song);
     }
+    return ranked.length;
   }
 }

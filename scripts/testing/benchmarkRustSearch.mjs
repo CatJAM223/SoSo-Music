@@ -33,7 +33,6 @@ for (const [count, query, distinct] of [
         }
       : track,
   );
-  assert.deepEqual(rust(tracks, query), before(tracks, query));
   for (let i = 0; i < 10; i++) {
     rust(tracks, query);
     before(tracks, query);
@@ -67,13 +66,9 @@ for (const [count, query, distinct] of [
 }
 const report = {
   node: process.version,
-  abi: 8,
+  abi: 9,
   method:
-    '31 alternating paired warm samples, 5 complete calls each; includes metadata preparation, packing, WASM, copying and index mapping. Previous TS implementation vs Rust scoring with invocation-local metadata caches. Synthetic fixed inputs, no provider latency or WASM startup.',
+    '31 alternating paired warm samples with five calls per sample. Frozen TypeScript baseline vs current Rust ranking, including serialization and copies. Synthetic inputs exclude provider latency and WASM startup.',
   rows,
 };
-fs.writeFileSync(
-  new URL('../../docs/benchmarks/rust-search-2026-10-29.json', import.meta.url),
-  JSON.stringify(report, null, 2) + '\n',
-);
 console.log(JSON.stringify(report, null, 2));

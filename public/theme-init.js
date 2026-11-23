@@ -1,5 +1,8 @@
+let scheme = 'dark';
 try {
-  const savedTheme = localStorage.getItem('soso_theme') || 'dark';
-  document.documentElement.classList.toggle('dark', savedTheme === 'dark');
-  document.documentElement.setAttribute('data-theme', savedTheme === 'dark' ? 'dark' : 'light');
+  if (localStorage.getItem('soso_theme') === 'light') scheme = 'light';
 } catch {}
+
+document.documentElement.classList.toggle('dark', scheme === 'dark');
+document.documentElement.setAttribute('data-theme', scheme);
+document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', scheme);

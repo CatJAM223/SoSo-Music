@@ -135,9 +135,12 @@ export const platformBridge = {
     throw new Error('Desktop preload API is unavailable');
   },
 
-  getAutocomplete: async (query: string): Promise<AutocompleteSuggestion[]> => {
+  getAutocomplete: async (
+    query: string,
+    source?: MusicSource,
+  ): Promise<AutocompleteSuggestion[]> => {
     if (nativeElectron?.getAutocomplete) {
-      return nativeElectron.getAutocomplete(query);
+      return nativeElectron.getAutocomplete(query, source);
     }
     throw new Error('Desktop preload API is unavailable');
   },

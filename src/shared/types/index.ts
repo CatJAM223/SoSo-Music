@@ -24,6 +24,9 @@ export interface Track {
   title_short?: string;
   /** Position in the originating chart, before unavailable songs are removed. */
   chartRank?: number;
+  /** Position in a provider's search or artist popularity shelf. */
+  searchProviderRank?: number;
+  searchTopRank?: number;
   artist: {
     id?: number | string;
     name: string;
@@ -214,6 +217,7 @@ export interface AutocompleteSuggestion {
   type: 'track' | 'artist' | 'album';
   source?: 'soundcloud' | 'deezer' | 'youtube';
   picture?: string;
+  track?: Track;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -448,6 +452,7 @@ export type AppUpdateStatus = {
   currentVersion: string;
   latestVersion?: string;
   releaseUrl?: string;
+  releaseHighlights?: { summary: string; changes: string[] };
   retryAfterMs?: number;
   message: string;
 };
@@ -533,10 +538,15 @@ export interface ElectronAPI {
     requestId?: string,
   ) => Promise<{ data: Artist[] }>;
   cancelSearch?: (requestId: string) => Promise<void>;
+  searchArtistTracks?: (
+    artist: Artist,
+    source: Exclude<MusicSource, 'all'>,
+    requestId: string,
+  ) => Promise<Track[]>;
   getCharts: (region?: ChartRegion) => Promise<ChartData>;
   getGenres: () => Promise<{ data: Genre[] }>;
   getGenreTracks: (genreId: number | string, source?: MusicSource) => Promise<{ data: Track[] }>;
-  getAutocomplete: (query: string) => Promise<AutocompleteSuggestion[]>;
+  getAutocomplete: (query: string, source?: MusicSource) => Promise<AutocompleteSuggestion[]>;
   getArtist: (
     idOrName: string | number,
     artistName?: string,
@@ -778,6 +788,7 @@ export interface ElectronAPI {
     callback: (data: { trackId: string | number; gainDb: number }) => void,
   ) => () => void;
   onYouTubeSessionReset?: (callback: () => void) => () => void;
+  warmYouTubePlayback?: () => Promise<void>;
   onSharedListenTrack?: (callback: (track: Track) => void) => () => void;
   clearDiscordRpc: () => Promise<void>;
   toggleDiscordRpc: (enabled: boolean) => Promise<void>;

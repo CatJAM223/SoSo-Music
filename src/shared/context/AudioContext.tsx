@@ -102,6 +102,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
     currentTrackRef,
     nextTrack: onNextTrack,
     onDislike: waveEngine.handleWaveDislike,
+    onUndislike: waveEngine.handleWaveUndislike,
     onLike: waveEngine.handleWaveLike,
   });
 
@@ -219,7 +220,7 @@ export const AudioProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // Clear queue helper (preserves current playing track)
   const clearQueue = useCallback(() => {
-    queueManager.clearQueue(playerCore.currentTrackRef.current);
+    return queueManager.clearQueue(playerCore.currentTrackRef.current);
   }, [queueManager.clearQueue, playerCore.currentTrackRef]);
 
   // 8. Discord RPC synchronization

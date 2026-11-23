@@ -4,11 +4,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const cargo = path.join(
-  os.homedir(),
-  '.cargo/bin',
-  process.platform === 'win32' ? 'cargo.exe' : 'cargo',
+const cargoName = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
+const homeCargo = path.join(
+  process.env.CARGO_HOME || path.join(os.homedir(), '.cargo'),
+  'bin',
+  cargoName,
 );
+const cargo = fs.existsSync(homeCargo) ? homeCargo : cargoName;
 const portableGnu = path.join(root, '.tools/w64devkit/bin');
 const hasPortableGnu =
   process.platform === 'win32' && fs.existsSync(path.join(portableGnu, 'gcc.exe'));

@@ -1,7 +1,8 @@
 {
   "name": "soso-music",
   "productName": "SoSo Music",
-  "version": "4.2.0",
+  "desktopName": "com.sosomusic.app.desktop",
+  "version": "4.2.6",
   "description": "Desktop Music Player with SoundCloud, YouTube Music and SQLite",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -9,6 +10,7 @@
     "make-ico": "powershell -ExecutionPolicy Bypass -File scripts/desktop/make-ico.ps1",
     "inject-icon": "node scripts/desktop/inject-exe-icon.js",
     "build": "powershell -ExecutionPolicy Bypass -File scripts/desktop/make-ico.ps1 && tsc && vite build && electron-builder --dir && node scripts/desktop/inject-exe-icon.js",
+    "build:linux": "node scripts/release/buildLinux.cjs",
     "build:renderer": "tsc && vite build",
     "lint": "tsc --noEmit",
     "test": "node --experimental-strip-types tests/runAllTests.mjs",
@@ -80,6 +82,15 @@
       "icon": "icon/icon.ico",
       "executableName": "SoSo Music",
       "signAndEditExecutable": false,
+      "extraResources": [
+        {
+          "from": "build/native",
+          "to": "native",
+          "filter": [
+            "soso-rooms.exe"
+          ]
+        }
+      ],
       "target": [
         {
           "target": "dir",
@@ -89,21 +100,55 @@
         }
       ]
     },
+    "linux": {
+      "icon": "icon/icon.png",
+      "executableName": "soso-music",
+      "category": "AudioVideo;Audio;Player",
+      "synopsis": "Music player for SoundCloud and YouTube Music",
+      "maintainer": "CatJAM223 <vanasutagin47@gmail.com>",
+      "syncDesktopName": true,
+      "artifactName": "SoSo-Music-${version}-linux-${arch}.${ext}",
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "extraResources": [
+        {
+          "from": "build/native",
+          "to": "native",
+          "filter": [
+            "soso-rooms"
+          ]
+        }
+      ]
+    },
+    "toolsets": {
+      "appimage": "1.0.3"
+    },
+    "deb": {
+      "depends": [
+        "libc6 (>= 2.34)",
+        "libgcc-s1",
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libgbm1",
+        "libasound2t64 | libasound2",
+        "libcups2",
+        "libudev1"
+      ]
+    },
     "protocols": [
       {
         "name": "SoSo Music",
         "schemes": [
           "sosomusic"
-        ]
-      }
-    ],
-    "extraResources": [
-      {
-        "from": "build/native",
-        "to": "native",
-        "filter": [
-          "soso-rooms",
-          "soso-rooms.exe"
         ]
       }
     ],

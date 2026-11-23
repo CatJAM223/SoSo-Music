@@ -176,7 +176,10 @@ test('A focus-hidden overlay releases its renderer and restores the latest track
   f.overlay.setPlayerFocused(true);
   assert.equal(first.isVisible(), false);
   f.overlay.sendState({ track: { id: 2, title: 'Newest track' } });
-  assert.equal(first.messages.some(([channel]) => channel === 'widget:stateUpdate'), false);
+  assert.equal(
+    first.messages.some(([channel]) => channel === 'widget:stateUpdate'),
+    false,
+  );
   t.mock.timers.tick(15000);
   assert.equal(first.isDestroyed(), true);
   f.overlay.setPlayerFocused(false);

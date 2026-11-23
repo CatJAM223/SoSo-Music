@@ -151,6 +151,19 @@ export function useWaveEngine({
   const waveFetchPromiseRef = useRef<Promise<void> | null>(null);
   const waveControllerRef = useRef<AbortController | null>(null);
   const waveRefreshPendingRef = useRef(false);
+  const requestDislikes = useRef(
+    new Map<string, { id: Track['id']; title: string; artist: string; recordingId: string }>(),
+  );
+  const isWaveDisliked = useCallback(
+    (track: Track) =>
+      Array.from(requestDislikes.current.values()).some((disliked) =>
+        matchesDislikedWaveTrack(track, disliked),
+      ),
+    [],
+  );
+  const handleWaveUndislike = useCallback((id: string | number) => {
+    requestDislikes.current.delete(String(id));
+  }, []);
 
   const preferencesRef = useRef<ReturnType<typeof createWavePreferences> | null>(null);
   if (!preferencesRef.current) preferencesRef.current = createWavePreferences();
@@ -308,6 +321,7 @@ export function useWaveEngine({
           if (!isCurrent()) return;
           waveRefreshPendingRef.current = false;
           const controller = new AbortController();
+          requestDislikes.current.clear();
           waveControllerRef.current = controller;
           try {
             recentPlayedTracksRef.current = waveMemory.playedTracks();
@@ -363,6 +377,7 @@ export function useWaveEngine({
                   if (
                     !matchesWaveSource(track, source) ||
                     isYouTubeItemDisabled(track) ||
+                    isWaveDisliked(track) ||
                     existingIds.has(String(track.id))
                   )
                     return false;
@@ -376,7 +391,7 @@ export function useWaveEngine({
                 const rankIndex = queueIndexRef.current;
                 const rankVersion = reorderVersionRef.current;
                 // Preserve the live current/announced prefix, including navigation during the request.
-                const combined = await resequenceWaveQueueInWorker(
+                const reordered = await resequenceWaveQueueInWorker(
                   [...prev, ...filtered],
                   Math.min(queueIndexRef.current + 1, prev.length - 1),
                   mood,
@@ -399,6 +414,10 @@ export function useWaveEngine({
                 ) {
                   continue;
                 }
+                // The worker may have finished after the user rejected one of its candidates.
+                const combined = reordered.filter(
+                  (track, index) => index <= rankIndex || !isWaveDisliked(track),
+                );
                 const addedIds = new Set(filtered.map((track) => String(track.id)));
                 const accepted = combined.filter((track) => addedIds.has(String(track.id)));
                 const attributed = attributeWaveBatch(
@@ -478,6 +497,7 @@ export function useWaveEngine({
       waveSession,
       adaptiveWave,
       waveSearchOptions,
+      isWaveDisliked,
     ],
   );
 
@@ -572,43 +592,46 @@ export function useWaveEngine({
 
   const handleWaveDislike = useCallback(
     (track: Track) => {
+      const disliked = {
+        id: track.id,
+        title: track.title,
+        artist: track.artist?.name || '',
+        recordingId: recordingKey(track),
+      };
+      if (waveControllerRef.current) requestDislikes.current.set(String(track.id), disliked);
       markWaveDislike(track, (event) => {
         logWaveQuality(event);
         observeWaveQuality(track, event);
       });
-      if (!isWaveActiveRef.current || isWaveStartingRef.current) return;
-      refreshWaveSession();
-      if (!eligibleTaste(track)) {
-        const disliked = { id: track.id, title: track.title, artist: track.artist?.name || '' };
-        const remaining = queueRef.current.filter(
-          (candidate, index) =>
-            index <= queueIndexRef.current || !matchesDislikedWaveTrack(candidate, disliked),
-        );
-        queueRef.current = remaining;
-        setQueue(remaining);
+      if (
+        !isWaveActiveRef.current ||
+        (isWaveStartingRef.current && !restorableWaveRef.current.active)
+      )
         return;
-      }
+      const remaining = queueRef.current.filter(
+        (candidate, index) =>
+          index <= queueIndexRef.current || !matchesDislikedWaveTrack(candidate, disliked),
+      );
+      queueRef.current = remaining;
+      setQueue(remaining);
+      if (isWaveStartingRef.current) return;
+      refreshWaveSession();
+      if (!eligibleTaste(track)) return;
       preferences.record(track, -0.75, isNovelTrack(track), 'dislike', waveMoodRef.current);
       const feedback = waveSession().artistFeedback;
       for (const artist of getWaveArtistKeys(track, queueRef.current.flatMap(getWaveArtistNames))) {
         feedback.set(artist, Math.max(-2, (feedback.get(artist) || 0) - 0.75));
       }
-      const disliked = { id: track.id, title: track.title, artist: track.artist?.name || '' };
       waveSession().skippedTracks = rememberPositiveWaveTrack(waveSession().skippedTracks, track);
       waveSession().positiveTracks = waveSession().positiveTracks.filter(
         (candidate) => !matchesDislikedWaveTrack(candidate, disliked),
       );
-      if (String(queueRef.current[queueIndexRef.current]?.id) === String(track.id)) {
+      const current = queueRef.current[queueIndexRef.current];
+      if (current && matchesDislikedWaveTrack(current, disliked)) {
         // The dislike already supplies feedback; the automatic next must not add another reaction.
-        lastFeedbackTrackRef.current = String(track.id);
+        lastFeedbackTrackRef.current = String(current.id);
         // The audio observer records actual listening; clicking dislike alone is not playback.
       }
-      const filtered = queueRef.current.filter(
-        (candidate, index) =>
-          index <= queueIndexRef.current || !matchesDislikedWaveTrack(candidate, disliked),
-      );
-      queueRef.current = filtered;
-      setQueue(filtered);
       void reorderPending(false).catch(logReorderError);
     },
     [
@@ -691,6 +714,7 @@ export function useWaveEngine({
       const reqId = ++waveRequestIdRef.current;
       waveControllerRef.current?.abort();
       const controller = new AbortController();
+      requestDislikes.current.clear();
       waveControllerRef.current = controller;
       waveFetchPromiseRef.current = null;
       waveRefreshPendingRef.current = false;
@@ -809,7 +833,10 @@ export function useWaveEngine({
             )
           : fetched;
         const playable = candidates.filter(
-          (track) => matchesWaveSource(track, source) && !isYouTubeItemDisabled(track),
+          (track) =>
+            matchesWaveSource(track, source) &&
+            !isYouTubeItemDisabled(track) &&
+            !isWaveDisliked(track),
         );
         const rank = () =>
           resequenceWaveQueueInWorker(
@@ -830,6 +857,7 @@ export function useWaveEngine({
         if (reqId !== waveRequestIdRef.current) return;
         if (requestedNovelty !== noveltyRef.current) batch = await rank();
         if (reqId !== waveRequestIdRef.current) return;
+        batch = batch.filter((track) => !isWaveDisliked(track));
         if (batch && batch.length > 0) {
           batch = attributeWaveBatch(
             batch,
@@ -897,6 +925,7 @@ export function useWaveEngine({
       refreshPolicy,
       adaptiveWave,
       waveSearchOptions,
+      isWaveDisliked,
     ],
   );
 
@@ -1005,6 +1034,7 @@ export function useWaveEngine({
     observeWavePlayback,
     observeWaveQuality,
     handleWaveDislike,
+    handleWaveUndislike,
     handleWaveLike,
   };
 }

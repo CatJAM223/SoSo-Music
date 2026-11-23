@@ -2,6 +2,7 @@ import {
   waveRequestKey,
   type WaveRequestScheduler,
 } from '../../../shared/services/waveRequestScheduler.ts';
+import { identifyCatalogTracks } from './recordingCatalog.ts';
 import { matchesWaveSource, normalizeWaveSource } from '../../../shared/services/waveSource.ts';
 import type { MusicSource, Track } from '../../../shared/types/index.ts';
 import { SoundCloudService } from './soundcloud.ts';
@@ -30,13 +31,19 @@ export function createWaveCatalog(
     source === 'youtube'
       ? Promise.resolve({ data: [] })
       : request(waveRequestKey('sc', query, limit), (signal) =>
-          SoundCloudService.search(query, limit, signal),
+          SoundCloudService.search(query, limit, signal).then((result) => ({
+            ...result,
+            data: identifyCatalogTracks(result.data || []),
+          })),
         );
   const youtube = (query: string, limit: number) =>
     source === 'soundcloud'
       ? Promise.resolve({ data: [] })
       : request(waveRequestKey('yt', query, limit), (signal) =>
-          YouTubeMusicService.search(query, limit, signal),
+          YouTubeMusicService.search(query, limit, signal).then((result) => ({
+            ...result,
+            data: identifyCatalogTracks(result.data || []),
+          })),
         );
   return {
     soundcloud,
@@ -78,10 +85,12 @@ export function createWaveCatalog(
         ? Promise.resolve([])
         : seed.source === 'youtube'
           ? request(waveRequestKey('yt-radio', String(seed.id), 20), (signal) =>
-              YouTubeMusicService.getRadioTracks(String(seed.id), undefined, 20, signal),
+              YouTubeMusicService.getRadioTracks(String(seed.id), undefined, 20, signal).then(
+                identifyCatalogTracks,
+              ),
             )
           : request(waveRequestKey('sc-radio', String(seed.id), 20), (signal) =>
-              SoundCloudService.getRelatedTracks(seed.id, 20, signal),
+              SoundCloudService.getRelatedTracks(seed.id, 20, signal).then(identifyCatalogTracks),
             ),
   };
 }

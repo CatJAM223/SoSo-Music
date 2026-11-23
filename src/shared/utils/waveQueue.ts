@@ -5,6 +5,7 @@ import type { WaveFamiliarity, WaveNovelty } from '../types/wavePolicy.ts';
 import { WAVE_HISTORY_LIMIT } from './waveHistoryLimits.ts';
 import { areTracksDuplicates, buildTrackPrintFromTrack } from './trackFingerprint.ts';
 import { normalizeWaveArtist } from './waveIdentity.ts';
+import { recordingKey } from '../types/musicDomain.ts';
 
 export const CURATED_WAVE_FALLBACK_QUERIES = [
   'zxcursed phonk',
@@ -106,12 +107,17 @@ export { isWaveTempoEdit, isWaveMoodMismatch } from './waveTrackMetadata.ts';
 
 export interface DislikedWaveTrack {
   id: string | number;
+  recordingId?: string;
   title: string;
   artist: string;
 }
 
 export function matchesDislikedWaveTrack(track: Track, disliked: DislikedWaveTrack): boolean {
-  if (String(track.id) === String(disliked.id)) return true;
+  if (
+    String(track.id) === String(disliked.id) ||
+    ((track.recordingId || disliked.recordingId) && recordingKey(track) === recordingKey(disliked))
+  )
+    return true;
   if (!disliked.title || !disliked.artist) return false;
   const artist = disliked.artist.trim().toLocaleLowerCase();
   if (

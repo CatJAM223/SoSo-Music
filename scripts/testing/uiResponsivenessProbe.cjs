@@ -42,27 +42,32 @@ app
       if (!allowed) externalRequests++;
       callback({ cancel: !allowed });
     });
-    win = new BrowserWindow({
-      show: false,
-      width: 1200,
-      height: 800,
-      webPreferences: {
-        contextIsolation: true,
-        sandbox: true,
-        nodeIntegration: false,
-        backgroundThrottling: false,
-      },
-    });
-    win.webContents.on('console-message', ({ level, message }) => {
-      if (level >= 3) {
-        rendererErrors.push(message);
-        console.error('RENDERER', message);
-      }
-    });
-    win.webContents.debugger.attach('1.3');
-    await win.loadFile(path.join(output, 'index.html'));
+    const openFixture = async () => {
+      const window = new BrowserWindow({
+        show: false,
+        width: 1200,
+        height: 800,
+        webPreferences: {
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
+          backgroundThrottling: false,
+        },
+      });
+      window.webContents.on('console-message', ({ level, message }) => {
+        if (level >= 3) {
+          rendererErrors.push(message);
+          console.error('RENDERER', message);
+        }
+      });
+      window.webContents.debugger.attach('1.3');
+      await window.loadFile(path.join(output, 'index.html'));
+      return window;
+    };
+    win = await openFixture();
     const results = [];
-    for (const artwork of [false, true])
+    const queueOnly = await evaluate('uiQueueOnly');
+    for (const artwork of queueOnly ? [] : [false, true])
       for (const throttle of [1, 4])
         for (const count of [300, 1000]) {
           await win.webContents.debugger.sendCommand('Emulation.setCPUThrottlingRate', {
@@ -140,8 +145,102 @@ app
             rowClick: await measure('row-click', 8),
           });
         }
+    if (!queueOnly) {
+      // Avoid carrying pending media work and CPU throttling into the queue fixture.
+      const previous = win;
+      win = await openFixture();
+      previous.destroy();
+    }
+    await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+      enabled: true,
+    });
+    const queueResults = [];
+    for (const count of [100, 1000, 10000]) {
+      await evaluate(`mountQueue(${count})`);
+      queueResults.push(
+        await evaluate(`(async()=>{
+        const wait=async (check)=>{
+          for(let i=0;i<240;i++){if(check())return;await new Promise(r=>setTimeout(r,8));}
+          throw Error('Queue did not render the expected rows');
+        };
+        const rows=()=>document.querySelectorAll('[data-queue-drawer] [role="listitem"]');
+        const observe=(phase,action,ready)=>new Promise((resolve,reject)=>{
+          const started=performance.now();
+          const observer=new MutationObserver(check);
+          const timer=setTimeout(()=>{
+            observer.disconnect();
+            reject(Error('Queue ${count} did not commit after '+phase+'; rows='+rows().length+'; last='+rows()[rows().length-1]?.textContent));
+          },5000);
+          function check() {
+            if(!ready())return;
+            observer.disconnect();
+            clearTimeout(timer);
+            resolve(performance.now()-started);
+          }
+          observer.observe(document.getElementById('root'),{subtree:true,childList:true,attributes:true});
+          action();
+          check();
+        });
+        await wait(()=>document.getElementById('open-queue')?.dataset.count==='${count}');
+        const openMs=await observe('opening',()=>document.getElementById('open-queue').click(),()=>rows().length>0);
+        const openRows=rows().length;
+        const scroll=document.querySelector('.queue-scroll');
+        const firstControl=rows()[0].querySelector('.queue-more');
+        firstControl.focus({preventScroll:true});
+        const scrollMs=await observe('scrolling',()=>{
+          scroll.scrollTop=scroll.scrollHeight;
+          scroll.dispatchEvent(new Event('scroll'));
+        },()=>{
+          const items=rows();
+          const last=items[items.length-1];
+          return last?.textContent.includes('Measured song ${count}');
+        });
+        if(document.activeElement!==firstControl)throw Error('Scrolling unmounted the focused queue row');
+        const scrollRows=rows().length;
+        if(${count}===1000&&!window.uiQueueAllRows){
+          firstControl.blur();
+          scroll.scrollTop=0;
+          scroll.dispatchEvent(new Event('scroll'));
+          await wait(()=>rows()[1]?.getAttribute('aria-posinset')==='2');
+          const raf=window.requestAnimationFrame,caf=window.cancelAnimationFrame;
+          const transfer=new DataTransfer();
+          const source=rows()[0].querySelector('[draggable]');
+          try {
+            // Hidden Electron does not supply regular animation frames.
+            window.requestAnimationFrame=callback=>setTimeout(callback,16);
+            window.cancelAnimationFrame=clearTimeout;
+            source.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));
+            scroll.dispatchEvent(new DragEvent('dragover',{
+              bubbles:true,cancelable:true,dataTransfer:transfer,
+              clientY:Math.round(scroll.getBoundingClientRect().bottom)-5,
+            }));
+            await wait(()=>scroll.scrollTop>840);
+            if(!source.isConnected)throw Error('Scrolling unmounted the active drag source');
+            const target=rows()[rows().length-1];
+            const targetPosition=Number(target.getAttribute('aria-posinset'));
+            target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+            if(window.queueReorders[0]?.join(':')!=='1:'+targetPosition)
+              throw Error('Dropping after auto-scroll used the wrong queue index');
+            source.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:transfer}));
+            const stoppedAt=scroll.scrollTop;
+            await new Promise(resolve=>setTimeout(resolve,60));
+            if(scroll.scrollTop!==stoppedAt)throw Error('Queue kept scrolling after drag ended');
+          } finally {
+            window.requestAnimationFrame=raf;
+            window.cancelAnimationFrame=caf;
+          }
+        }
+        return {tracks:${count},openMs,openRows,scrollMs,scrollRows};
+      })()`),
+      );
+    }
+    const queueAllRows = await evaluate('uiQueueAllRows');
+    if (!queueAllRows) {
+      for (const result of queueResults)
+        assert.ok(result.openRows <= 40 && result.scrollRows <= 40, 'Queue rendered too many rows');
+    }
     // Preserve diagnostics even when a rendering contract fails.
-    fs.writeFileSync(report, JSON.stringify({ results, externalRequests }, null, 2));
+    fs.writeFileSync(report, JSON.stringify({ results, queueResults, externalRequests }, null, 2));
     // Timing distributions are diagnostics; deterministic rendering contracts are gates.
     for (const result of results) {
       const label =
@@ -187,6 +286,7 @@ app
       runtime: process.versions,
       method: {
         legacyArtworkValidation: await evaluate('uiLegacyArtworkValidation'),
+        queueAllRows,
         domTiming: 'MutationObserver registered before dispatch; no timer polling',
         renderer: 'React 19 production profiling build',
         profiling:
@@ -201,6 +301,7 @@ app
           'Actual model loading state and committed playback; initial stats delayed by 500ms',
       },
       results,
+      queueResults,
     };
     fs.writeFileSync(report, JSON.stringify(data, null, 2));
     console.log(

@@ -81,6 +81,7 @@ function harness(
       './formatters': { detectTrackSource: () => 'youtube' },
       '../utils/playbackIntent.ts': {
         beginPlaybackIntent: () => () => true,
+        invalidatePlaybackIntent() {},
         markPreparedPlayback() {},
       },
     },

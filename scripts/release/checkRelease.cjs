@@ -19,4 +19,5 @@ for (const file of ['README.md', 'README.ru.md', 'CHANGELOG.md', 'LICENSE', 'USA
 }
 console.log('Release metadata OK: ' + info.version);
 console.log('Windows: ' + info.windowsZip);
+console.log('Linux: ' + info.linuxDeb + ', ' + info.linuxAppImage);
 console.log('This verifies release metadata, not publication or playback on a device.');

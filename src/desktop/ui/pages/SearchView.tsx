@@ -12,16 +12,19 @@ import { SourceBadge } from '../components/SourceBadge';
 import { generateInitialsAvatarUri } from '../../../shared/utils/placeholder';
 import { useArtistSearchAlbums } from '../../../shared/hooks/useArtistSearchAlbums';
 import { SearchAlbumResults } from '../../../shared/components/SearchAlbumResults';
-import { runProgressiveSearch } from '../../../shared/utils/progressiveSearch';
+import { runProgressiveSearch, type SearchSnapshot } from '../../../shared/utils/progressiveSearch';
+import { useAudioControls } from '../../../shared/context/AudioContext';
 import { platformBridge } from '../../../shared/bridge/platformBridge';
 import type { SearchPageState } from '../navigationHistory';
+import { notifyQueueEdit } from '../../../shared/utils/notifyQueueEdit';
+import { useRoomConnection } from '../services/listeningRoomClient';
 
 interface SearchViewProps {
   initialQuery?: string;
   initialState?: SearchPageState;
   onStateChange?: (state: SearchPageState) => void;
   onOpenAddToPlaylist: (track: Track) => void;
-  onNavigateToArtist?: (artist: { id?: string | number; name: string }) => void;
+  onNavigateToArtist?: (artist: { id?: string | number; name: string; source?: string }) => void;
   onNavigateToAlbum?: (album: any) => void;
 }
 
@@ -35,6 +38,23 @@ export const SearchView: React.FC<SearchViewProps> = ({
 }) => {
   useLocale();
   const youtubeDisabled = useYouTubeAvailability();
+  const roomConnection = useRoomConnection();
+  const { playTrack, playNext } = useAudioControls();
+  const playSuggestion = useCallback(
+    (track: Track) => playTrack(track, [track], false, undefined, { kind: 'search' }),
+    [playTrack],
+  );
+  const queueSuggestion = useCallback(
+    (track: Track) =>
+      notifyQueueEdit(
+        t('Следующим сыграет «{0}»', track.title),
+        playNext({
+          ...track,
+          queueOrigin: { kind: 'search' },
+        }),
+      ),
+    [playNext],
+  );
   const initialStateRef = useRef(initialState);
   const [query, setQuery] = useState(initialState?.query ?? initialQuery);
   const [draft, setDraft] = useState(initialState?.draft ?? initialQuery);
@@ -44,9 +64,8 @@ export const SearchView: React.FC<SearchViewProps> = ({
   const [completed, setCompleted] = useState(initialState?.completed || false);
   const [selectedSource, setSelectedSource] = useState<MusicSource>(initialState?.source || 'all');
   const [recentQueries, setRecentQueries] = useState<SearchHistoryItem[]>([]);
-  const [failedSources, setFailedSources] = useState<MusicSource[]>(
-    initialState?.failedSources || [],
-  );
+  const [snapshot, setSnapshot] = useState<SearchSnapshot | undefined>(initialState?.snapshot);
+  const failures = snapshot?.failures || [];
   const searchController = useRef<AbortController | null>(null);
   const albums = useArtistSearchAlbums(query, artists, results, true, selectedSource);
 
@@ -66,9 +85,9 @@ export const SearchView: React.FC<SearchViewProps> = ({
       artists,
       source: selectedSource,
       completed,
-      failedSources,
+      snapshot,
     });
-  }, [query, draft, results, artists, selectedSource, completed, failedSources, onStateChange]);
+  }, [query, draft, results, artists, selectedSource, completed, snapshot, onStateChange]);
 
   const loadRecentQueries = useCallback(async () => {
     try {
@@ -84,17 +103,19 @@ export const SearchView: React.FC<SearchViewProps> = ({
   }, [loadRecentQueries]);
 
   const performSearch = useCallback(
-    async (searchQuery: string, sourceToUse: MusicSource) => {
+    async (searchQuery: string, sourceToUse: MusicSource, resume?: SearchSnapshot) => {
       if (!searchQuery.trim()) return;
       const currentReqId = ++searchReqIdRef.current;
       searchController.current?.abort();
       const controller = new AbortController();
       searchController.current = controller;
-      setFailedSources([]);
-      setLoading(true);
       setCompleted(false);
-      setResults([]);
-      setArtists([]);
+      setLoading(!resume?.tracks.length && !resume?.artists.length);
+      if (!resume) {
+        setSnapshot(undefined);
+        setResults([]);
+        setArtists([]);
+      }
       try {
         if (window.electronAPI) {
           await runProgressiveSearch(
@@ -105,12 +126,13 @@ export const SearchView: React.FC<SearchViewProps> = ({
               if (currentReqId !== searchReqIdRef.current) return;
               setResults(snapshot.tracks);
               setArtists(snapshot.artists);
-              setFailedSources(snapshot.failedSources);
+              setSnapshot(snapshot);
               if (snapshot.tracks.length || snapshot.artists.length || !snapshot.pending)
                 setLoading(false);
             },
             15000,
             controller.signal,
+            resume,
           );
           if (currentReqId === searchReqIdRef.current) {
             await loadRecentQueries();
@@ -144,7 +166,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
     if (!newQuery.trim()) {
       searchReqIdRef.current += 1;
       searchController.current?.abort();
-      setFailedSources([]);
+      setSnapshot(undefined);
       setResults([]);
       setArtists([]);
       setLoading(false);
@@ -163,6 +185,28 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
   const hasResults = results.length > 0 || artists.length > 0 || albums.length > 0;
 
+  const trackResults = results.length > 0 && (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs text-slate-600 dark:text-zinc-400">
+        <div className="flex items-center gap-2">
+          <Music className="w-4 h-4 text-soso-brand" />
+          <h2 className="text-base md:text-lg font-black text-slate-900 dark:text-white tracking-tight">
+            {t('Треки')}
+          </h2>
+        </div>
+        <span className="font-mono font-semibold">
+          {results.length} {t(' треков')}
+        </span>
+      </div>
+      <TrackTable
+        tracks={results}
+        onOpenAddToPlaylist={onOpenAddToPlaylist}
+        onNavigateToArtist={onNavigateToArtist}
+        onNavigateToAlbum={onNavigateToAlbum}
+      />
+    </div>
+  );
+
   return (
     <div className="space-y-3 md:space-y-6 animate-fade-in">
       {/* Search Header */}
@@ -172,6 +216,9 @@ export const SearchView: React.FC<SearchViewProps> = ({
         </h1>
         <SearchBar
           onSearch={handleSearchSubmit}
+          source={selectedSource}
+          onPlayTrack={playSuggestion}
+          onPlayNext={roomConnection ? undefined : queueSuggestion}
           initialQuery={draft}
           onQueryChange={setDraft}
           onNavigateToArtist={onNavigateToArtist}
@@ -220,21 +267,25 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
       {/* Search Results */}
       <div>
-        {failedSources.length > 0 && (
+        {failures.length > 0 && (
           <div
             role="status"
             className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 p-3 text-sm"
           >
             <span>
               {t('Не удалось получить все результаты. Источники: ')}
-              {failedSources
-                .map((source) => (source === 'soundcloud' ? 'SoundCloud' : 'YouTube Music'))
+              {failures
+                .map(
+                  ({ source, part }) =>
+                    `${source === 'soundcloud' ? 'SoundCloud' : 'YouTube Music'} · ${t(part === 'tracks' ? 'Треки' : 'Исполнители')}`,
+                )
                 .join(', ')}
             </span>
             <button
               type="button"
               className="font-semibold text-soso-brand"
-              onClick={() => void performSearch(query, selectedSource)}
+              disabled={!completed}
+              onClick={() => void performSearch(query, selectedSource, snapshot)}
             >
               {t('Повторить поиск')}
             </button>
@@ -244,7 +295,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
           <CatLoader message={t('Ищем исполнителей и треки во всех источниках...')} />
         ) : hasResults ? (
           <div className="space-y-6">
-            {/* Artists Section (Rendered First) */}
+            {snapshot?.tracksFirst && trackResults}
             {artists.length > 0 && (
               <div className="space-y-3 pt-1">
                 <div className="flex items-center justify-between">
@@ -273,7 +324,11 @@ export const SearchView: React.FC<SearchViewProps> = ({
                         key={artist.id}
                         onClick={() =>
                           onNavigateToArtist &&
-                          onNavigateToArtist({ id: artist.id, name: artist.name })
+                          onNavigateToArtist({
+                            id: artist.id,
+                            name: artist.name,
+                            source: artist.source,
+                          })
                         }
                         className="group relative flex flex-col items-center p-3.5 rounded-2xl bg-white/70 dark:bg-zinc-900/70 hover:bg-slate-100 dark:hover:bg-zinc-800/90 border border-slate-200/80 dark:border-zinc-800/80 hover:border-soso-brand/40 dark:hover:border-soso-brand/40 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md text-center"
                       >
@@ -324,30 +379,10 @@ export const SearchView: React.FC<SearchViewProps> = ({
             <SearchAlbumResults albums={albums} onOpenAlbum={onNavigateToAlbum} />
 
             {/* Tracks Section */}
-            {results.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs text-slate-600 dark:text-zinc-400">
-                  <div className="flex items-center gap-2">
-                    <Music className="w-4 h-4 text-soso-brand" />
-                    <h2 className="text-base md:text-lg font-black text-slate-900 dark:text-white tracking-tight">
-                      {t('Треки')}
-                    </h2>
-                  </div>
-                  <span className="font-mono font-semibold">
-                    {results.length} {t(' треков')}
-                  </span>
-                </div>
-                <TrackTable
-                  tracks={results}
-                  onOpenAddToPlaylist={onOpenAddToPlaylist}
-                  onNavigateToArtist={onNavigateToArtist}
-                  onNavigateToAlbum={onNavigateToAlbum}
-                />
-              </div>
-            )}
+            {!snapshot?.tracksFirst && trackResults}
           </div>
         ) : query.trim() ? (
-          failedSources.length === 0 && (
+          failures.length === 0 && (
             <div className="py-20 text-center text-slate-500 dark:text-zinc-400 space-y-2">
               <Music className="w-10 h-10 mx-auto opacity-30" />
               <p className="text-base font-semibold text-slate-800 dark:text-zinc-200">

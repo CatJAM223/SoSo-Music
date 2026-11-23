@@ -1045,6 +1045,46 @@ export class YouTubeMusicService {
     return parseInnerTubeShelfItem(r);
   }
 
+  public static async getSearchTopTracks(id: string | number, name: string): Promise<Track[]> {
+    const browseId = String(id).replace(/^yt_(?:art_)?/i, '');
+    if (!/^UC[A-Za-z0-9_-]{18,30}$/.test(browseId)) return [];
+    const page = await this.postInnertube('/youtubei/v1/browse', {
+      context: this.getClientContext(),
+      browseId,
+    });
+    const sections =
+      page?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content
+        ?.sectionListRenderer?.contents || [];
+    for (const section of sections) {
+      const shelf = section.musicShelfRenderer || section.musicCarouselShelfRenderer;
+      const heading =
+        shelf?.header?.musicCarouselShelfBasicHeaderRenderer?.title?.runs?.[0]?.text ||
+        shelf?.header?.musicShelfBasicHeaderRenderer?.title?.runs?.[0]?.text ||
+        shelf?.title?.runs?.[0]?.text ||
+        '';
+      if (
+        !/^(?:(?:top|popular) )?(?:songs|tracks)$|^(?:популярные |лучшие )?(?:песни|треки|композиции)$/i.test(
+          heading.trim(),
+        )
+      )
+        continue;
+      return (shelf.contents || [])
+        .map((item: any) =>
+          parseInnerTubeShelfItem(item.musicResponsiveListItemRenderer, undefined, {
+            fallbackDuration: 0,
+          }),
+        )
+        .filter((track: Track | null): track is Track => !!track && !track.playbackUnavailable)
+        .map((track: Track) =>
+          track.artist.name === 'Unknown Artist'
+            ? { ...track, artist: { ...track.artist, id: `yt_art_${browseId}`, name } }
+            : track,
+        )
+        .slice(0, 12);
+    }
+    return [];
+  }
+
   /** Genre discovery uses Songs only: no generic video/card fallback or estimated durations. */
   public static async searchSongs(query: string, limit = 25): Promise<{ data: Track[] }> {
     const cleanQuery = query.trim();
@@ -1429,7 +1469,11 @@ export class YouTubeMusicService {
   /**
    * Fast official artist search on YouTube Music using PARAMS.ARTISTS
    */
-  public static async searchArtists(query: string, limit: number = 6): Promise<{ data: Artist[] }> {
+  public static async searchArtists(
+    query: string,
+    limit: number = 6,
+    strict = false,
+  ): Promise<{ data: Artist[] }> {
     assertStreamResolveActive();
     if (!query || !query.trim()) return { data: [] };
     const cleanQ = query.trim();
@@ -1441,6 +1485,7 @@ export class YouTubeMusicService {
         query: cleanQ,
         params: this.PARAMS.ARTISTS,
       });
+      if (strict && !json?.contents) throw createStreamResolveError('provider');
 
       const sectionList =
         json?.contents?.tabbedSearchResultsRenderer?.tabs?.[0]?.tabRenderer?.content
@@ -1493,6 +1538,7 @@ export class YouTubeMusicService {
     } catch (e) {
       console.warn('[YouTubeMusicService] searchArtists error:', e);
       assertStreamResolveActive();
+      if (strict) throw e;
       return { data: [] };
     }
   }
@@ -1580,8 +1626,9 @@ export class YouTubeMusicService {
       rawStr
     ).trim();
 
-    // Numeric IDs are SoundCloud user IDs, never query YouTube for pure numbers
-    if (!artistBrowseId && (!cleanName || /^\d+$/.test(cleanName))) {
+    const numericName = /^\d+$/.test(cleanName);
+    // A numeric ID can be a SoundCloud user ID, but an explicit artist name can be numeric.
+    if (!artistBrowseId && (!cleanName || (!expectedArtistName && numericName))) {
       return null;
     }
 
@@ -1599,7 +1646,7 @@ export class YouTubeMusicService {
           const exact = foundArtists.data.find(
             (a) =>
               a.name.toLowerCase() === cleanLower ||
-              isValidTrackForArtist({ title: '', artist: a } as Track, cleanName),
+              (!numericName && isValidTrackForArtist({ title: '', artist: a } as Track, cleanName)),
           );
           if (exact?.id) {
             const bId = String(exact.id)
@@ -1612,6 +1659,8 @@ export class YouTubeMusicService {
           }
         }
       }
+
+      if (numericName && !artistBrowseId) return null;
 
       // 1b. If still not found, check generic search card as secondary fallback
       if (!artistBrowseId) {

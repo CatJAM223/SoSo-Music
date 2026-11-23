@@ -60,6 +60,81 @@ test('Search timeout cancels the actual IPC request and does not publish its lat
   assert.equal(updates.length, count);
 });
 
+test('Retry calls only the failed part and keeps every successful result visible', async () => {
+  const queries = [];
+  const song = { id: 'yt_song', title: 'Song', artist: { name: 'Singer' }, source: 'youtube' };
+  let shouldFail = true;
+  const updates = [];
+  const api = {
+    search: async (_q, _n, source) => {
+      queries.push([source, 'tracks']);
+      return { data: source === 'youtube' ? [song] : [] };
+    },
+    searchArtists: async (_q, _n, source) => {
+      queries.push([source, 'artists']);
+      if (source === 'soundcloud' && shouldFail) throw Error('offline');
+      return { data: [] };
+    },
+  };
+  await runProgressiveSearch('Song', 'all', api, (value) => updates.push(value));
+  const previous = updates.at(-1);
+  assert.deepEqual(previous.failures, [{ source: 'soundcloud', part: 'artists' }]);
+  shouldFail = false;
+  queries.length = 0;
+  updates.length = 0;
+  await runProgressiveSearch(
+    'Song',
+    'all',
+    api,
+    (value) => updates.push(value),
+    15000,
+    undefined,
+    previous,
+  );
+  assert.deepEqual(queries, [['soundcloud', 'artists']]);
+  assert.ok(updates.every((value) => value.tracks[0] === song));
+  assert.deepEqual(updates.at(-1).failures, []);
+  assert.deepEqual(previous.failures, [{ source: 'soundcloud', part: 'artists' }]);
+});
+
+test('Layout recovery only runs on a weak search and publishes the recovered track', async () => {
+  const queries = [];
+  const hit = { id: 'yt_hit', title: 'Группа крови', artist: { name: 'Кино' }, source: 'youtube' };
+  const updates = [];
+  await runProgressiveSearch(
+    'rbyj',
+    'youtube',
+    {
+      search: async (query) => {
+        queries.push(query);
+        return { data: query === 'кино' ? [hit] : [] };
+      },
+    },
+    (value) => updates.push(value),
+  );
+  assert.deepEqual(queries, ['rbyj', 'кино']);
+  assert.equal(updates.at(-1).tracks[0], hit);
+});
+
+test('A hanging provider cannot block another provider from correcting a query', async () => {
+  const hit = { id: 'yt_hit', title: 'Группа крови', artist: { name: 'Кино' }, source: 'youtube' };
+  const updates = [];
+  await runProgressiveSearch(
+    'rbyj',
+    'all',
+    {
+      search: async (query, _limit, source) => {
+        if (source === 'soundcloud') return new Promise(() => {});
+        return { data: query === 'кино' ? [hit] : [] };
+      },
+    },
+    (value) => updates.push(value),
+    35,
+  );
+  assert.ok(updates.some((value) => value.pending && value.tracks[0] === hit));
+  assert.equal(updates.at(-1).tracks[0], hit);
+});
+
 test('Replacing a search aborts its renderer leases and suppresses later snapshots', async () => {
   const controller = new AbortController(),
     cancelled = [],

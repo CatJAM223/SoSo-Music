@@ -3,6 +3,8 @@ import { t } from '../../i18n/locale';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Trash2, X } from 'lucide-react';
+import { useNativeModal } from '../../hooks/useNativeModal';
+import './ConfirmDeleteModal.css';
 
 interface ConfirmDeleteModalProps {
   isOpen: boolean;
@@ -12,15 +14,6 @@ interface ConfirmDeleteModalProps {
   confirmText?: string;
   onConfirm: () => void;
   onClose: () => void;
-}
-
-function restoreWindowFocus(): void {
-  setTimeout(() => {
-    window.focus();
-    const activeElement = document.activeElement;
-    if (activeElement instanceof HTMLElement && activeElement !== document.body)
-      activeElement.blur();
-  }, 50);
 }
 
 export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
@@ -35,11 +28,12 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   useLocale();
   const [error, setError] = React.useState('');
   const [isConfirming, setIsConfirming] = React.useState(false);
+  const dialog = useNativeModal();
+  const titleId = React.useId();
 
   const handleClose = React.useCallback(() => {
     if (isConfirming) return;
     onClose();
-    restoreWindowFocus();
   }, [isConfirming, onClose]);
 
   const handleConfirm = React.useCallback(async () => {
@@ -56,7 +50,6 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
       console.error('Confirm error in ConfirmDeleteModal:', err);
     } finally {
       setIsConfirming(false);
-      restoreWindowFocus();
     }
   }, [isConfirming, onConfirm, onClose]);
 
@@ -64,44 +57,25 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
     if (isOpen) setError('');
   }, [isOpen]);
 
-  React.useEffect(() => {
-    if (isOpen) {
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          handleClose();
-        }
-      };
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }
-  }, [isOpen, handleClose]);
-
   if (!isOpen) return null;
 
   return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in select-none"
+    <dialog
+      ref={dialog}
+      closedby="any"
+      aria-labelledby={titleId}
+      aria-busy={isConfirming}
+      className="confirm-delete-dialog fixed inset-0 m-auto bg-transparent p-0 animate-fade-in select-none"
+      onCancel={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handleClose();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') event.stopPropagation();
+      }}
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0" onClick={handleClose} />
-
-      {/* Modal Dialog Card */}
-      <div className="relative z-10 w-full max-w-md bg-white dark:bg-[#18181b] border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl flex flex-col items-center text-center gap-4 transform transition-all animate-fade-in">
-        {/* Close (X) button */}
-        <button
-          type="button"
-          aria-label={t('Закрыть')}
-          onClick={handleClose}
-          disabled={isConfirming}
-          className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
+      <div className="relative w-full bg-white dark:bg-[#18181b] border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 flex flex-col items-center text-center gap-4">
         {error && (
           <p role="alert" className="w-full text-sm text-rose-500 mt-5">
             {error}
@@ -115,7 +89,10 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
 
         {/* Title & Description */}
         <div className="space-y-2 max-w-sm">
-          <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
+          <h3
+            id={titleId}
+            className="text-lg font-black text-slate-900 dark:text-white tracking-tight"
+          >
             {title}
           </h3>
           <p className="text-sm text-slate-600 dark:text-zinc-400 leading-relaxed">
@@ -154,8 +131,17 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
             {isConfirming ? t('Удаление...') : confirmText}
           </button>
         </div>
+        <button
+          type="button"
+          aria-label={t('Закрыть')}
+          onClick={handleClose}
+          disabled={isConfirming}
+          className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+        >
+          <X className="w-5 h-5" />
+        </button>
       </div>
-    </div>,
+    </dialog>,
     document.body,
   );
 };

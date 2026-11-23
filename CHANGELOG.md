@@ -1,5 +1,23 @@
 # Changelog
 
+### [4.2.6] — 2026-11-23
+
+- Show matching library and listening history tracks in search suggestions and queue them to play next.
+- Improve track and artist ranking, including exact credits, playable copies and recovery for typos, transliteration and keyboard layouts. Keep results from healthy sources visible when another source fails.
+- Undo recent queue edits, preview the next track from the player controls, and keep large queues responsive.
+- Show a clear cancel action during slower playback starts and prepare the YouTube session in the background.
+- Reuse completed library playback queues and record startup timings by playback path.
+- Improve artist navigation from tracks with multiple credits and resolve artist names made up of digits.
+- Keep daily picks stable across restarts and respect previously shown and disliked recordings across sources. Refresh My Wave with more distinct tracks from the selected catalog and mode.
+- Show a short release summary in the update notice. Improve keyboard focus in dialogs and settings.
+- Build Linux x64 packages for Debian-based systems and a portable AppImage. Publish both alongside Windows archives, with SHA-256 checksums for each file.
+
+### [4.2.5] — 2026-11-20
+
+- Play the selected recording directly from search suggestions with a click or Enter.
+- Rank artist hits, exact track matches and requested versions with the Rust search engine. Recover weak queries with spelling, transliteration and keyboard-layout matching.
+- Keep successful results visible when a source fails and retry only the failed part of the search.
+
 ### [4.2.0] — 2026-11-15
 
 - Hide the desktop overlay while the main player has focus. Restore it on focus loss if it was enabled and had not been dismissed.

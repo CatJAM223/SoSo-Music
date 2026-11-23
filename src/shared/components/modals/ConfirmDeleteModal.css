@@ -1,0 +1,10 @@
+.confirm-delete-dialog {
+  width: min(28rem, calc(100% - 2rem));
+  border-radius: 1.5rem;
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 50%);
+}
+
+.confirm-delete-dialog::backdrop {
+  background: rgb(0 0 0 / 70%);
+  backdrop-filter: blur(12px);
+}

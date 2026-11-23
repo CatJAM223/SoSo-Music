@@ -1,4 +1,4 @@
-name: Windows release
+name: Desktop release
 
 on:
   workflow_dispatch:
@@ -9,15 +9,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-release-${{ github.ref }}
+  group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  windows:
     runs-on: windows-latest
     timeout-minutes: 25
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,20 +60,41 @@ jobs:
           compression-level: 0
           retention-days: 14
           if-no-files-found: error
+  linux:
+    uses: ./.github/workflows/linux.yml
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: SoSo-Music-*-x64
+          path: release
+          merge-multiple: true
       - name: Publish tagged release
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $releaseAssets = @(Get-ChildItem -Path release/*.zip,release/*.zip.sha256,release/*.7z,release/*.7z.sha256 -File | ForEach-Object { $_.FullName })
-          $releaseNotes = "docs/releases/$env:GITHUB_REF_NAME.md"
-          if (!(Test-Path -LiteralPath $releaseNotes)) {
-            throw "Release notes are missing: $releaseNotes"
-          }
-          gh release view $env:GITHUB_REF_NAME --json url 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host 'Release already exists; preserving its verified assets.'
+          version="${GITHUB_REF_NAME#v}"
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+          test -f "$notes"
+          assets=()
+          for suffix in windows-x64.zip windows-x64.7z linux-amd64.deb linux-x86_64.AppImage; do
+            file="SoSo-Music-$version-$suffix"
+            test -f "release/$file"
+            (cd release && sha256sum --strict --check -- "$file.sha256")
+            assets+=("release/$file" "release/$file.sha256")
+          done
+          if gh release view "$GITHUB_REF_NAME" --json url >/dev/null 2>&1; then
+            echo 'Release already exists; preserving its verified assets.'
             exit 0
-          }
-          gh release create $env:GITHUB_REF_NAME @releaseAssets --verify-tag --notes-file $releaseNotes --title "SoSo Music $env:GITHUB_REF_NAME"
+          fi
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" --verify-tag --notes-file "$notes" --title "SoSo Music $GITHUB_REF_NAME"

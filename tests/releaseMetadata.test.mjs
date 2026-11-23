@@ -6,10 +6,12 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { versionInfo, assertArchiveVersion } = require('../scripts/release/version.cjs');
-test('Release versions produce Windows archive names and reject invalid versions', () => {
+test('Release versions produce desktop artifact names and reject invalid versions', () => {
   const versions = ['2.9.3', '2.9.4', '2.10.0', '3.0.0'].map(versionInfo);
   assert.equal(versions[0].windowsZip, 'SoSo-Music-2.9.3-windows-x64.zip');
   assert.equal(versions[0].windows7z, 'SoSo-Music-2.9.3-windows-x64.7z');
+  assert.equal(versions[0].linuxDeb, 'SoSo-Music-2.9.3-linux-amd64.deb');
+  assert.equal(versions[0].linuxAppImage, 'SoSo-Music-2.9.3-linux-x86_64.AppImage');
   for (const value of [
     '../2.9.3',
     'v2.9.3',

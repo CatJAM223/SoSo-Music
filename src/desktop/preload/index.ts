@@ -144,12 +144,14 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('music:search', query, limit, source, requestId),
   searchArtists: (query, limit, source, requestId) =>
     ipcRenderer.invoke('music:searchArtists', query, limit, source, requestId),
+  searchArtistTracks: (artist, source, requestId) =>
+    ipcRenderer.invoke('music:searchArtistTracks', artist, source, requestId),
   cancelSearch: (requestId) => ipcRenderer.invoke('music:cancelSearch', requestId),
   getCharts: (region?: ChartRegion) => ipcRenderer.invoke('music:getCharts', region),
   getGenres: () => ipcRenderer.invoke('music:getGenres'),
   getGenreTracks: (genreId: number | string, source?: any) =>
     ipcRenderer.invoke('music:getGenreTracks', genreId, source),
-  getAutocomplete: (query: string) => ipcRenderer.invoke('music:getAutocomplete', query),
+  getAutocomplete: (query, source) => ipcRenderer.invoke('music:getAutocomplete', query, source),
   getArtist: (idOrName: string | number, artistName?: string, artistSource?: string) =>
     ipcRenderer.invoke('music:getArtist', idOrName, artistName, artistSource),
   getArtistAllTracks: (idOrName: string | number, artistName?: string, artistSource?: string) =>
@@ -296,6 +298,7 @@ const api: ElectronAPI = {
     ipcRenderer.on('music:youtubeSessionReset', handler);
     return () => ipcRenderer.removeListener('music:youtubeSessionReset', handler);
   },
+  warmYouTubePlayback: () => ipcRenderer.invoke('music:warmYouTubePlayback'),
   onSharedListenTrack: (callback) => {
     const handler = (
       _event: Electron.IpcRendererEvent,

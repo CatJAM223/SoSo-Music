@@ -1,24 +1,55 @@
 import type { AppUpdateStatus } from '../../../shared/types/index.ts';
+import { runRustCompute } from '../../../shared/compute/rustCore.ts';
 import {
   PROJECT_REPOSITORY,
   PROJECT_RELEASES_API,
 } from '../../../shared/utils/projectRepository.ts';
 
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
-function versionParts(value: string): number[] | null {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value);
-  if (!match) return null;
-  const parts = match.slice(1).map(Number);
-  return parts.every(Number.isSafeInteger) ? parts : null;
+function releaseInfo(
+  current: string,
+  tag: string,
+  body: unknown,
+  unstable: boolean,
+): {
+  code: number;
+  latestVersion?: string;
+  releaseHighlights?: AppUpdateStatus['releaseHighlights'];
+} {
+  const encoder = new TextEncoder();
+  const fields = [
+    current,
+    tag.length <= 128 ? tag : '',
+    typeof body === 'string' ? body.slice(0, 64 * 1024) : '',
+  ].map((field) => encoder.encode(field));
+  const input = new Uint8Array(1 + fields.reduce((size, field) => size + 4 + field.length, 0));
+  const packet = new DataView(input.buffer);
+  input[0] = Number(unstable);
+  let offset = 1;
+  for (const field of fields) {
+    packet.setUint32(offset, field.length, true);
+    input.set(field, offset + 4);
+    offset += 4 + field.length;
+  }
+  const output = runRustCompute('app_release', input);
+  const code = output[0];
+  if (code === 0 || code === 3) return { code };
+  if (code !== 1 && code !== 2) throw new Error('Invalid release result');
+  const reader = new DataView(output.buffer);
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const strings: string[] = [];
+  for (let start = 1; start < output.length;) {
+    const size = reader.getUint32(start, true);
+    const end = start + 4 + size;
+    if (end > output.length || strings.length >= 5) throw new Error('Invalid release text packet');
+    strings.push(decoder.decode(output.subarray(start + 4, end)));
+    start = end;
+  }
+  const [latestVersion, summary, ...changes] = strings;
+  if (!latestVersion) throw new Error('Missing release version');
+  return { code, latestVersion, releaseHighlights: summary ? { summary, changes } : undefined };
 }
-export function compareReleaseVersion(latest: string, current: string): number | null {
-  const a = versionParts(latest),
-    b = versionParts(current);
-  if (!a || !b) return null;
-  for (let index = 0; index < 3; index++)
-    if (a[index] !== b[index]) return a[index] > b[index] ? 1 : -1;
-  return 0;
-}
+
 /** Read-only checker shared by manual checks and the background monitor; never installs. */
 export function createAppUpdateChecker(currentVersion: string, fetcher: Fetcher) {
   let pending: Promise<AppUpdateStatus> | null = null;
@@ -65,24 +96,26 @@ export function createAppUpdateChecker(currentVersion: string, fetcher: Fetcher)
         };
       if (!response.ok) throw Error('GitHub request failed');
       const release = await response.json();
-      if (release.draft || release.prerelease)
+      const tag = typeof release.tag_name === 'string' ? release.tag_name : '';
+      const { code, latestVersion, releaseHighlights } = releaseInfo(
+        currentVersion,
+        tag,
+        release.body,
+        Boolean(release.draft || release.prerelease),
+      );
+      if (code === 3)
         return {
           status: 'no-release',
           currentVersion,
           message: 'Стабильный релиз пока не опубликован.',
         };
-      const comparison =
-        typeof release.tag_name === 'string'
-          ? compareReleaseVersion(release.tag_name, currentVersion)
-          : null;
-      if (comparison === null)
+      if (code === 0)
         return {
           status: 'error',
           currentVersion,
           message: 'Не удалось определить версию релиза. Используйте тег вида v3.0.0.',
         };
-      const latestVersion = release.tag_name.replace(/^v/, '');
-      if (comparison <= 0)
+      if (code === 1)
         return {
           status: 'up-to-date',
           currentVersion,
@@ -90,13 +123,13 @@ export function createAppUpdateChecker(currentVersion: string, fetcher: Fetcher)
           message: 'Установлена актуальная версия.',
         };
       // The backend constructs the release URL from validated version data.
-      const releaseUrl =
-        PROJECT_REPOSITORY + '/releases/tag/' + encodeURIComponent(release.tag_name);
+      const releaseUrl = PROJECT_REPOSITORY + '/releases/tag/' + encodeURIComponent(tag);
       return {
         status: 'available',
         currentVersion,
         latestVersion,
         releaseUrl,
+        ...(releaseHighlights && { releaseHighlights }),
         message: 'Доступна версия ' + latestVersion + '.',
       };
     } catch {

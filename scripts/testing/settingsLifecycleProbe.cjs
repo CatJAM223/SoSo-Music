@@ -31,6 +31,10 @@ app.whenReady().then(async () => {
   });
   try {
     await win.loadFile(path.join(output, 'index.html'));
+    win.webContents.debugger.attach('1.3');
+    await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+      enabled: true,
+    });
     for (const layout of ['desktop'])
       for (const strict of [false, true]) {
         let rendererDeadline;
@@ -67,9 +71,41 @@ app.whenReady().then(async () => {
                 const statsVisible = () => document.querySelector('.settings-stats-summary');
                 const renderedPlays = () =>
                   Number(statsVisible()?.children[1]?.querySelector('strong')?.textContent);
+                const dialog = () => document.querySelector('dialog.settings-modal:modal');
+                const opener = document.getElementById('settings-opener');
+                opener.focus();
                 window.mountSettings(layout, strict);
-                await until(() => document.querySelector('[role="dialog"]'));
+                await until(dialog);
                 await tick();
+                check(dialog().contains(document.activeElement), 'Settings did not take focus');
+                opener.focus();
+                check(dialog().contains(document.activeElement), 'Background is still focusable');
+                const tabs = [...dialog().querySelectorAll('[role="tab"]')];
+                const tabStops = () => tabs.filter((button) => button.tabIndex === 0);
+                check(tabStops().length === 1 && tabStops()[0] === tabs[0], 'Invalid tab stops');
+                tabs[0].focus();
+                tabs[0].dispatchEvent(
+                  new KeyboardEvent('keydown', {
+                    key: 'ArrowDown',
+                    bubbles: true,
+                    cancelable: true,
+                  }),
+                );
+                await until(() => tabStops()[0] === tabs[1]);
+                check(document.activeElement === tabs[1], 'Arrow key did not move focus');
+                check(tabs[0].getAttribute('aria-selected') === 'true', 'Arrow activated a tab');
+                tabs[1].dispatchEvent(
+                  new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }),
+                );
+                check(document.activeElement === tabs.at(-1), 'End did not focus the last tab');
+                dialog().querySelector('.settings-close').focus();
+                await until(() => tabStops()[0] === tabs[0]);
+                check(
+                  tabs.every((button) =>
+                    document.getElementById(button.getAttribute('aria-controls')),
+                  ),
+                  'Tab controls do not reference their panels',
+                );
                 const expectedMount = f.statsReads;
                 check(
                   layout === 'desktop'
@@ -173,6 +209,24 @@ app.whenReady().then(async () => {
                 tab('Внешний вид');
                 await until(() => document.querySelector('.settings-appearance'));
                 await tick();
+                const appearanceMode = dialog().querySelector('[aria-label="Режим оформления"]');
+                const scheme = () => document.querySelector('meta[name="color-scheme"]').content;
+                const mode = (label) =>
+                  [...appearanceMode.querySelectorAll('button')].find(
+                    (button) => button.textContent.trim() === label,
+                  );
+                mode('Светлый').click();
+                await until(() => scheme() === 'light');
+                check(
+                  getComputedStyle(document.documentElement).colorScheme === 'light',
+                  'Light native colors not applied',
+                );
+                mode('Тёмный').click();
+                await until(() => scheme() === 'dark');
+                check(
+                  getComputedStyle(document.documentElement).colorScheme === 'dark',
+                  'Dark native colors not applied',
+                );
                 check(f.statsListeners.size === 0, 'Leaving stats leaked a listener');
                 const idle = f.statsReads;
                 window.dispatchEvent(new CustomEvent('soso:stats-updated'));
@@ -182,7 +236,8 @@ app.whenReady().then(async () => {
                 await tick();
                 check(f.statsReads === idle + 1, 'Returning to stats did not refresh once');
                 window.setSettingsOpen(false);
-                await until(() => !document.querySelector('[role="dialog"]'));
+                await until(() => !dialog());
+                check(document.activeElement === opener, 'Closing settings lost opener focus');
                 await tick();
                 check(f.statsListeners.size === 0, 'Closing settings leaked stats listener');
                 check(
@@ -196,13 +251,83 @@ app.whenReady().then(async () => {
                 await tick();
                 check(f.statsReads === closed, 'Closed settings processed stats update');
                 window.setSettingsOpen(true);
-                await until(() => document.querySelector('[role="dialog"]'));
+                await until(dialog);
                 await tick();
                 check(
                   f.statsReads === closed + 1,
                   'Reopening the selected stats tab must refresh once',
                 );
                 check(f.statsListeners.size === 1, 'Reopening duplicated stats listener');
+                window.settingsBridge.startLanSync = async () => ({
+                  active: true,
+                  code: '12345678',
+                  addresses: ['http://192.168.1.2:8080'],
+                });
+                tab('Данные');
+                const action = (label) =>
+                  [...dialog().querySelectorAll('button')].find(
+                    (button) => button.textContent.trim() === label,
+                  );
+                await until(() => {
+                  const button = action('Очистить кэш');
+                  return button && !button.disabled;
+                });
+                const clear = action('Очистить кэш');
+                clear.focus();
+                clear.click();
+                const confirm = () => document.querySelector('dialog.confirm-delete-dialog:modal');
+                await until(confirm);
+                check(
+                  document.activeElement.textContent.trim() === 'Отмена',
+                  'Unsafe initial focus in confirmation',
+                );
+                confirm().requestClose();
+                await until(() => !confirm());
+                check(document.activeElement === clear, 'Confirmation did not restore focus');
+                clear.click();
+                await until(confirm);
+                const confirmClear = [...confirm().querySelectorAll('button')].find(
+                  (button) => button.textContent.trim() === 'Очистить кэш',
+                );
+                confirmClear.click();
+                await until(() => !confirm() && clear.disabled);
+                check(
+                  document.activeElement.textContent.trim() === 'Хранилище',
+                  'Cache clear lost focus when its trigger became unavailable',
+                );
+                await until(() => action('Открыть сеанс'));
+                action('Открыть сеанс').click();
+                await until(() => dialog().querySelector('.settings-qr'));
+                const qrOpener = dialog().querySelector('.settings-qr');
+                qrOpener.focus();
+                qrOpener.click();
+                const qr = () => document.querySelector('dialog.settings-qr-dialog:modal');
+                await until(qr);
+                check(qr().contains(document.activeElement), 'Expanded QR did not take focus');
+                const qrFocus = document.activeElement;
+                window.pushSettingsImport({
+                  id: 'phone-import',
+                  address: '192.168.1.2',
+                  tracks: 3,
+                  playlists: 1,
+                  albums: 0,
+                  artists: 0,
+                });
+                const consent = () => document.querySelector('dialog.soso-connection-dialog:modal');
+                await until(consent);
+                check(consent().contains(document.activeElement), 'Phone consent is behind QR');
+                consent().requestClose();
+                await until(() => !consent());
+                check(
+                  document.activeElement === qrFocus && f.importResponses[0]?.accepted === false,
+                  'Phone consent did not reject the request and restore QR focus',
+                );
+                qr().requestClose();
+                await until(() => !qr());
+                check(document.activeElement === qrOpener, 'QR dialog did not restore focus');
+                dialog().requestClose();
+                await until(() => !dialog());
+                check(document.activeElement === opener, 'Native cancel did not restore focus');
                 window.unmountSettings();
                 await tick();
                 check(
@@ -213,7 +338,7 @@ app.whenReady().then(async () => {
                 window.dispatchEvent(new CustomEvent('soso:stats-updated'));
                 await tick();
                 check(f.statsReads === final, 'Unmounted settings processed stats update');
-                check(!document.querySelector('[role="dialog"]'), 'Unmount left settings DOM');
+                check(!dialog(), 'Unmount left settings DOM');
                 return {
                   layout,
                   strict,
@@ -222,6 +347,7 @@ app.whenReady().then(async () => {
                   tabChanges: true,
                   statsEvent: true,
                   reopen: true,
+                  dialogFocus: true,
                   cleanup: listeners(),
                 };
               }.toString() +
@@ -245,6 +371,7 @@ app.whenReady().then(async () => {
     console.log(
       'SETTINGS_LIFECYCLE_ISOLATION_OK ' + JSON.stringify({ externalRequests: 0, errors: 0 }),
     );
+    win.webContents.debugger.detach();
     win.destroy();
     clearTimeout(deadline);
     app.exit(0);

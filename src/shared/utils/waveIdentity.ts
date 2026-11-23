@@ -1,10 +1,47 @@
-import { compareWaveSongs, isDistinctiveSongTitle } from '../compute/waveSongMatrix.ts';
+import {
+  compareWaveSongBatch,
+  compareWaveSongs,
+  isDistinctiveSongTitle,
+} from '../compute/waveSongMatrix.ts';
 import { cachedWaveText } from '../compute/waveTextCache.ts';
 import type { Track } from '../types/index.ts';
 import { extractAllArtists } from './artistParser.ts';
 import { buildTrackPrintFromTrack, extractCoreTitle, type TrackPrint } from './trackFingerprint.ts';
+import { recordingKey } from '../types/musicDomain.ts';
 
 type WaveTrackLike = { title?: string; artist?: Track['artist'] | string };
+
+/** History is chronological. An equivalent upload inherits the most recent match. */
+export function createWaveShowMatcher(
+  history: readonly Track[],
+  knownArtists: readonly string[] = [],
+) {
+  const identify = createWaveSongIdentifier([
+    ...knownArtists,
+    ...history.flatMap(getWaveArtistNames),
+  ]);
+  const songs = history.map(identify);
+  const positions = new Map(history.map((track, index) => [recordingKey(track), index]));
+  const pages: { start: number; songs: WaveSongIdentity[] }[] = [];
+  for (let end = songs.length; end > 0;) {
+    const start = Math.max(0, end - 64);
+    pages.push({ start, songs: songs.slice(start, end) });
+    end = start;
+  }
+  return (track: Track, identity?: WaveSongIdentity, membershipOnly = false): number => {
+    const keyMatch = positions.get(recordingKey(track)) ?? -1;
+    if (!pages.length || (membershipOnly && keyMatch >= 0)) return keyMatch;
+    const song = identity ?? identify(track);
+    for (const page of pages) {
+      if (page.start + page.songs.length - 1 <= keyMatch) break;
+      const flags = compareWaveSongBatch(page.songs, song);
+      for (let i = flags.length - 1; i >= 0; i--) {
+        if (flags[i] & 1) return Math.max(keyMatch, page.start + i);
+      }
+    }
+    return keyMatch;
+  };
+}
 
 export const normalizeWaveArtist = (name: string): string =>
   cachedWaveText('artist', name, normalizeArtistText);

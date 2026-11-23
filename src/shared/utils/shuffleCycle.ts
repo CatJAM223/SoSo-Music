@@ -27,6 +27,18 @@ export class ShuffleCycle {
   private nextPass = false;
   private forced = new Set<string>();
 
+  copy(): ShuffleCycle {
+    const cycle = new ShuffleCycle();
+    cycle.visited = new Set(this.visited);
+    cycle.back = [...this.back];
+    cycle.forward = [...this.forward];
+    cycle.current = this.current;
+    cycle.planned = [...this.planned];
+    cycle.nextPass = this.nextPass;
+    cycle.forced = new Set(this.forced);
+    return cycle;
+  }
+
   reset(): void {
     this.visited.clear();
     this.back = [];

@@ -3,11 +3,12 @@ import { t } from '../i18n/locale';
 import React, { useState, useEffect } from 'react';
 import { X, Play, Pause } from 'lucide-react';
 import { useAudio } from '../context/AudioContext';
-import { detectTrackSource } from '../utils/formatters';
+import type { NavigateToArtist } from '../types/artistNavigation';
+import { TrackArtistButton } from './TrackArtistButton';
 import { DEFAULT_COVER_SVG_DATA_URI } from '../utils/placeholder';
 
 interface SnippetModalProps {
-  onNavigateToArtist?: (artist: { id?: string | number; name: string }) => void;
+  onNavigateToArtist?: NavigateToArtist;
 }
 
 export const SnippetModal: React.FC<SnippetModalProps> = ({ onNavigateToArtist }) => {
@@ -33,7 +34,7 @@ export const SnippetModal: React.FC<SnippetModalProps> = ({ onNavigateToArtist }
   useEffect(() => {
     if (!snippetTrack) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog:modal')) {
         e.preventDefault();
         stopSnippet();
       }
@@ -139,37 +140,14 @@ export const SnippetModal: React.FC<SnippetModalProps> = ({ onNavigateToArtist }
           <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">
             {snippetTrack.title}
           </h3>
-          <p
-            onClick={() => {
-              if (onNavigateToArtist && snippetTrack.artist?.name) {
-                stopSnippet();
-                const artistName = snippetTrack.artist.name;
-                const source =
-                  snippetTrack.artist?.source ||
-                  snippetTrack.source ||
-                  detectTrackSource(snippetTrack);
-                const rawTrackId = String(snippetTrack.id || '');
-                const isNumericScId =
-                  snippetTrack.artist?.id && String(snippetTrack.artist.id).match(/^sc_art_\d+$/);
-                const artistId =
-                  snippetTrack.artist?.id && !isNumericScId
-                    ? snippetTrack.artist.id
-                    : rawTrackId.startsWith('sc_') || source === 'soundcloud'
-                      ? `sc_art_${artistName.toLowerCase().replace(/\s+/g, '_')}`
-                      : rawTrackId.startsWith('yt_') || source === 'youtube'
-                        ? `yt_art_${artistName.toLowerCase().replace(/\s+/g, '_')}`
-                        : snippetTrack.artist?.id;
-                onNavigateToArtist({ id: artistId, name: artistName });
-              }
-            }}
-            className={`text-xs font-semibold text-slate-600 dark:text-zinc-400 truncate ${
-              onNavigateToArtist
-                ? 'hover:underline cursor-pointer hover:text-slate-950 dark:hover:text-white'
-                : ''
-            }`}
-          >
-            {snippetTrack.artist?.name || 'Unknown Artist'}
-          </p>
+          <TrackArtistButton
+            track={snippetTrack}
+            onNavigateToArtist={
+              onNavigateToArtist &&
+              ((artist, choices) => onNavigateToArtist(artist, choices, stopSnippet))
+            }
+            className="text-xs font-semibold text-slate-600 dark:text-zinc-400"
+          />
         </div>
 
         {/* Interactive Seekable Snippet Progress Bar */}
